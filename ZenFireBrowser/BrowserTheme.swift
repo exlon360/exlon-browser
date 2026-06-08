@@ -8,6 +8,7 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
     case field
     case border
     case accent
+    case createTab
     case privateAccent
     case text
     case mutedText
@@ -28,6 +29,8 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
             return "Borders"
         case .accent:
             return "Accent"
+        case .createTab:
+            return "New Tab Button"
         case .privateAccent:
             return "Private Accent"
         case .text:
@@ -51,6 +54,8 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
             return "#343A46"
         case .accent:
             return "#A9B4C8"
+        case .createTab:
+            return "#D6E2FF"
         case .privateAccent:
             return "#8B7CF6"
         case .text:

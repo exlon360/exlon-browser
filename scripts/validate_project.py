@@ -72,6 +72,21 @@ def main() -> int:
         "The ad blocker must use native WebKit content rules.",
     )
     require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "runOpenPanelWith",
+        "Web page file uploads must use a native file picker bridge.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "floatingSearchText",
+        "Floating search results must be driven by typed search text.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "openNewTabAndSearch",
+        "New tab controls must open the floating search bar.",
+    )
+    require_contains(
         "ZenFireBrowser/CustomVPNController.swift",
         "NEVPNManager",
         "The custom VPN profile must use native iOS VPN APIs.",

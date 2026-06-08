@@ -27,6 +27,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     var onDownloadUpdated: (@MainActor (BrowserDownloadItem) -> Void)?
     var onTwoFingerSwipe: (@MainActor () -> Void)?
     var onThreeFingerSwipe: (@MainActor (CGFloat) -> Void)?
+    var onFilePickerRequested: (@MainActor (Bool, @escaping ([URL]?) -> Void) -> Void)?
 
     private var observations: [NSKeyValueObservation] = []
     private var activeDownloads: [ObjectIdentifier: BrowserDownloadItem] = [:]
@@ -55,6 +56,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         super.init()
 
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .interactive
         bindWebViewState()
@@ -419,6 +421,19 @@ extension BrowserTab: WKDownloadDelegate {
         let identifier = ObjectIdentifier(download)
         Task { @MainActor [weak self] in
             self?.failDownload(for: identifier, error: error)
+        }
+    }
+}
+
+extension BrowserTab: WKUIDelegate {
+    nonisolated func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        Task { @MainActor [weak self] in
+            self?.onFilePickerRequested?(parameters.allowsMultipleSelection, completionHandler)
         }
     }
 }

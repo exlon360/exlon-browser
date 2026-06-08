@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = BrowserViewModel()
@@ -77,6 +78,13 @@ private struct BrowserShell: View {
                     .environmentObject(model)
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
+            }
+            .fileImporter(
+                isPresented: $model.isWebFileImporterPresented,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: model.allowsMultipleWebFileImport
+            ) { result in
+                model.completeWebFileImport(result)
             }
         }
         .tint(theme.color(.accent))
@@ -236,6 +244,8 @@ private struct SideChrome: View {
 
             SearchTrigger(style: .sidebar)
 
+            NewTabActions(layout: .sidebar)
+
             TabSection(title: "Tabs", tabs: model.normalTabs)
 
             if model.privateTabs.isEmpty == false {
@@ -273,6 +283,8 @@ private struct HorizontalChrome: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    NewTabActions(layout: .strip)
+
                     ForEach(model.tabs) { tab in
                         TabPill(tab: tab, layout: .horizontal)
                     }
@@ -363,14 +375,6 @@ private struct ChromeHeader: View {
             }
 
             Spacer(minLength: 0)
-
-            ChromeButton(symbol: "plus", label: "New Tab") {
-                model.openTab()
-            }
-
-            ChromeButton(symbol: "theatermasks", label: "Private Tab") {
-                model.openPrivateTab()
-            }
         }
     }
 }
@@ -471,10 +475,6 @@ private struct SearchTrigger: View {
                 }
 
                 Spacer(minLength: 0)
-
-                Image(systemName: "command")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(theme.color(.mutedText))
             }
             .padding(.horizontal, 12)
             .frame(height: style == .sidebar ? 46 : 48)
@@ -517,6 +517,16 @@ private struct AddressField: View {
                 .foregroundStyle(theme.color(.text))
                 .font(.system(size: 18, weight: .medium))
 
+            Button {
+                model.submitAddress()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(theme.color(.createTab))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Go")
+
             if model.selectedTab?.isPrivate == true {
                 Text("Private")
                     .font(.caption2.weight(.bold))
@@ -546,8 +556,8 @@ private struct AddressField: View {
 
     private var addressBinding: Binding<String> {
         Binding(
-            get: { model.selectedTab?.addressText ?? "" },
-            set: { model.selectedTab?.addressText = $0 }
+            get: { model.floatingSearchText },
+            set: { model.floatingSearchText = $0 }
         )
     }
 }
@@ -566,7 +576,7 @@ private struct FloatingSearchOverlay: View {
 
             VStack(spacing: 12) {
                 AddressField(style: .floating, focusOnAppear: true)
-                SearchResultsList(query: model.selectedTab?.addressText ?? "")
+                SearchResultsList(query: model.floatingSearchText)
 
                 if let tab = model.selectedTab {
                     HStack(spacing: 8) {
@@ -995,6 +1005,60 @@ private struct LocalAIImportView: View {
     }
 }
 
+private enum NewTabActionLayout {
+    case sidebar
+    case strip
+}
+
+private struct NewTabActions: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let layout: NewTabActionLayout
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.openNewTabAndSearch()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: layout == .sidebar ? 22 : 20, weight: .bold))
+                    Text("New Tab")
+                        .font(.system(size: 14, weight: .bold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(theme.color(.canvas))
+                .padding(.horizontal, 12)
+                .frame(width: layout == .strip ? 136 : nil, height: 44)
+                .frame(maxWidth: layout == .sidebar ? .infinity : nil)
+                .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New Tab")
+
+            Button {
+                model.openNewTabAndSearch(private: true)
+            } label: {
+                Image(systemName: "theatermasks")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(theme.color(.text))
+                    .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(theme.color(.privateAccent).opacity(0.55), lineWidth: 1)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New Private Tab")
+        }
+    }
+}
+
 private struct TabSection: View {
     @EnvironmentObject private var theme: BrowserTheme
     let title: String
@@ -1094,7 +1158,7 @@ private struct FloatingTabSwitcher: View {
     var body: some View {
         Menu {
             Button {
-                model.openTab()
+                model.openNewTabAndSearch()
             } label: {
                 Label("New Tab", systemImage: "plus")
             }
@@ -1180,7 +1244,7 @@ private struct BrandMark: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.accent).opacity(0.8), lineWidth: 1)
                 }
-            Image(systemName: "magnifyingglass")
+            Image(systemName: "globe")
                 .font(.system(size: 15, weight: .black))
                 .foregroundStyle(theme.color(.accent))
         }

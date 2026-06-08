@@ -7,11 +7,14 @@ ZenFireBrowser is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired 
 - Side tabs by default, with placement switching for left, right, top, bottom, and floating chrome.
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.
+- New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
 - Normal and private tabs. Private tabs use a non-persistent `WKWebsiteDataStore`.
+- Private tabs do not write browsing history or show local history suggestions in private search.
 - Normal tabs are restored after relaunch; private tabs are not persisted.
 - History panel for normal browsing, plus a clear-history action.
 - Downloads panel backed by WebKit downloads into the app's local Documents/Downloads folder.
+- Web page file-upload fields open a native file picker for sending local files.
 - Native WebKit content-rule ad/tracker blocking toggle.
 - Gesture controls: two-finger swipe toggles the side tab bar, and three-finger horizontal swipes go back or forward.
 - Collapsible side tabs with a small edge handle.

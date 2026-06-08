@@ -52,10 +52,13 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var isFloatingSearchPresented = false
+    @Published var floatingSearchText = ""
     @Published var isSettingsPresented = false
     @Published var isHistoryPresented = false
     @Published var isDownloadsPresented = false
     @Published var isVPNPresented = false
+    @Published var isWebFileImporterPresented = false
+    @Published var allowsMultipleWebFileImport = false
     @Published var isLocalAIImporterPresented = false
     @Published var isDarkReaderEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
@@ -92,6 +95,7 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var vpnStatusMessage = "Custom VPN profile not configured."
+    private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
 
     init() {
         let defaults = UserDefaults.standard
@@ -140,10 +144,14 @@ final class BrowserViewModel: ObservableObject {
 
     func select(_ tab: BrowserTab) {
         selectedTabID = tab.id
+        if isFloatingSearchPresented {
+            floatingSearchText = tab.addressText
+        }
         persistOpenTabs()
     }
 
-    func openTab(startURL: URL = BrowserDefaults.homeURL, private isPrivate: Bool = false) {
+    @discardableResult
+    func openTab(startURL: URL = BrowserDefaults.homeURL, private isPrivate: Bool = false) -> BrowserTab {
         let tab = BrowserTab(
             startURL: startURL,
             isPrivate: isPrivate,
@@ -154,10 +162,18 @@ final class BrowserViewModel: ObservableObject {
         tabs.append(tab)
         selectedTabID = tab.id
         persistOpenTabs()
+        return tab
+    }
+
+    func openNewTabAndSearch(private isPrivate: Bool = false) {
+        let tab = openTab(private: isPrivate)
+        floatingSearchText = ""
+        tab.addressText = ""
+        isFloatingSearchPresented = true
     }
 
     func openPrivateTab() {
-        openTab(private: true)
+        openNewTabAndSearch(private: true)
     }
 
     func close(_ tab: BrowserTab) {
@@ -196,11 +212,15 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func submitAddress() {
+        let submittedText = isFloatingSearchPresented ? floatingSearchText : selectedTab?.addressText ?? ""
+        selectedTab?.addressText = submittedText
         selectedTab?.submitAddress(searchEngine: searchEngine, customSearchTemplate: customSearchTemplate)
+        floatingSearchText = selectedTab?.addressText ?? submittedText
         isFloatingSearchPresented = false
     }
 
     func openFloatingSearch() {
+        floatingSearchText = selectedTab?.addressText ?? ""
         isFloatingSearchPresented = true
     }
 
@@ -250,8 +270,10 @@ final class BrowserViewModel: ObservableObject {
 
     func searchResults(for rawQuery: String) -> [BrowserSearchResult] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let canShowHistory = selectedTab?.isPrivate != true
 
         if query.isEmpty {
+            guard canShowHistory else { return [] }
             return history.prefix(6).compactMap { item in
                 guard let url = item.url else { return nil }
                 return BrowserSearchResult(
@@ -316,28 +338,51 @@ final class BrowserViewModel: ObservableObject {
             )
         }
 
-        let lowercasedQuery = query.lowercased()
-        for item in history where results.count < 12 {
-            let titleMatches = item.title.lowercased().contains(lowercasedQuery)
-            let urlMatches = item.urlString.lowercased().contains(lowercasedQuery)
-            guard (titleMatches || urlMatches), let url = item.url else { continue }
-            appendUnique(
-                BrowserSearchResult(
-                    title: item.title,
-                    subtitle: item.urlString,
-                    symbolName: "clock.arrow.circlepath",
-                    url: url
+        if canShowHistory {
+            let lowercasedQuery = query.lowercased()
+            for item in history where results.count < 12 {
+                let titleMatches = item.title.lowercased().contains(lowercasedQuery)
+                let urlMatches = item.urlString.lowercased().contains(lowercasedQuery)
+                guard (titleMatches || urlMatches), let url = item.url else { continue }
+                appendUnique(
+                    BrowserSearchResult(
+                        title: item.title,
+                        subtitle: item.urlString,
+                        symbolName: "clock.arrow.circlepath",
+                        url: url
+                    )
                 )
-            )
+            }
         }
 
         return Array(results.prefix(12))
     }
 
     func openSearchResult(_ result: BrowserSearchResult) {
+        floatingSearchText = result.url.absoluteString
         selectedTab?.addressText = result.url.absoluteString
         selectedTab?.load(result.url)
         isFloatingSearchPresented = false
+    }
+
+    func requestWebFileImport(allowsMultipleSelection: Bool, completion: @escaping ([URL]?) -> Void) {
+        pendingWebFileImportCompletion?(nil)
+        pendingWebFileImportCompletion = completion
+        allowsMultipleWebFileImport = allowsMultipleSelection
+        isWebFileImporterPresented = true
+    }
+
+    func completeWebFileImport(_ result: Result<[URL], Error>) {
+        guard let completion = pendingWebFileImportCompletion else { return }
+        pendingWebFileImportCompletion = nil
+        allowsMultipleWebFileImport = false
+
+        switch result {
+        case .success(let urls):
+            completion(urls)
+        case .failure:
+            completion(nil)
+        }
     }
 
     func openAIShortcut(_ assistant: AIAssistant) {
@@ -422,6 +467,9 @@ final class BrowserViewModel: ObservableObject {
         }
         tab.onThreeFingerSwipe = { [weak self] deltaX in
             self?.handleThreeFingerSwipe(deltaX: deltaX)
+        }
+        tab.onFilePickerRequested = { [weak self] allowsMultipleSelection, completion in
+            self?.requestWebFileImport(allowsMultipleSelection: allowsMultipleSelection, completion: completion)
         }
     }
 
