@@ -83,6 +83,11 @@ def main() -> int:
         "The IPA workflow must upload a ZenFireBrowser IPA artifact.",
     )
     require_contains(
+        ".github/workflows/build-ipa.yml",
+        "softprops/action-gh-release",
+        "The IPA workflow must publish tag builds to GitHub Releases.",
+    )
+    require_contains(
         ".github/workflows/build-signed-ipa.yml",
         "ZenFireBrowser-signed-ipa",
         "The signed IPA workflow must upload a signed IPA artifact.",

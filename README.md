@@ -21,7 +21,7 @@ Open `ZenFireBrowser.xcodeproj` in Xcode on macOS, set your development team, an
 The repo includes GitHub Actions workflows under `.github/workflows`:
 
 - `ios-ci.yml` builds the shared `ZenFireBrowser` Xcode scheme on a macOS runner for pushes, pull requests, and manual dispatches.
-- `build-ipa.yml` creates an unsigned `ZenFireBrowser-unsigned.ipa` artifact from a manual workflow run or a `v*` tag.
+- `build-ipa.yml` creates an unsigned `ZenFireBrowser-unsigned.ipa` artifact from a manual workflow run or a `v*` tag, and publishes the IPA to GitHub Releases for tag builds.
 - `build-signed-ipa.yml` creates a signed IPA when Apple signing secrets are configured.
 - `repository-checks.yml` validates the plist, shared scheme XML, required project files, private browsing storage, and dark mode enforcement.
 
@@ -40,12 +40,11 @@ Unsigned IPAs are not installable on a real iPhone by themselves, but they are t
 ### KSign Sideload Flow
 
 1. Push this repo to GitHub.
-2. Open GitHub Actions.
-3. Run `Build IPA`.
-4. Download the `ZenFireBrowser-unsigned-ipa` artifact.
-5. Unzip the artifact to get `ZenFireBrowser-unsigned.ipa`.
-6. Move that IPA to your iPhone.
-7. Open KSign, import the IPA, sign it with your certificate/profile inside KSign, then install it.
+2. Push a release tag, such as `v0.1.0`.
+3. Open GitHub Releases.
+4. Download `ZenFireBrowser-unsigned.ipa` from the release assets.
+5. Move that IPA to your iPhone.
+6. Open KSign, import the IPA, sign it with your certificate/profile inside KSign, then install it.
 
 KSign cannot compile the Swift project. It only signs/sideloads the IPA after GitHub Actions or Xcode has built it.
 
