@@ -15,6 +15,9 @@
 		4A1C0E432EED000100A17B01 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4A1C0E422EED000100A17B01 /* WebKit.framework */; };
 		4A1C0E4E2EED000100A17B01 /* BrowserTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E4D2EED000100A17B01 /* BrowserTheme.swift */; };
 		4A1C0E512EED000100A17B01 /* BrowserModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E502EED000100A17B01 /* BrowserModels.swift */; };
+		4A1C0E532EED000100A17B01 /* BrowserContentBlocker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E522EED000100A17B01 /* BrowserContentBlocker.swift */; };
+		4A1C0E552EED000100A17B01 /* CustomVPNController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E542EED000100A17B01 /* CustomVPNController.swift */; };
+		4A1C0E572EED000100A17B01 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4A1C0E562EED000100A17B01 /* NetworkExtension.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +31,9 @@
 		4A1C0E422EED000100A17B01 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		4A1C0E4D2EED000100A17B01 /* BrowserTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserTheme.swift; sourceTree = "<group>"; };
 		4A1C0E502EED000100A17B01 /* BrowserModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModels.swift; sourceTree = "<group>"; };
+		4A1C0E522EED000100A17B01 /* BrowserContentBlocker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserContentBlocker.swift; sourceTree = "<group>"; };
+		4A1C0E542EED000100A17B01 /* CustomVPNController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVPNController.swift; sourceTree = "<group>"; };
+		4A1C0E562EED000100A17B01 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -35,6 +41,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4A1C0E572EED000100A17B01 /* NetworkExtension.framework in Frameworks */,
 				4A1C0E432EED000100A17B01 /* WebKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -64,11 +71,13 @@
 			children = (
 				4A1C0E382EED000100A17B01 /* ZenFireBrowserApp.swift */,
 				4A1C0E502EED000100A17B01 /* BrowserModels.swift */,
+				4A1C0E522EED000100A17B01 /* BrowserContentBlocker.swift */,
 				4A1C0E3A2EED000100A17B01 /* BrowserTab.swift */,
 				4A1C0E4D2EED000100A17B01 /* BrowserTheme.swift */,
 				4A1C0E3C2EED000100A17B01 /* BrowserViewModel.swift */,
 				4A1C0E3E2EED000100A17B01 /* BrowserWebView.swift */,
 				4A1C0E402EED000100A17B01 /* ContentView.swift */,
+				4A1C0E542EED000100A17B01 /* CustomVPNController.swift */,
 				4A1C0E442EED000100A17B01 /* Info.plist */,
 			);
 			path = ZenFireBrowser;
@@ -77,6 +86,7 @@
 		4A1C0E452EED000100A17B01 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				4A1C0E562EED000100A17B01 /* NetworkExtension.framework */,
 				4A1C0E422EED000100A17B01 /* WebKit.framework */,
 			);
 			name = Frameworks;
@@ -154,9 +164,11 @@
 				4A1C0E3B2EED000100A17B01 /* BrowserTab.swift in Sources */,
 				4A1C0E3D2EED000100A17B01 /* BrowserViewModel.swift in Sources */,
 				4A1C0E512EED000100A17B01 /* BrowserModels.swift in Sources */,
+				4A1C0E532EED000100A17B01 /* BrowserContentBlocker.swift in Sources */,
 				4A1C0E4E2EED000100A17B01 /* BrowserTheme.swift in Sources */,
 				4A1C0E3F2EED000100A17B01 /* BrowserWebView.swift in Sources */,
 				4A1C0E412EED000100A17B01 /* ContentView.swift in Sources */,
+				4A1C0E552EED000100A17B01 /* CustomVPNController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

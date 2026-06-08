@@ -1,4 +1,5 @@
 import Combine
+import CoreGraphics
 import Foundation
 
 enum BrowserChromePlacement: String, CaseIterable, Identifiable {
@@ -53,8 +54,11 @@ final class BrowserViewModel: ObservableObject {
     @Published var isFloatingSearchPresented = false
     @Published var isSettingsPresented = false
     @Published var isHistoryPresented = false
+    @Published var isDownloadsPresented = false
+    @Published var isVPNPresented = false
     @Published var isLocalAIImporterPresented = false
     @Published var isDarkReaderEnabled: Bool
+    @Published var isAdBlockerEnabled: Bool
     @Published var areSideTabsCollapsed: Bool {
         didSet {
             UserDefaults.standard.set(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
@@ -71,6 +75,7 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var history: [BrowserHistoryItem]
+    @Published var downloads: [BrowserDownloadItem]
     @Published var localAIName: String {
         didSet {
             UserDefaults.standard.set(localAIName, forKey: Self.StorageKey.localAIName)
@@ -81,24 +86,37 @@ final class BrowserViewModel: ObservableObject {
             UserDefaults.standard.set(localAIURLText, forKey: Self.StorageKey.localAIURLText)
         }
     }
+    @Published var vpnProfile: CustomVPNProfile {
+        didSet {
+            persistVPNProfile()
+        }
+    }
+    @Published var vpnStatusMessage = "Custom VPN profile not configured."
 
     init() {
         let defaults = UserDefaults.standard
         let darkReaderEnabled = defaults.bool(forKey: Self.StorageKey.darkReaderEnabled)
+        let adBlockerEnabled = defaults.bool(forKey: Self.StorageKey.adBlockerEnabled)
         let placement = BrowserChromePlacement(rawValue: defaults.string(forKey: Self.StorageKey.chromePlacement) ?? "") ?? .left
         let selectedSearchEngine = BrowserSearchEngine(rawValue: defaults.string(forKey: Self.StorageKey.searchEngine) ?? "") ?? .duckDuckGo
         let savedCustomSearch = defaults.string(forKey: Self.StorageKey.customSearchTemplate) ?? BrowserSearchEngine.defaultCustomTemplate
         let savedHistory = Self.loadHistory()
-        let restoredTabs = Self.loadTabs(isDarkReaderEnabled: darkReaderEnabled)
+        let savedDownloads = Self.loadDownloads()
+        let savedVPNProfile = Self.loadVPNProfile()
+        let restoredTabs = Self.loadTabs(isDarkReaderEnabled: darkReaderEnabled, isAdBlockerEnabled: adBlockerEnabled)
 
         self.chromePlacement = placement
         self.areSideTabsCollapsed = defaults.bool(forKey: Self.StorageKey.sideTabsCollapsed)
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.history = savedHistory
+        self.downloads = savedDownloads
         self.isDarkReaderEnabled = darkReaderEnabled
+        self.isAdBlockerEnabled = adBlockerEnabled
         self.localAIName = defaults.string(forKey: Self.StorageKey.localAIName) ?? "Local AI"
         self.localAIURLText = defaults.string(forKey: Self.StorageKey.localAIURLText) ?? ""
+        self.vpnProfile = savedVPNProfile
+        self.vpnStatusMessage = savedVPNProfile.isConfigured ? "Custom VPN profile saved." : "Custom VPN profile not configured."
         self.tabs = restoredTabs.tabs
         self.selectedTabID = restoredTabs.selectedTabID
 
@@ -126,7 +144,12 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func openTab(startURL: URL = BrowserDefaults.homeURL, private isPrivate: Bool = false) {
-        let tab = BrowserTab(startURL: startURL, isPrivate: isPrivate, isDarkReaderEnabled: isDarkReaderEnabled)
+        let tab = BrowserTab(
+            startURL: startURL,
+            isPrivate: isPrivate,
+            isDarkReaderEnabled: isDarkReaderEnabled,
+            isAdBlockerEnabled: isAdBlockerEnabled
+        )
         configure(tab)
         tabs.append(tab)
         selectedTabID = tab.id
@@ -155,11 +178,17 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func goBack() {
-        selectedTab?.webView.goBack()
+        guard let tab = selectedTab, tab.webView.canGoBack else { return }
+        tab.webView.goBack()
+        tab.canGoBack = tab.webView.canGoBack
+        tab.canGoForward = tab.webView.canGoForward
     }
 
     func goForward() {
-        selectedTab?.webView.goForward()
+        guard let tab = selectedTab, tab.webView.canGoForward else { return }
+        tab.webView.goForward()
+        tab.canGoBack = tab.webView.canGoBack
+        tab.canGoForward = tab.webView.canGoForward
     }
 
     func reloadOrStop() {
@@ -183,8 +212,24 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
+    func setAdBlockerEnabled(_ enabled: Bool) {
+        isAdBlockerEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.StorageKey.adBlockerEnabled)
+        for tab in tabs {
+            tab.setAdBlockerEnabled(enabled)
+        }
+    }
+
     func toggleSideTabs() {
         areSideTabsCollapsed.toggle()
+    }
+
+    func handleThreeFingerSwipe(deltaX: CGFloat) {
+        if deltaX > 0 {
+            goBack()
+        } else {
+            goForward()
+        }
     }
 
     func openHistoryItem(_ item: BrowserHistoryItem) {
@@ -196,6 +241,103 @@ final class BrowserViewModel: ObservableObject {
     func clearHistory() {
         history = []
         saveHistory()
+    }
+
+    func clearDownloads() {
+        downloads = []
+        saveDownloads()
+    }
+
+    func searchResults(for rawQuery: String) -> [BrowserSearchResult] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if query.isEmpty {
+            return history.prefix(6).compactMap { item in
+                guard let url = item.url else { return nil }
+                return BrowserSearchResult(
+                    title: item.title,
+                    subtitle: item.urlString,
+                    symbolName: "clock.arrow.circlepath",
+                    url: url
+                )
+            }
+        }
+
+        var results: [BrowserSearchResult] = []
+
+        func appendUnique(_ result: BrowserSearchResult) {
+            if results.contains(where: { $0.url == result.url }) == false {
+                results.append(result)
+            }
+        }
+
+        let destination = BrowserTab.destinationURL(
+            from: query,
+            searchEngine: searchEngine,
+            customSearchTemplate: customSearchTemplate
+        )
+        let searchURL = searchEngine.searchURL(for: query, customTemplate: customSearchTemplate)
+
+        appendUnique(
+            BrowserSearchResult(
+                title: "Search \(searchEngine.title) for \(query)",
+                subtitle: searchURL.absoluteString,
+                symbolName: "magnifyingglass",
+                url: searchURL
+            )
+        )
+
+        if destination != searchURL {
+            appendUnique(
+                BrowserSearchResult(
+                    title: "Open \(destination.host ?? query)",
+                    subtitle: destination.absoluteString,
+                    symbolName: "arrow.up.right.square",
+                    url: destination
+                )
+            )
+        }
+
+        let quickSearches = [
+            ("Images", "photo", "\(query) images"),
+            ("News", "newspaper", "\(query) news"),
+            ("Videos", "play.rectangle", "\(query) videos"),
+            ("Maps", "map", "\(query) map")
+        ]
+
+        for quickSearch in quickSearches {
+            appendUnique(
+                BrowserSearchResult(
+                    title: "\(quickSearch.0) for \(query)",
+                    subtitle: "Search \(searchEngine.title)",
+                    symbolName: quickSearch.1,
+                    url: searchEngine.searchURL(for: quickSearch.2, customTemplate: customSearchTemplate)
+                )
+            )
+        }
+
+        let lowercasedQuery = query.lowercased()
+        for item in history where results.count < 12 {
+            let titleMatches = item.title.lowercased().contains(lowercasedQuery)
+            let urlMatches = item.urlString.lowercased().contains(lowercasedQuery)
+            guard (titleMatches || urlMatches), let url = item.url else { continue }
+            appendUnique(
+                BrowserSearchResult(
+                    title: item.title,
+                    subtitle: item.urlString,
+                    symbolName: "clock.arrow.circlepath",
+                    url: url
+                )
+            )
+        }
+
+        return Array(results.prefix(12))
+    }
+
+    func openSearchResult(_ result: BrowserSearchResult) {
+        selectedTab?.addressText = result.url.absoluteString
+        selectedTab?.load(result.url)
+        isFloatingSearchPresented = false
     }
 
     func openAIShortcut(_ assistant: AIAssistant) {
@@ -217,6 +359,45 @@ final class BrowserViewModel: ObservableObject {
         localAIURLText = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    func saveVPNProfile(_ profile: CustomVPNProfile) {
+        vpnProfile = profile
+        vpnStatusMessage = profile.isConfigured ? "Custom VPN profile saved." : "Custom VPN profile not configured."
+    }
+
+    func installVPNProfile() {
+        vpnStatusMessage = "Saving custom VPN profile to iOS..."
+        let profile = vpnProfile
+
+        Task {
+            do {
+                try await CustomVPNController.install(profile: profile)
+                vpnStatusMessage = profile.isEnabled
+                    ? "Custom VPN profile saved and enabled in iOS."
+                    : "Custom VPN profile saved in iOS."
+            } catch {
+                vpnStatusMessage = "\(error.localizedDescription) Add the Personal VPN entitlement when signing if iOS rejects it."
+            }
+        }
+    }
+
+    func connectVPNProfile() {
+        vpnStatusMessage = "Connecting custom VPN..."
+
+        Task {
+            do {
+                try await CustomVPNController.connect()
+                vpnStatusMessage = "Custom VPN connection requested."
+            } catch {
+                vpnStatusMessage = "\(error.localizedDescription) Make sure the VPN profile is saved, entitled, and points at a real server."
+            }
+        }
+    }
+
+    func disconnectVPNProfile() {
+        CustomVPNController.disconnect()
+        vpnStatusMessage = "Custom VPN disconnect requested."
+    }
+
     func resetToDefaults() {
         chromePlacement = .left
         areSideTabsCollapsed = false
@@ -224,12 +405,23 @@ final class BrowserViewModel: ObservableObject {
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         localAIName = "Local AI"
         localAIURLText = ""
+        setAdBlockerEnabled(false)
         setDarkReaderEnabled(false)
+        saveVPNProfile(.empty)
     }
 
     private func configure(_ tab: BrowserTab) {
         tab.onNavigationFinished = { [weak self] tab in
             self?.recordVisit(from: tab)
+        }
+        tab.onDownloadUpdated = { [weak self] item in
+            self?.updateDownload(item)
+        }
+        tab.onTwoFingerSwipe = { [weak self] in
+            self?.toggleSideTabs()
+        }
+        tab.onThreeFingerSwipe = { [weak self] deltaX in
+            self?.handleThreeFingerSwipe(deltaX: deltaX)
         }
     }
 
@@ -284,12 +476,34 @@ final class BrowserViewModel: ObservableObject {
         UserDefaults.standard.set(data, forKey: Self.StorageKey.history)
     }
 
-    private static func loadTabs(isDarkReaderEnabled: Bool) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
+    private func updateDownload(_ item: BrowserDownloadItem) {
+        downloads.removeAll { $0.id == item.id || $0.localPath == item.localPath }
+        downloads.insert(item, at: 0)
+        if downloads.count > 100 {
+            downloads = Array(downloads.prefix(100))
+        }
+        saveDownloads()
+    }
+
+    private func saveDownloads() {
+        guard let data = try? JSONEncoder().encode(downloads) else { return }
+        UserDefaults.standard.set(data, forKey: Self.StorageKey.downloads)
+    }
+
+    private func persistVPNProfile() {
+        guard let data = try? JSONEncoder().encode(vpnProfile) else { return }
+        UserDefaults.standard.set(data, forKey: Self.StorageKey.vpnProfile)
+    }
+
+    private static func loadTabs(
+        isDarkReaderEnabled: Bool,
+        isAdBlockerEnabled: Bool
+    ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let defaults = UserDefaults.standard
         guard let data = defaults.data(forKey: StorageKey.openTabs),
               let savedTabs = try? JSONDecoder().decode([PersistedBrowserTab].self, from: data),
               savedTabs.isEmpty == false else {
-            let firstTab = BrowserTab(isDarkReaderEnabled: isDarkReaderEnabled)
+            let firstTab = BrowserTab(isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
             return ([firstTab], firstTab.id)
         }
 
@@ -298,7 +512,11 @@ final class BrowserViewModel: ObservableObject {
 
         for savedTab in savedTabs {
             guard let url = URL(string: savedTab.urlString) else { continue }
-            let tab = BrowserTab(startURL: url, isDarkReaderEnabled: isDarkReaderEnabled)
+            let tab = BrowserTab(
+                startURL: url,
+                isDarkReaderEnabled: isDarkReaderEnabled,
+                isAdBlockerEnabled: isAdBlockerEnabled
+            )
             restoredTabs.append(tab)
             if savedTab.isSelected {
                 selectedID = tab.id
@@ -306,7 +524,7 @@ final class BrowserViewModel: ObservableObject {
         }
 
         if restoredTabs.isEmpty {
-            let firstTab = BrowserTab(isDarkReaderEnabled: isDarkReaderEnabled)
+            let firstTab = BrowserTab(isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
             return ([firstTab], firstTab.id)
         }
 
@@ -320,6 +538,24 @@ final class BrowserViewModel: ObservableObject {
         }
 
         return history
+    }
+
+    private static func loadDownloads() -> [BrowserDownloadItem] {
+        guard let data = UserDefaults.standard.data(forKey: StorageKey.downloads),
+              let downloads = try? JSONDecoder().decode([BrowserDownloadItem].self, from: data) else {
+            return []
+        }
+
+        return downloads
+    }
+
+    private static func loadVPNProfile() -> CustomVPNProfile {
+        guard let data = UserDefaults.standard.data(forKey: StorageKey.vpnProfile),
+              let profile = try? JSONDecoder().decode(CustomVPNProfile.self, from: data) else {
+            return .empty
+        }
+
+        return profile
     }
 
     private static func shouldPersist(url: URL) -> Bool {
@@ -350,5 +586,8 @@ final class BrowserViewModel: ObservableObject {
         static let openTabs = "ZenFireBrowser.openTabs"
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
+        static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
+        static let downloads = "ZenFireBrowser.downloads"
+        static let vpnProfile = "ZenFireBrowser.vpnProfile"
     }
 }

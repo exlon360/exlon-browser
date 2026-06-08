@@ -60,6 +60,18 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $model.isDownloadsPresented) {
+                BrowserDownloadsView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $model.isVPNPresented) {
+                CustomVPNView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
             .sheet(isPresented: $model.isLocalAIImporterPresented) {
                 LocalAIImportView()
                     .environmentObject(model)
@@ -313,6 +325,10 @@ private struct FloatingChrome: View {
                         model.isHistoryPresented = true
                     }
 
+                    ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
+                        model.isDownloadsPresented = true
+                    }
+
                     ChromeButton(symbol: "gearshape", label: "Settings") {
                         model.isSettingsPresented = true
                     }
@@ -381,6 +397,10 @@ private struct ChromeFooter: View {
 
                 ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
                     model.isHistoryPresented = true
+                }
+
+                ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
+                    model.isDownloadsPresented = true
                 }
 
                 PlacementMenu()
@@ -546,6 +566,7 @@ private struct FloatingSearchOverlay: View {
 
             VStack(spacing: 12) {
                 AddressField(style: .floating, focusOnAppear: true)
+                SearchResultsList(query: model.selectedTab?.addressText ?? "")
 
                 if let tab = model.selectedTab {
                     HStack(spacing: 8) {
@@ -565,6 +586,76 @@ private struct FloatingSearchOverlay: View {
             .padding(.top, 18)
             .padding(.horizontal, 16)
         }
+    }
+}
+
+private struct SearchResultsList: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let query: String
+
+    var body: some View {
+        let results = model.searchResults(for: query)
+
+        if results.isEmpty == false {
+            VStack(spacing: 0) {
+                ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                    SearchResultRow(result: result)
+
+                    if index < results.count - 1 {
+                        Rectangle()
+                            .fill(theme.color(.border).opacity(0.35))
+                            .frame(height: 1)
+                            .padding(.leading, 52)
+                    }
+                }
+            }
+            .frame(maxWidth: 680)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.8), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(0.28), radius: 18, y: 10)
+        }
+    }
+}
+
+private struct SearchResultRow: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let result: BrowserSearchResult
+
+    var body: some View {
+        Button {
+            model.openSearchResult(result)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: result.symbolName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(theme.color(.accent))
+                    .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(result.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(theme.color(.text))
+                        .lineLimit(1)
+
+                    Text(result.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -610,6 +701,184 @@ private struct AITabButton: View {
                 .shadow(color: Color.black.opacity(0.25), radius: 10, y: 5)
         }
         .accessibilityLabel("AI shortcuts")
+    }
+}
+
+private struct BrowserDownloadsView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if model.downloads.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 34, weight: .semibold))
+                        Text("No downloads yet")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(theme.color(.mutedText))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(theme.color(.canvas))
+                } else {
+                    List {
+                        ForEach(model.downloads) { item in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: symbolName(for: item.state))
+                                        .foregroundStyle(color(for: item.state))
+                                    Text(item.filename)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(theme.color(.text))
+                                        .lineLimit(1)
+                                }
+
+                                Text(item.sourceURLString.isEmpty ? item.localPath : item.sourceURLString)
+                                    .font(.caption)
+                                    .foregroundStyle(theme.color(.mutedText))
+                                    .lineLimit(1)
+
+                                HStack(spacing: 10) {
+                                    Text(item.state.title)
+                                    Text(item.createdAt, style: .relative)
+
+                                    if item.state == .finished,
+                                       FileManager.default.fileExists(atPath: item.localPath) {
+                                        ShareLink(item: item.localURL) {
+                                            Label("Share", systemImage: "square.and.arrow.up")
+                                        }
+                                    }
+                                }
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(theme.color(.mutedText))
+
+                                if let error = item.errorMessage, error.isEmpty == false {
+                                    Text(error)
+                                        .font(.caption2)
+                                        .foregroundStyle(.red)
+                                        .lineLimit(2)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .listRowBackground(theme.color(.surface))
+                        }
+                    }
+                    .scrollContentBackground(.hidden)
+                    .background(theme.color(.canvas))
+                }
+            }
+            .navigationTitle("Downloads")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Clear") {
+                        model.clearDownloads()
+                    }
+                    .disabled(model.downloads.isEmpty)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func symbolName(for state: BrowserDownloadState) -> String {
+        switch state {
+        case .inProgress:
+            return "arrow.down"
+        case .finished:
+            return "checkmark.circle"
+        case .failed:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    private func color(for state: BrowserDownloadState) -> Color {
+        switch state {
+        case .inProgress:
+            return theme.color(.accent)
+        case .finished:
+            return .green
+        case .failed:
+            return .red
+        }
+    }
+}
+
+private struct CustomVPNView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var profile = CustomVPNProfile.empty
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Custom VPN") {
+                    TextField("Country", text: $profile.countryName)
+                    TextField("Server address", text: $profile.serverAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    TextField("Remote identifier", text: $profile.remoteIdentifier)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Username", text: $profile.username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Toggle("Enable profile", isOn: $profile.isEnabled)
+                }
+
+                Section("Native iOS") {
+                    Button("Save in app") {
+                        model.saveVPNProfile(profile)
+                    }
+
+                    Button("Install VPN profile") {
+                        model.saveVPNProfile(profile)
+                        model.installVPNProfile()
+                    }
+                    .disabled(profile.isConfigured == false)
+
+                    Button("Connect") {
+                        model.saveVPNProfile(profile)
+                        model.connectVPNProfile()
+                    }
+                    .disabled(profile.isConfigured == false)
+
+                    Button("Disconnect") {
+                        model.disconnectVPNProfile()
+                    }
+                }
+
+                Section("Status") {
+                    Text(model.vpnStatusMessage)
+                    Text("Native Personal VPN requires a real VPN server and the Personal VPN entitlement when this IPA is signed.")
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Custom VPN")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        model.saveVPNProfile(profile)
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                profile = model.vpnProfile
+            }
+        }
     }
 }
 
@@ -946,6 +1215,7 @@ private struct BrowserSettingsView: View {
             Form {
                 Section("Browsing") {
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
+                    Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide side tabs", isOn: $model.areSideTabsCollapsed)
                     Picker("Chrome placement", selection: $model.chromePlacement) {
                         ForEach(BrowserChromePlacement.allCases) { placement in
@@ -965,6 +1235,14 @@ private struct BrowserSettingsView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
+                    }
+
+                    Button("Downloads") {
+                        model.isDownloadsPresented = true
+                    }
+
+                    Button("Custom VPN") {
+                        model.isVPNPresented = true
                     }
                 }
 
@@ -1015,6 +1293,13 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isDarkReaderEnabled },
             set: { model.setDarkReaderEnabled($0) }
+        )
+    }
+
+    private var adBlockerBinding: Binding<Bool> {
+        Binding(
+            get: { model.isAdBlockerEnabled },
+            set: { model.setAdBlockerEnabled($0) }
         )
     }
 }

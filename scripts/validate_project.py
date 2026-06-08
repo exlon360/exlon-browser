@@ -43,12 +43,14 @@ def main() -> int:
         "scripts/build_signed_ipa.sh",
         "ZenFireBrowser.xcodeproj/project.pbxproj",
         "ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme",
+        "ZenFireBrowser/BrowserContentBlocker.swift",
         "ZenFireBrowser/BrowserModels.swift",
         "ZenFireBrowser/BrowserTab.swift",
         "ZenFireBrowser/BrowserTheme.swift",
         "ZenFireBrowser/BrowserViewModel.swift",
         "ZenFireBrowser/BrowserWebView.swift",
         "ZenFireBrowser/ContentView.swift",
+        "ZenFireBrowser/CustomVPNController.swift",
         "ZenFireBrowser/Info.plist",
         "ZenFireBrowser/ZenFireBrowserApp.swift",
     ]
@@ -63,6 +65,16 @@ def main() -> int:
         "ZenFireBrowser/BrowserTab.swift",
         ".nonPersistent()",
         "Private browsing must use a non-persistent WKWebsiteDataStore.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserContentBlocker.swift",
+        "WKContentRuleListStore",
+        "The ad blocker must use native WebKit content rules.",
+    )
+    require_contains(
+        "ZenFireBrowser/CustomVPNController.swift",
+        "NEVPNManager",
+        "The custom VPN profile must use native iOS VPN APIs.",
     )
     require_contains(
         "ZenFireBrowser/ZenFireBrowserApp.swift",

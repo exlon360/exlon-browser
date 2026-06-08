@@ -6,11 +6,16 @@ ZenFireBrowser is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired 
 
 - Side tabs by default, with placement switching for left, right, top, bottom, and floating chrome.
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
+- Floating search results with quick search actions and local history matches while typing.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
 - Normal and private tabs. Private tabs use a non-persistent `WKWebsiteDataStore`.
 - Normal tabs are restored after relaunch; private tabs are not persisted.
 - History panel for normal browsing, plus a clear-history action.
+- Downloads panel backed by WebKit downloads into the app's local Documents/Downloads folder.
+- Native WebKit content-rule ad/tracker blocking toggle.
+- Gesture controls: two-finger swipe toggles the side tab bar, and three-finger horizontal swipes go back or forward.
 - Collapsible side tabs with a small edge handle.
+- Custom VPN profile setup using iOS Personal VPN APIs for a user-supplied country/server.
 - Top-right AI shortcuts for ChatGPT, Gemini, Claude, Grok, and an importable local AI endpoint.
 - Back, forward, reload/stop, close tab, new tab, and new private tab controls.
 - Dark mode enforced in SwiftUI and `Info.plist`.
@@ -18,6 +23,8 @@ ZenFireBrowser is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired 
 ## Notes
 
 iOS apps cannot ship the desktop Firefox/Gecko engine through ordinary Swift app code. This project uses Apple's `WKWebView`, which is the browser view available to iOS apps, and wraps it in a Firefox/Zen/Arc-style experience.
+
+The custom VPN screen is native, not a website shortcut. A working tunnel still requires a real VPN server and the Personal VPN entitlement when the IPA is signed.
 
 Open `ZenFireBrowser.xcodeproj` in Xcode on macOS, set your development team, and run the `ZenFireBrowser` scheme on an iPhone or iPad simulator.
 

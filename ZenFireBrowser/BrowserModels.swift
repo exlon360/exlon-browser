@@ -163,6 +163,84 @@ struct BrowserHistoryItem: Identifiable, Codable, Equatable {
     }
 }
 
+struct BrowserSearchResult: Identifiable {
+    let id = UUID()
+    var title: String
+    var subtitle: String
+    var symbolName: String
+    var url: URL
+}
+
+enum BrowserDownloadState: String, Codable {
+    case inProgress
+    case finished
+    case failed
+
+    var title: String {
+        switch self {
+        case .inProgress:
+            return "Downloading"
+        case .finished:
+            return "Finished"
+        case .failed:
+            return "Failed"
+        }
+    }
+}
+
+struct BrowserDownloadItem: Identifiable, Codable, Equatable {
+    var id: UUID
+    var filename: String
+    var sourceURLString: String
+    var localPath: String
+    var createdAt: Date
+    var state: BrowserDownloadState
+    var errorMessage: String?
+
+    init(
+        id: UUID = UUID(),
+        filename: String,
+        sourceURLString: String,
+        localPath: String,
+        createdAt: Date = Date(),
+        state: BrowserDownloadState,
+        errorMessage: String? = nil
+    ) {
+        self.id = id
+        self.filename = filename
+        self.sourceURLString = sourceURLString
+        self.localPath = localPath
+        self.createdAt = createdAt
+        self.state = state
+        self.errorMessage = errorMessage
+    }
+
+    var localURL: URL {
+        URL(fileURLWithPath: localPath)
+    }
+}
+
+struct CustomVPNProfile: Codable, Equatable {
+    var countryName: String
+    var serverAddress: String
+    var remoteIdentifier: String
+    var username: String
+    var isEnabled: Bool
+
+    static let empty = CustomVPNProfile(
+        countryName: "",
+        serverAddress: "",
+        remoteIdentifier: "",
+        username: "",
+        isEnabled: false
+    )
+
+    var isConfigured: Bool {
+        countryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+        serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+}
+
 struct PersistedBrowserTab: Codable {
     var title: String
     var urlString: String
