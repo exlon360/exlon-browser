@@ -106,6 +106,26 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",
+        "containedTabs",
+        "Contained tabs must have separate browser state.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "ContainedBrowserOverlay",
+        "Contained tabs must render a nested browser overlay.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "usesPersistentStorage: false",
+        "Contained tabs must use isolated non-persistent web storage.",
+    )
+    require_absent(
+        "ZenFireBrowser/ContentView.swift",
+        "SideTabHandle",
+        "The visible side-tab hider handle must stay hidden.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
         "hasCompletedTutorial",
         "The first-run tutorial must persist its completed state.",
     )

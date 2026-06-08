@@ -46,6 +46,9 @@ enum BrowserChromePlacement: String, CaseIterable, Identifiable {
 final class BrowserViewModel: ObservableObject {
     @Published var tabs: [BrowserTab]
     @Published var selectedTabID: BrowserTab.ID?
+    @Published var containedTabs: [BrowserTab] = []
+    @Published var selectedContainedTabID: BrowserTab.ID?
+    @Published var isContainedBrowserPresented = false
     @Published var chromePlacement: BrowserChromePlacement {
         didSet {
             UserDefaults.standard.set(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
@@ -137,6 +140,11 @@ final class BrowserViewModel: ObservableObject {
         return tabs.first { $0.id == selectedTabID } ?? tabs.first
     }
 
+    var selectedContainedTab: BrowserTab? {
+        guard let selectedContainedTabID = selectedContainedTabID else { return containedTabs.first }
+        return containedTabs.first { $0.id == selectedContainedTabID } ?? containedTabs.first
+    }
+
     var normalTabs: [BrowserTab] {
         tabs.filter { !$0.isPrivate }
     }
@@ -179,6 +187,55 @@ final class BrowserViewModel: ObservableObject {
         openNewTabAndSearch(private: true)
     }
 
+    @discardableResult
+    func openContainedTab(startURL: URL = BrowserDefaults.homeURL) -> BrowserTab {
+        let tab = BrowserTab(
+            startURL: startURL,
+            usesPersistentStorage: false,
+            isDarkReaderEnabled: isDarkReaderEnabled,
+            isAdBlockerEnabled: isAdBlockerEnabled
+        )
+        configureContained(tab)
+        containedTabs.append(tab)
+        selectedContainedTabID = tab.id
+        isContainedBrowserPresented = true
+        return tab
+    }
+
+    func showContainedTabs() {
+        if containedTabs.isEmpty {
+            openContainedTab()
+        } else {
+            isContainedBrowserPresented = true
+        }
+    }
+
+    func selectContained(_ tab: BrowserTab) {
+        selectedContainedTabID = tab.id
+    }
+
+    func closeContainedBrowser() {
+        isContainedBrowserPresented = false
+    }
+
+    func closeContained(_ tab: BrowserTab) {
+        containedTabs.removeAll { $0.id == tab.id }
+
+        if containedTabs.isEmpty {
+            selectedContainedTabID = nil
+            isContainedBrowserPresented = false
+            return
+        }
+
+        if selectedContainedTabID == tab.id {
+            selectedContainedTabID = containedTabs.last?.id
+        }
+    }
+
+    func submitContainedAddress() {
+        selectedContainedTab?.submitAddress(searchEngine: searchEngine, customSearchTemplate: customSearchTemplate)
+    }
+
     func close(_ tab: BrowserTab) {
         guard tabs.count > 1 else {
             tab.load(BrowserTab.homeURL)
@@ -197,17 +254,11 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func goBack() {
-        guard let tab = selectedTab, tab.webView.canGoBack else { return }
-        tab.webView.goBack()
-        tab.canGoBack = tab.webView.canGoBack
-        tab.canGoForward = tab.webView.canGoForward
+        selectedTab?.goBack()
     }
 
     func goForward() {
-        guard let tab = selectedTab, tab.webView.canGoForward else { return }
-        tab.webView.goForward()
-        tab.canGoBack = tab.webView.canGoBack
-        tab.canGoForward = tab.webView.canGoForward
+        selectedTab?.goForward()
     }
 
     func reloadOrStop() {
@@ -235,12 +286,18 @@ final class BrowserViewModel: ObservableObject {
         for tab in tabs {
             tab.setDarkReaderEnabled(enabled)
         }
+        for tab in containedTabs {
+            tab.setDarkReaderEnabled(enabled)
+        }
     }
 
     func setAdBlockerEnabled(_ enabled: Bool) {
         isAdBlockerEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: Self.StorageKey.adBlockerEnabled)
         for tab in tabs {
+            tab.setAdBlockerEnabled(enabled)
+        }
+        for tab in containedTabs {
             tab.setAdBlockerEnabled(enabled)
         }
     }
@@ -478,6 +535,25 @@ final class BrowserViewModel: ObservableObject {
         }
         tab.onThreeFingerSwipe = { [weak self] deltaX in
             self?.handleThreeFingerSwipe(deltaX: deltaX)
+        }
+        tab.onFilePickerRequested = { [weak self] allowsMultipleSelection, completion in
+            self?.requestWebFileImport(allowsMultipleSelection: allowsMultipleSelection, completion: completion)
+        }
+    }
+
+    private func configureContained(_ tab: BrowserTab) {
+        tab.onDownloadUpdated = { [weak self] item in
+            self?.updateDownload(item)
+        }
+        tab.onTwoFingerSwipe = { [weak self] in
+            self?.toggleSideTabs()
+        }
+        tab.onThreeFingerSwipe = { [weak tab] deltaX in
+            if deltaX > 0 {
+                tab?.goBack()
+            } else {
+                tab?.goForward()
+            }
         }
         tab.onFilePickerRequested = { [weak self] allowsMultipleSelection, completion in
             self?.requestWebFileImport(allowsMultipleSelection: allowsMultipleSelection, completion: completion)

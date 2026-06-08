@@ -35,6 +35,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     init(
         startURL: URL = BrowserDefaults.homeURL,
         isPrivate: Bool = false,
+        usesPersistentStorage: Bool = true,
         isDarkReaderEnabled: Bool = false,
         isAdBlockerEnabled: Bool = true
     ) {
@@ -49,7 +50,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         configuration.userContentController = WKUserContentController()
         configuration.allowsInlineMediaPlayback = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.websiteDataStore = isPrivate ? .nonPersistent() : .default()
+        configuration.websiteDataStore = (isPrivate || usesPersistentStorage == false) ? .nonPersistent() : .default()
         configuration.applicationNameForUserAgent = "ZenFireBrowser/1.0"
 
         self.webView = WKWebView(frame: .zero, configuration: configuration)
@@ -97,6 +98,20 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         } else {
             webView.reload()
         }
+    }
+
+    func goBack() {
+        guard webView.canGoBack else { return }
+        webView.goBack()
+        canGoBack = webView.canGoBack
+        canGoForward = webView.canGoForward
+    }
+
+    func goForward() {
+        guard webView.canGoForward else { return }
+        webView.goForward()
+        canGoBack = webView.canGoBack
+        canGoForward = webView.canGoForward
     }
 
     func setDarkReaderEnabled(_ enabled: Bool) {

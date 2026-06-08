@@ -43,12 +43,18 @@ private struct BrowserShell: View {
                     FloatingChrome()
                 }
 
+                if model.isContainedBrowserPresented {
+                    ContainedBrowserOverlay()
+                        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
+                }
+
                 if model.isFloatingSearchPresented {
                     FloatingSearchOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                 }
             }
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
+            .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView()
@@ -169,76 +175,22 @@ private struct SideBrowserLayout: View {
     let sideWidth: CGFloat
 
     var body: some View {
-        ZStack(alignment: alignment) {
-            HStack(spacing: 0) {
-                if edge == .left {
-                    if model.areSideTabsCollapsed == false {
-                        SideChrome(edge: .left)
-                            .frame(width: sideWidth)
-                    }
-                    BrowserContent()
-                } else {
-                    BrowserContent()
-                    if model.areSideTabsCollapsed == false {
-                        SideChrome(edge: .right)
-                            .frame(width: sideWidth)
-                    }
+        HStack(spacing: 0) {
+            if edge == .left {
+                if model.areSideTabsCollapsed == false {
+                    SideChrome(edge: .left)
+                        .frame(width: sideWidth)
+                }
+                BrowserContent()
+            } else {
+                BrowserContent()
+                if model.areSideTabsCollapsed == false {
+                    SideChrome(edge: .right)
+                        .frame(width: sideWidth)
                 }
             }
-
-            SideTabHandle(edge: edge)
-                .offset(x: handleOffset)
         }
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.areSideTabsCollapsed)
-    }
-
-    private var alignment: Alignment {
-        edge == .left ? .leading : .trailing
-    }
-
-    private var handleOffset: CGFloat {
-        if model.areSideTabsCollapsed {
-            return edge == .left ? -4 : 4
-        }
-
-        return edge == .left ? sideWidth - 14 : -(sideWidth - 14)
-    }
-}
-
-private struct SideTabHandle: View {
-    @EnvironmentObject private var model: BrowserViewModel
-    @EnvironmentObject private var theme: BrowserTheme
-    let edge: SideChromeEdge
-
-    var body: some View {
-        Button {
-            model.toggleSideTabs()
-        } label: {
-            VStack(spacing: 8) {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 14, weight: .semibold))
-                Image(systemName: chevronName)
-                    .font(.system(size: 13, weight: .black))
-            }
-            .frame(width: 30, height: 78)
-            .foregroundStyle(theme.color(.text))
-            .background(theme.color(.surface).opacity(theme.controlOpacity), in: Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(theme.color(.border).opacity(0.8), lineWidth: 1)
-            }
-            .shadow(color: Color.black.opacity(0.25), radius: 10, y: 5)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(model.areSideTabsCollapsed ? "Show tabs" : "Hide tabs")
-    }
-
-    private var chevronName: String {
-        if model.areSideTabsCollapsed {
-            return edge == .left ? "chevron.right" : "chevron.left"
-        }
-
-        return edge == .left ? "chevron.left" : "chevron.right"
     }
 }
 
@@ -338,6 +290,10 @@ private struct FloatingChrome: View {
 
                     FloatingTabSwitcher()
 
+                    ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
+                        model.showContainedTabs()
+                    }
+
                     ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                         model.reloadOrStop()
                     }
@@ -412,6 +368,10 @@ private struct ChromeFooter: View {
 
                 ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
                     model.isDownloadsPresented = true
+                }
+
+                ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
+                    model.showContainedTabs()
                 }
 
                 PlacementMenu()
@@ -952,6 +912,310 @@ private struct AITabButton: View {
     }
 }
 
+private struct ContainedBrowserOverlay: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.42)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 10) {
+                    ContainedBrowserHeader()
+
+                    if let tab = model.selectedContainedTab {
+                        ContainedAddressBar(tab: tab)
+                        ContainedTabStrip()
+
+                        BrowserWebView(tab: tab)
+                            .id(tab.id)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(alignment: .top) {
+                                LoadingProgress(tab: tab)
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(theme.color(.border).opacity(0.8), lineWidth: 1)
+                            }
+                    } else {
+                        VStack(spacing: 12) {
+                            Image(systemName: "rectangle.on.rectangle")
+                                .font(.system(size: 30, weight: .semibold))
+                                .foregroundStyle(theme.color(.accent))
+                            Text("No contained tabs")
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(theme.color(.text))
+                            Button("Create Contained Tab") {
+                                model.openContainedTab()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .padding(12)
+                .frame(
+                    maxWidth: min(proxy.size.width - 24, 980),
+                    maxHeight: min(proxy.size.height - 36, 760)
+                )
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.accent).opacity(0.46), lineWidth: 1)
+                }
+                .shadow(color: Color.black.opacity(0.48), radius: 32, y: 18)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 18)
+            }
+            .onAppear {
+                if model.containedTabs.isEmpty {
+                    model.openContainedTab()
+                }
+            }
+        }
+    }
+}
+
+private struct ContainedBrowserHeader: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "rectangle.on.rectangle")
+                .font(.system(size: 15, weight: .bold))
+                .frame(width: 34, height: 34)
+                .foregroundStyle(theme.color(.createTab))
+                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Contained Tabs")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(theme.color(.text))
+                Text("Browser inside the browser")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                model.openContainedTab()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .bold))
+                    .frame(width: 34, height: 34)
+                    .foregroundStyle(theme.color(.canvas))
+                    .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New Contained Tab")
+
+            Button {
+                model.closeContainedBrowser()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .black))
+                    .frame(width: 34, height: 34)
+                    .foregroundStyle(theme.color(.text))
+                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close Contained Tabs")
+        }
+    }
+}
+
+private struct ContainedAddressBar: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @ObservedObject var tab: BrowserTab
+    @State private var shouldSelectText = true
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ContainedControlButton(
+                symbol: "chevron.left",
+                label: "Contained Back",
+                isDisabled: tab.canGoBack == false
+            ) {
+                tab.goBack()
+            }
+
+            ContainedControlButton(
+                symbol: "chevron.right",
+                label: "Contained Forward",
+                isDisabled: tab.canGoForward == false
+            ) {
+                tab.goForward()
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.color(.accent))
+
+                SelectableAddressTextField(
+                    text: Binding(
+                        get: { tab.addressText },
+                        set: { tab.addressText = $0 }
+                    ),
+                    placeholder: "Search \(model.searchEngine.title) or enter address",
+                    textColor: UIColor(theme.color(.text)),
+                    placeholderColor: UIColor(theme.color(.mutedText)),
+                    tintColor: UIColor(theme.color(.createTab)),
+                    shouldFocus: true,
+                    shouldSelectText: $shouldSelectText
+                ) {
+                    model.submitContainedAddress()
+                }
+                .frame(height: 32)
+
+                Button {
+                    model.submitContainedAddress()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 23, weight: .semibold))
+                        .foregroundStyle(theme.color(.createTab))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Contained Address")
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 42)
+            .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.55), lineWidth: 1)
+            }
+
+            ContainedControlButton(
+                symbol: tab.isLoading ? "xmark" : "arrow.clockwise",
+                label: "Reload Contained Tab"
+            ) {
+                tab.reloadOrStop()
+            }
+        }
+    }
+}
+
+private struct ContainedControlButton: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let symbol: String
+    let label: String
+    var isDisabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .bold))
+                .frame(width: 38, height: 42)
+                .foregroundStyle(theme.color(.text))
+                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.38 : 1)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct ContainedTabStrip: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Button {
+                    model.openContainedTab()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .frame(width: 42, height: 38)
+                        .foregroundStyle(theme.color(.createTab))
+                        .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Contained Tab")
+
+                ForEach(model.containedTabs) { tab in
+                    ContainedTabPill(tab: tab)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+}
+
+private struct ContainedTabPill: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @ObservedObject var tab: BrowserTab
+
+    private var isSelected: Bool {
+        model.selectedContainedTabID.map { $0 == tab.id } ?? false
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                model.selectContained(tab)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "rectangle.on.rectangle")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .foregroundStyle(theme.color(.text))
+                        .background(theme.color(.accent).opacity(0.22), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tab.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(theme.color(.text))
+                            .lineLimit(1)
+                        Text(tab.url?.host ?? model.searchEngine.title)
+                            .font(.caption2)
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+
+            Button {
+                model.closeContained(tab)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.color(.mutedText))
+            .accessibilityLabel("Close Contained Tab")
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 5)
+        .frame(width: 210, height: 42)
+        .background(isSelected ? theme.color(.surface).opacity(theme.controlOpacity) : theme.color(.field).opacity(theme.controlOpacity * 0.66), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isSelected ? theme.color(.accent).opacity(0.72) : theme.color(.border).opacity(0.35), lineWidth: 1)
+        }
+    }
+}
+
 private struct FirstRunTutorialView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -1452,6 +1716,22 @@ private struct NewTabActions: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New Private Tab")
+
+            Button {
+                model.openContainedTab()
+            } label: {
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(theme.color(.text))
+                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(theme.color(.accent).opacity(0.55), lineWidth: 1)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New Contained Tab")
         }
     }
 }
