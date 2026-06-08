@@ -2,6 +2,10 @@ import Combine
 import Foundation
 import WebKit
 
+enum BrowserDefaults {
+    static let homeURL = URL(string: "https://www.mozilla.org/firefox/new/")!
+}
+
 @MainActor
 final class BrowserTab: NSObject, Identifiable, ObservableObject {
     let id = UUID()
@@ -18,7 +22,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private var observations: [NSKeyValueObservation] = []
 
-    init(startURL: URL = BrowserTab.homeURL, isPrivate: Bool = false) {
+    init(startURL: URL = BrowserDefaults.homeURL, isPrivate: Bool = false) {
         self.isPrivate = isPrivate
         self.title = isPrivate ? "Private Start" : "Start"
         self.url = startURL
@@ -41,7 +45,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     static var homeURL: URL {
-        URL(string: "https://www.mozilla.org/firefox/new/")!
+        BrowserDefaults.homeURL
     }
 
     func load(_ url: URL) {

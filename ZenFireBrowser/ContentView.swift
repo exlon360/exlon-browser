@@ -99,9 +99,14 @@ private struct LoadingProgress: View {
     }
 }
 
+private enum SideChromeEdge {
+    case left
+    case right
+}
+
 private struct SideChrome: View {
     @EnvironmentObject private var model: BrowserViewModel
-    let edge: HorizontalEdge
+    let edge: SideChromeEdge
 
     var body: some View {
         VStack(spacing: 12) {
