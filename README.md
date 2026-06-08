@@ -5,10 +5,11 @@ ZenFireBrowser is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired 
 ## What is included
 
 - Side tabs by default, with placement switching for left, right, top, bottom, and floating chrome.
+- First-launch tutorial covering search, gesture navigation, private tabs, hidden side tabs, and automatic ad blocking.
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.
 - New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
-- Transparent tab chrome with a settings toggle and adjustable transparency.
+- More polished glass-style tab chrome with a settings toggle and adjustable transparency.
 - Tab bar transparency and background controls are available directly from the tab bar.
 - User-selected image backgrounds with a settings import, enable, and remove flow.
 - New tabs focus the floating address field and select its current text.
@@ -19,12 +20,12 @@ ZenFireBrowser is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired 
 - History panel for normal browsing, plus a clear-history action.
 - Downloads panel backed by WebKit downloads into the app's local Documents/Downloads folder.
 - Web page file-upload fields open a native file picker for sending local files.
-- Native WebKit content-rule ad/tracker blocking toggle.
+- Native WebKit content-rule ad/tracker blocking is enabled by default with 100-plus blocker domains and cosmetic hiding rules.
 - Gesture controls: two-finger swipe toggles the side tab bar, and three-finger horizontal swipes go back or forward.
 - Collapsible side tabs with a small edge handle.
 - Custom VPN profile setup using iOS Personal VPN APIs for a user-supplied country/server.
 - Top-right AI shortcuts for ChatGPT, Gemini, Claude, Grok, and an importable local AI endpoint.
-- Back, forward, reload/stop, close tab, new tab, and new private tab controls.
+- Back navigation is gesture-first; the visible chrome keeps forward, reload/stop, close tab, new tab, and new private tab controls.
 - Dark mode enforced in SwiftUI and `Info.plist`.
 
 ## Notes

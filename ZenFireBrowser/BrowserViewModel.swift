@@ -61,6 +61,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isWebFileImporterPresented = false
     @Published var allowsMultipleWebFileImport = false
     @Published var isLocalAIImporterPresented = false
+    @Published var isTutorialPresented: Bool
     @Published var isDarkReaderEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
     @Published var areSideTabsCollapsed: Bool {
@@ -101,7 +102,7 @@ final class BrowserViewModel: ObservableObject {
     init() {
         let defaults = UserDefaults.standard
         let darkReaderEnabled = defaults.bool(forKey: Self.StorageKey.darkReaderEnabled)
-        let adBlockerEnabled = defaults.bool(forKey: Self.StorageKey.adBlockerEnabled)
+        let adBlockerEnabled = defaults.object(forKey: Self.StorageKey.adBlockerEnabled) as? Bool ?? true
         let placement = BrowserChromePlacement(rawValue: defaults.string(forKey: Self.StorageKey.chromePlacement) ?? "") ?? .left
         let selectedSearchEngine = BrowserSearchEngine(rawValue: defaults.string(forKey: Self.StorageKey.searchEngine) ?? "") ?? .duckDuckGo
         let savedCustomSearch = defaults.string(forKey: Self.StorageKey.customSearchTemplate) ?? BrowserSearchEngine.defaultCustomTemplate
@@ -116,6 +117,7 @@ final class BrowserViewModel: ObservableObject {
         self.customSearchTemplate = savedCustomSearch
         self.history = savedHistory
         self.downloads = savedDownloads
+        self.isTutorialPresented = defaults.bool(forKey: Self.StorageKey.hasCompletedTutorial) == false
         self.isDarkReaderEnabled = darkReaderEnabled
         self.isAdBlockerEnabled = adBlockerEnabled
         self.localAIName = defaults.string(forKey: Self.StorageKey.localAIName) ?? "Local AI"
@@ -245,6 +247,11 @@ final class BrowserViewModel: ObservableObject {
 
     func toggleSideTabs() {
         areSideTabsCollapsed.toggle()
+    }
+
+    func completeTutorial() {
+        isTutorialPresented = false
+        UserDefaults.standard.set(true, forKey: Self.StorageKey.hasCompletedTutorial)
     }
 
     func handleThreeFingerSwipe(deltaX: CGFloat) {
@@ -454,7 +461,7 @@ final class BrowserViewModel: ObservableObject {
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         localAIName = "Local AI"
         localAIURLText = ""
-        setAdBlockerEnabled(false)
+        setAdBlockerEnabled(true)
         setDarkReaderEnabled(false)
         saveVPNProfile(.empty)
     }
@@ -639,6 +646,7 @@ final class BrowserViewModel: ObservableObject {
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
         static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
+        static let hasCompletedTutorial = "ZenFireBrowser.hasCompletedTutorial"
         static let downloads = "ZenFireBrowser.downloads"
         static let vpnProfile = "ZenFireBrowser.vpnProfile"
     }

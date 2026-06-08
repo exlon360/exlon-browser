@@ -36,7 +36,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         startURL: URL = BrowserDefaults.homeURL,
         isPrivate: Bool = false,
         isDarkReaderEnabled: Bool = false,
-        isAdBlockerEnabled: Bool = false
+        isAdBlockerEnabled: Bool = true
     ) {
         self.isPrivate = isPrivate
         self.isDarkReaderEnabled = isDarkReaderEnabled

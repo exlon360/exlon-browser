@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -23,6 +24,22 @@ def require_contains(path: str, needle: str, message: str) -> None:
 def require_absent(path: str, needle: str, message: str) -> None:
     if needle in read(path):
         raise SystemExit(message)
+
+
+def require_minimum_blocked_domains(minimum: int) -> None:
+    source = read("ZenFireBrowser/BrowserContentBlocker.swift")
+    marker = "private static let blockedDomains = ["
+    start = source.find(marker)
+    if start == -1:
+        raise SystemExit("The ad blocker must keep a native blockedDomains list.")
+
+    end = source.find("]\n", start)
+    if end == -1:
+        raise SystemExit("The blockedDomains list could not be parsed.")
+
+    domains = set(re.findall(r'"([A-Za-z0-9.-]+)"', source[start:end]))
+    if len(domains) < minimum:
+        raise SystemExit(f"The ad blocker must include at least {minimum} ad/tracker domains; found {len(domains)}.")
 
 
 def parse_xml(path: str) -> None:
@@ -70,6 +87,32 @@ def main() -> int:
         "ZenFireBrowser/BrowserContentBlocker.swift",
         "WKContentRuleListStore",
         "The ad blocker must use native WebKit content rules.",
+    )
+    require_minimum_blocked_domains(100)
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "defaults.object(forKey: Self.StorageKey.adBlockerEnabled) as? Bool ?? true",
+        "The ad blocker must be enabled by default for fresh installs.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "setAdBlockerEnabled(true)",
+        "Reset to default must turn the ad blocker back on.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "FirstRunTutorialView",
+        "Fresh installs must show a first-run tutorial.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "hasCompletedTutorial",
+        "The first-run tutorial must persist its completed state.",
+    )
+    require_absent(
+        "ZenFireBrowser/ContentView.swift",
+        'ChromeButton(symbol: "chevron.left", label: "Back")',
+        "Visible chrome back buttons must stay hidden; use gestures for back navigation.",
     )
     require_contains(
         "ZenFireBrowser/BrowserTab.swift",

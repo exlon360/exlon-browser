@@ -80,6 +80,13 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
+            .fullScreenCover(isPresented: $model.isTutorialPresented) {
+                FirstRunTutorialView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+                    .interactiveDismissDisabled()
+            }
             .fileImporter(
                 isPresented: $model.isWebFileImporterPresented,
                 allowedContentTypes: [.item],
@@ -263,7 +270,8 @@ private struct SideChrome: View {
         .padding(.top, 12)
         .padding(.bottom, 12)
         .padding(.horizontal, 12)
-        .background(theme.color(.chrome).opacity(theme.tabBarOpacity))
+        .background(ChromeGlassBackground(cornerRadius: 0))
+        .shadow(color: Color.black.opacity(0.24), radius: 18, x: edge == .left ? 8 : -8, y: 0)
         .overlay(alignment: edge == .left ? .trailing : .leading) {
             Rectangle()
                 .fill(theme.color(.border).opacity(0.65))
@@ -299,7 +307,8 @@ private struct HorizontalChrome: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(theme.color(.chrome).opacity(theme.tabBarOpacity))
+        .background(ChromeGlassBackground(cornerRadius: 0))
+        .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: edge == .top ? 8 : -8)
         .overlay(alignment: edge == .top ? .bottom : .top) {
             Rectangle()
                 .fill(theme.color(.border).opacity(0.65))
@@ -321,11 +330,6 @@ private struct FloatingChrome: View {
                     ChromeButton(symbol: "magnifyingglass", label: "Search") {
                         model.openFloatingSearch()
                     }
-
-                    ChromeButton(symbol: "chevron.left", label: "Back") {
-                        model.goBack()
-                    }
-                    .disabled(model.selectedTab?.canGoBack != true)
 
                     ChromeButton(symbol: "chevron.right", label: "Forward") {
                         model.goForward()
@@ -354,11 +358,12 @@ private struct FloatingChrome: View {
                 }
                 .padding(8)
             }
-            .background(theme.color(.chrome).opacity(theme.tabBarOpacity), in: Capsule())
+            .background(FloatingChromeBackground())
             .overlay {
                 Capsule()
                     .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
             }
+            .shadow(color: Color.black.opacity(0.34), radius: 20, y: 12)
             .padding(.horizontal, 12)
             .padding(.bottom, 14)
         }
@@ -392,11 +397,6 @@ private struct ChromeFooter: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ChromeButton(symbol: "chevron.left", label: "Back") {
-                    model.goBack()
-                }
-                .disabled(model.selectedTab?.canGoBack != true)
-
                 ChromeButton(symbol: "chevron.right", label: "Forward") {
                     model.goForward()
                 }
@@ -421,6 +421,53 @@ private struct ChromeFooter: View {
                 }
             }
         }
+    }
+}
+
+private struct ChromeGlassBackground: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                theme.color(.accent).opacity(0.08),
+                                Color.white.opacity(0.03),
+                                Color.clear
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+    }
+}
+
+private struct FloatingChromeBackground: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Capsule()
+            .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+            .overlay {
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                theme.color(.accent).opacity(0.10),
+                                Color.white.opacity(0.04),
+                                Color.clear
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
     }
 }
 
@@ -902,6 +949,165 @@ private struct AITabButton: View {
                 .shadow(color: Color.black.opacity(0.25), radius: 10, y: 5)
         }
         .accessibilityLabel("AI shortcuts")
+    }
+}
+
+private struct FirstRunTutorialView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        ZStack {
+            BrowserBackground()
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(theme.color(.surface).opacity(0.92))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(theme.color(.accent).opacity(0.75), lineWidth: 1)
+                            }
+                        Image(systemName: "globe")
+                            .font(.system(size: 25, weight: .black))
+                            .foregroundStyle(theme.color(.createTab))
+                    }
+                    .frame(width: 62, height: 62)
+                    .shadow(color: theme.color(.accent).opacity(0.18), radius: 20, y: 10)
+
+                    VStack(spacing: 8) {
+                        Text("Exlon Browser")
+                            .font(.system(size: 34, weight: .black))
+                            .foregroundStyle(theme.color(.text))
+                            .multilineTextAlignment(.center)
+
+                        Text("Dark, lightweight, and gesture-first.")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                            .multilineTextAlignment(.center)
+                    }
+
+                    VStack(spacing: 0) {
+                        TutorialFeatureRow(
+                            symbol: "plus.circle.fill",
+                            title: "New tabs start in search",
+                            detail: "Tap plus and the floating search bar opens selected and ready.",
+                            tint: .createTab
+                        )
+
+                        TutorialDivider()
+
+                        TutorialFeatureRow(
+                            symbol: "arrow.left.and.right",
+                            title: "Back is gesture-first",
+                            detail: "Use the iOS edge swipe or a three-finger horizontal swipe to move back and forward.",
+                            tint: .accent
+                        )
+
+                        TutorialDivider()
+
+                        TutorialFeatureRow(
+                            symbol: "sidebar.left",
+                            title: "Hide tabs with two fingers",
+                            detail: "A two-finger swipe tucks the side tabs away, and the side handle brings them back.",
+                            tint: .accent
+                        )
+
+                        TutorialDivider()
+
+                        TutorialFeatureRow(
+                            symbol: "shield.lefthalf.filled",
+                            title: "Ad blocking is already on",
+                            detail: "Native WebKit rules block 100-plus ad, tracker, and sponsored-content sources automatically.",
+                            tint: .privateAccent
+                        )
+
+                        TutorialDivider()
+
+                        TutorialFeatureRow(
+                            symbol: "theatermasks",
+                            title: "Private tabs stay private",
+                            detail: "Private browsing uses non-persistent storage and does not write history.",
+                            tint: .privateAccent
+                        )
+                    }
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
+                    }
+                    .shadow(color: Color.black.opacity(0.34), radius: 26, y: 16)
+
+                    Button {
+                        model.completeTutorial()
+                        model.openFloatingSearch()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text("Start browsing")
+                                .font(.system(size: 16, weight: .bold))
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 14, weight: .black))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .foregroundStyle(theme.color(.canvas))
+                        .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Start browsing")
+                }
+                .frame(maxWidth: 560)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 34)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private struct TutorialFeatureRow: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let symbol: String
+    let title: String
+    let detail: String
+    let tint: BrowserThemeToken
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .bold))
+                .frame(width: 34, height: 34)
+                .foregroundStyle(theme.color(tint))
+                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(theme.color(.text))
+                    .lineLimit(2)
+
+                Text(detail)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.color(.mutedText))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+    }
+}
+
+private struct TutorialDivider: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Rectangle()
+            .fill(theme.color(.border).opacity(0.32))
+            .frame(height: 1)
+            .padding(.leading, 60)
     }
 }
 
