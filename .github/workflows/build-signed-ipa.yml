@@ -1,0 +1,46 @@
+name: Build Signed IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: "Export method: development, ad-hoc, app-store, or enterprise"
+        required: true
+        default: "development"
+      bundle_identifier:
+        description: "Bundle identifier that matches the provisioning profile"
+        required: true
+        default: "com.exlon.ZenFireBrowser"
+
+permissions:
+  contents: read
+
+jobs:
+  signed-ipa:
+    name: Build signed IPA artifact
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build signed IPA
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          EXPORT_METHOD: ${{ inputs.export_method }}
+          BUNDLE_IDENTIFIER: ${{ inputs.bundle_identifier }}
+        run: bash scripts/build_signed_ipa.sh
+
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenFireBrowser-signed-ipa
+          path: build/signed-ipa/export/*.ipa
+          if-no-files-found: error

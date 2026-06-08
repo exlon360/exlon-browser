@@ -36,9 +36,11 @@ def main() -> int:
     required_files = [
         ".github/workflows/ios-ci.yml",
         ".github/workflows/build-ipa.yml",
+        ".github/workflows/build-signed-ipa.yml",
         ".github/workflows/repository-checks.yml",
         "README.md",
         "scripts/build_unsigned_ipa.sh",
+        "scripts/build_signed_ipa.sh",
         "ZenFireBrowser.xcodeproj/project.pbxproj",
         "ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme",
         "ZenFireBrowser/BrowserTab.swift",
@@ -81,9 +83,19 @@ def main() -> int:
         "The IPA workflow must upload a ZenFireBrowser IPA artifact.",
     )
     require_contains(
+        ".github/workflows/build-signed-ipa.yml",
+        "ZenFireBrowser-signed-ipa",
+        "The signed IPA workflow must upload a signed IPA artifact.",
+    )
+    require_contains(
         "scripts/build_unsigned_ipa.sh",
         "CODE_SIGNING_ALLOWED=NO",
         "The unsigned IPA script must disable code signing.",
+    )
+    require_contains(
+        "scripts/build_signed_ipa.sh",
+        "security import",
+        "The signed IPA script must import the signing certificate.",
     )
 
     swift_files = list((ROOT / "ZenFireBrowser").glob("*.swift"))
