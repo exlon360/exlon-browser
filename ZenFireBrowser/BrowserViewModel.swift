@@ -125,7 +125,7 @@ final class BrowserViewModel: ObservableObject {
         persistOpenTabs()
     }
 
-    func openTab(startURL: URL = BrowserTab.homeURL, private isPrivate: Bool = false) {
+    func openTab(startURL: URL = BrowserDefaults.homeURL, private isPrivate: Bool = false) {
         let tab = BrowserTab(startURL: startURL, isPrivate: isPrivate, isDarkReaderEnabled: isDarkReaderEnabled)
         configure(tab)
         tabs.append(tab)
