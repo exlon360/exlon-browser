@@ -69,9 +69,34 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
 @MainActor
 final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
+    @Published var isTabBarTransparencyEnabled: Bool {
+        didSet {
+            defaults.set(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
+        }
+    }
+    @Published var tabBarTransparency: Double {
+        didSet {
+            let clamped = min(max(tabBarTransparency, 0), 0.85)
+            if clamped != tabBarTransparency {
+                tabBarTransparency = clamped
+                return
+            }
+            defaults.set(tabBarTransparency, forKey: Self.tabBarTransparencyKey)
+        }
+    }
+    @Published var isUserBackgroundEnabled: Bool {
+        didSet {
+            defaults.set(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
+        }
+    }
+    @Published private var userBackgroundImageData: Data?
 
     private let defaults = UserDefaults.standard
     private static let storagePrefix = "ZenFireBrowser.theme."
+    private static let tabBarTransparencyEnabledKey = "\(storagePrefix)tabBarTransparencyEnabled"
+    private static let tabBarTransparencyKey = "\(storagePrefix)tabBarTransparency"
+    private static let userBackgroundEnabledKey = "\(storagePrefix)userBackgroundEnabled"
+    private static let userBackgroundImageDataKey = "\(storagePrefix)userBackgroundImageData"
 
     init() {
         var values: [BrowserThemeToken: String] = [:]
@@ -79,10 +104,31 @@ final class BrowserTheme: ObservableObject {
             values[token] = UserDefaults.standard.string(forKey: Self.storageKey(for: token)) ?? token.defaultHex
         }
         self.colorHexByToken = values
+        self.isTabBarTransparencyEnabled = UserDefaults.standard.object(forKey: Self.tabBarTransparencyEnabledKey) as? Bool ?? true
+        self.tabBarTransparency = UserDefaults.standard.object(forKey: Self.tabBarTransparencyKey) as? Double ?? 0.32
+        self.isUserBackgroundEnabled = UserDefaults.standard.object(forKey: Self.userBackgroundEnabledKey) as? Bool ?? false
+        self.userBackgroundImageData = UserDefaults.standard.data(forKey: Self.userBackgroundImageDataKey)
     }
 
     func color(_ token: BrowserThemeToken) -> Color {
         Color(hex: colorHexByToken[token] ?? token.defaultHex)
+    }
+
+    var tabBarOpacity: Double {
+        isTabBarTransparencyEnabled ? max(0.15, 1.0 - tabBarTransparency) : 1.0
+    }
+
+    var controlOpacity: Double {
+        isTabBarTransparencyEnabled ? max(0.35, 1.0 - (tabBarTransparency * 0.55)) : 1.0
+    }
+
+    var hasUserBackground: Bool {
+        userBackgroundImageData != nil
+    }
+
+    var userBackgroundImage: UIImage? {
+        guard let userBackgroundImageData = userBackgroundImageData else { return nil }
+        return UIImage(data: userBackgroundImageData)
     }
 
     func binding(for token: BrowserThemeToken) -> Binding<Color> {
@@ -103,6 +149,36 @@ final class BrowserTheme: ObservableObject {
             colorHexByToken[token] = token.defaultHex
             defaults.set(token.defaultHex, forKey: Self.storageKey(for: token))
         }
+
+        isTabBarTransparencyEnabled = true
+        tabBarTransparency = 0.32
+        isUserBackgroundEnabled = false
+        userBackgroundImageData = nil
+        defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
+    }
+
+    func setUserBackground(from url: URL) {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard let image = UIImage(contentsOfFile: url.path),
+              let data = image.jpegData(compressionQuality: 0.86) else {
+            return
+        }
+
+        userBackgroundImageData = data
+        isUserBackgroundEnabled = true
+        defaults.set(data, forKey: Self.userBackgroundImageDataKey)
+    }
+
+    func clearUserBackground() {
+        userBackgroundImageData = nil
+        isUserBackgroundEnabled = false
+        defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
     }
 
     private static func storageKey(for token: BrowserThemeToken) -> String {

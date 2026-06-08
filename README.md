@@ -8,6 +8,8 @@ ZenFireBrowser is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired 
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.
 - New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
+- Transparent tab chrome with a settings toggle and adjustable transparency.
+- User-selected image backgrounds with a settings import, enable, and remove flow.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
 - Normal and private tabs. Private tabs use a non-persistent `WKWebsiteDataStore`.
 - Private tabs do not write browsing history or show local history suggestions in private search.

@@ -87,6 +87,21 @@ def main() -> int:
         "New tab controls must open the floating search bar.",
     )
     require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "tabBarTransparency",
+        "The tab bar must expose adjustable transparency.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "setUserBackground",
+        "The browser theme must support user-selected backgrounds.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Choose background",
+        "Settings must expose a user background picker.",
+    )
+    require_contains(
         "ZenFireBrowser/CustomVPNController.swift",
         "NEVPNManager",
         "The custom VPN profile must use native iOS VPN APIs.",

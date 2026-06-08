@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
@@ -102,6 +103,7 @@ private struct BrowserContent: View {
     var body: some View {
         ZStack {
             theme.color(.canvas)
+                .opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.72 : 1)
 
             if let tab = model.selectedTab {
                 BrowserWebView(tab: tab)
@@ -259,7 +261,7 @@ private struct SideChrome: View {
         .padding(.top, 12)
         .padding(.bottom, 12)
         .padding(.horizontal, 12)
-        .background(theme.color(.chrome))
+        .background(theme.color(.chrome).opacity(theme.tabBarOpacity))
         .overlay(alignment: edge == .left ? .trailing : .leading) {
             Rectangle()
                 .fill(theme.color(.border).opacity(0.65))
@@ -294,7 +296,7 @@ private struct HorizontalChrome: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(theme.color(.chrome))
+        .background(theme.color(.chrome).opacity(theme.tabBarOpacity))
         .overlay(alignment: edge == .top ? .bottom : .top) {
             Rectangle()
                 .fill(theme.color(.border).opacity(0.65))
@@ -347,7 +349,7 @@ private struct FloatingChrome: View {
                 }
                 .padding(8)
             }
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(theme.color(.chrome).opacity(theme.tabBarOpacity), in: Capsule())
             .overlay {
                 Capsule()
                     .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
@@ -435,7 +437,7 @@ private struct PlacementMenu: View {
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
                 .foregroundStyle(theme.color(.text))
-                .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .accessibilityLabel("Change chrome placement")
     }
@@ -478,7 +480,7 @@ private struct SearchTrigger: View {
             }
             .padding(.horizontal, 12)
             .frame(height: style == .sidebar ? 46 : 48)
-            .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
@@ -1031,7 +1033,7 @@ private struct NewTabActions: View {
                 .padding(.horizontal, 12)
                 .frame(width: layout == .strip ? 136 : nil, height: 44)
                 .frame(maxWidth: layout == .sidebar ? .infinity : nil)
-                .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(theme.color(.createTab).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
@@ -1047,7 +1049,7 @@ private struct NewTabActions: View {
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 44, height: 44)
                     .foregroundStyle(theme.color(.text))
-                    .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(theme.color(.privateAccent).opacity(0.55), lineWidth: 1)
@@ -1142,7 +1144,7 @@ private struct TabPill: View {
         .padding(.leading, 10)
         .padding(.trailing, 6)
         .frame(width: layout == .horizontal ? 210 : nil, height: 46)
-        .background(isSelected ? theme.color(.surface) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(isSelected ? theme.color(.surface).opacity(theme.controlOpacity) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(isSelected ? theme.color(.accent).opacity(0.72) : theme.color(.border).opacity(0.35), lineWidth: 1)
@@ -1191,7 +1193,7 @@ private struct FloatingTabSwitcher: View {
             .frame(height: 36)
             .padding(.horizontal, 12)
             .foregroundStyle(theme.color(.text))
-            .background(theme.color(.field), in: Capsule())
+            .background(theme.color(.field).opacity(theme.controlOpacity), in: Capsule())
         }
     }
 }
@@ -1222,7 +1224,7 @@ private struct ChromeButton: View {
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
                 .foregroundStyle(theme.color(.text))
-                .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.border).opacity(0.4), lineWidth: 1)
@@ -1239,7 +1241,7 @@ private struct BrandMark: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(theme.color(.surface))
+                .fill(theme.color(.surface).opacity(theme.controlOpacity))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.accent).opacity(0.8), lineWidth: 1)
@@ -1256,16 +1258,29 @@ private struct BrowserBackground: View {
     @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
-        LinearGradient(
-            colors: [
-                theme.color(.canvas),
-                theme.color(.chrome),
+        ZStack {
+            if theme.isUserBackgroundEnabled,
+               let image = theme.userBackgroundImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
                 theme.color(.canvas)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+                    .opacity(0.34)
+                    .ignoresSafeArea()
+            } else {
+                LinearGradient(
+                    colors: [
+                        theme.color(.canvas),
+                        theme.color(.chrome),
+                        theme.color(.canvas)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            }
+        }
     }
 }
 
@@ -1273,6 +1288,7 @@ private struct BrowserSettingsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
+    @State private var isBackgroundImporterPresented = false
 
     var body: some View {
         NavigationStack {
@@ -1308,6 +1324,47 @@ private struct BrowserSettingsView: View {
                     Button("Custom VPN") {
                         model.isVPNPresented = true
                     }
+                }
+
+                Section("Backgrounds & Tab Bar") {
+                    Toggle("Transparent tab bar", isOn: $theme.isTabBarTransparencyEnabled)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Transparency")
+                            Spacer()
+                            Text("\(Int(theme.tabBarTransparency * 100))%")
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+                        Slider(value: $theme.tabBarTransparency, in: 0...0.85)
+                            .disabled(theme.isTabBarTransparencyEnabled == false)
+                    }
+
+                    Toggle("Use custom background", isOn: $theme.isUserBackgroundEnabled)
+                        .disabled(theme.hasUserBackground == false)
+
+                    if theme.isUserBackgroundEnabled,
+                       let image = theme.userBackgroundImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 92)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
+                            }
+                    }
+
+                    Button("Choose background") {
+                        isBackgroundImporterPresented = true
+                    }
+
+                    Button("Remove background") {
+                        theme.clearUserBackground()
+                    }
+                    .disabled(theme.hasUserBackground == false)
                 }
 
                 Section("Local AI") {
@@ -1348,6 +1405,16 @@ private struct BrowserSettingsView: View {
                     Button("Done") {
                         dismiss()
                     }
+                }
+            }
+            .fileImporter(
+                isPresented: $isBackgroundImporterPresented,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: false
+            ) { result in
+                if case .success(let urls) = result,
+                   let url = urls.first {
+                    theme.setUserBackground(from: url)
                 }
             }
         }
