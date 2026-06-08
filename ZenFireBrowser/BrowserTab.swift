@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 enum BrowserDefaults {
-    static let homeURL = URL(string: "https://www.mozilla.org/firefox/new/")!
+    static let homeURL = URL(string: "https://duckduckgo.com/")!
 }
 
 @MainActor
@@ -19,11 +19,13 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var estimatedProgress = 0.0
     @Published var canGoBack = false
     @Published var canGoForward = false
+    @Published var isDarkReaderEnabled: Bool
 
     private var observations: [NSKeyValueObservation] = []
 
-    init(startURL: URL = BrowserDefaults.homeURL, isPrivate: Bool = false) {
+    init(startURL: URL = BrowserDefaults.homeURL, isPrivate: Bool = false, isDarkReaderEnabled: Bool = false) {
         self.isPrivate = isPrivate
+        self.isDarkReaderEnabled = isDarkReaderEnabled
         self.title = isPrivate ? "Private Start" : "Start"
         self.url = startURL
         self.addressText = startURL.absoluteString
@@ -64,6 +66,52 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         } else {
             webView.reload()
         }
+    }
+
+    func setDarkReaderEnabled(_ enabled: Bool) {
+        isDarkReaderEnabled = enabled
+        applyDarkReaderStyle()
+    }
+
+    private func applyDarkReaderStyle() {
+        let script: String
+
+        if isDarkReaderEnabled {
+            script = """
+            (() => {
+              const existing = document.getElementById('zenfire-dark-reader');
+              if (existing) { existing.remove(); }
+              const style = document.createElement('style');
+              style.id = 'zenfire-dark-reader';
+              style.textContent = `
+                html, body {
+                  background: #0b0d12 !important;
+                  color: #dfe6f3 !important;
+                }
+                html {
+                  filter: invert(0.88) hue-rotate(180deg) brightness(0.86) contrast(0.92) !important;
+                }
+                img, picture, video, canvas, svg, iframe, [style*="background-image"] {
+                  filter: invert(1) hue-rotate(180deg) brightness(1.08) contrast(1.08) !important;
+                }
+                input, textarea, select, button {
+                  color-scheme: dark !important;
+                }
+              `;
+              document.head.appendChild(style);
+            })();
+            """
+        } else {
+            script = """
+            (() => {
+              const existing = document.getElementById('zenfire-dark-reader');
+              if (existing) { existing.remove(); }
+              document.documentElement.style.filter = '';
+            })();
+            """
+        }
+
+        webView.evaluateJavaScript(script)
     }
 
     private func bindWebViewState() {
@@ -138,6 +186,7 @@ extension BrowserTab: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor [weak self] in
             self?.isLoading = false
+            self?.applyDarkReaderStyle()
         }
     }
 

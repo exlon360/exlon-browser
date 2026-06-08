@@ -46,11 +46,16 @@ final class BrowserViewModel: ObservableObject {
     @Published var tabs: [BrowserTab]
     @Published var selectedTabID: BrowserTab.ID?
     @Published var chromePlacement: BrowserChromePlacement = .left
+    @Published var isFloatingSearchPresented = false
+    @Published var isSettingsPresented = false
+    @Published var isDarkReaderEnabled: Bool
 
     init() {
-        let firstTab = BrowserTab()
+        let darkReaderEnabled = UserDefaults.standard.bool(forKey: "ZenFireBrowser.darkReaderEnabled")
+        let firstTab = BrowserTab(isDarkReaderEnabled: darkReaderEnabled)
         self.tabs = [firstTab]
         self.selectedTabID = firstTab.id
+        self.isDarkReaderEnabled = darkReaderEnabled
     }
 
     var selectedTab: BrowserTab? {
@@ -71,7 +76,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func openTab(private isPrivate: Bool = false) {
-        let tab = BrowserTab(isPrivate: isPrivate)
+        let tab = BrowserTab(isPrivate: isPrivate, isDarkReaderEnabled: isDarkReaderEnabled)
         tabs.append(tab)
         selectedTabID = tab.id
     }
@@ -108,5 +113,18 @@ final class BrowserViewModel: ObservableObject {
 
     func submitAddress() {
         selectedTab?.submitAddress()
+        isFloatingSearchPresented = false
+    }
+
+    func openFloatingSearch() {
+        isFloatingSearchPresented = true
+    }
+
+    func setDarkReaderEnabled(_ enabled: Bool) {
+        isDarkReaderEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "ZenFireBrowser.darkReaderEnabled")
+        for tab in tabs {
+            tab.setDarkReaderEnabled(enabled)
+        }
     }
 }

@@ -2,16 +2,19 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = BrowserViewModel()
+    @StateObject private var theme = BrowserTheme()
 
     var body: some View {
         BrowserShell()
             .environmentObject(model)
+            .environmentObject(theme)
             .preferredColorScheme(.dark)
     }
 }
 
 private struct BrowserShell: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         GeometryReader { proxy in
@@ -45,10 +48,22 @@ private struct BrowserShell: View {
                     BrowserContent()
                     FloatingChrome()
                 }
+
+                if model.isFloatingSearchPresented {
+                    FloatingSearchOverlay()
+                        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                }
             }
+            .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            .sheet(isPresented: $model.isSettingsPresented) {
+                BrowserSettingsView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
         }
-        .tint(.cyan)
+        .tint(theme.color(.accent))
     }
 
     private func sideWidth(for proxy: GeometryProxy) -> CGFloat {
@@ -58,10 +73,11 @@ private struct BrowserShell: View {
 
 private struct BrowserContent: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         ZStack {
-            Color.browserCanvas
+            theme.color(.canvas)
 
             if let tab = model.selectedTab {
                 BrowserWebView(tab: tab)
@@ -69,6 +85,10 @@ private struct BrowserContent: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(alignment: .top) {
                         LoadingProgress(tab: tab)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(theme.color(.border).opacity(0.5), lineWidth: 1)
                     }
                     .padding(browserPadding)
             }
@@ -84,12 +104,13 @@ private struct BrowserContent: View {
 
 private struct LoadingProgress: View {
     @ObservedObject var tab: BrowserTab
+    @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         GeometryReader { proxy in
             if tab.isLoading {
                 Rectangle()
-                    .fill(.cyan)
+                    .fill(theme.color(.accent))
                     .frame(width: max(12, proxy.size.width * tab.estimatedProgress), height: 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .animation(.easeOut(duration: 0.18), value: tab.estimatedProgress)
@@ -106,13 +127,14 @@ private enum SideChromeEdge {
 
 private struct SideChrome: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
     let edge: SideChromeEdge
 
     var body: some View {
         VStack(spacing: 12) {
             ChromeHeader(compact: true)
 
-            AddressField(style: .sidebar)
+            SearchTrigger(style: .sidebar)
 
             TabSection(title: "Tabs", tabs: model.normalTabs)
 
@@ -127,10 +149,10 @@ private struct SideChrome: View {
         .padding(.top, 12)
         .padding(.bottom, 12)
         .padding(.horizontal, 12)
-        .background(Color.browserChrome)
+        .background(theme.color(.chrome))
         .overlay(alignment: edge == .left ? .trailing : .leading) {
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(theme.color(.border).opacity(0.65))
                 .frame(width: 1)
         }
     }
@@ -138,13 +160,14 @@ private struct SideChrome: View {
 
 private struct HorizontalChrome: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
     let edge: VerticalEdge
 
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 ChromeHeader(compact: false)
-                AddressField(style: .bar)
+                SearchTrigger(style: .bar)
                 ChromeFooter()
             }
 
@@ -159,10 +182,10 @@ private struct HorizontalChrome: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.browserChrome)
+        .background(theme.color(.chrome))
         .overlay(alignment: edge == .top ? .bottom : .top) {
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(theme.color(.border).opacity(0.65))
                 .frame(height: 1)
         }
     }
@@ -170,16 +193,17 @@ private struct HorizontalChrome: View {
 
 private struct FloatingChrome: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         VStack {
-            AddressField(style: .floating)
-                .padding(.top, 12)
-                .padding(.horizontal, 16)
-
             Spacer()
 
             HStack(spacing: 10) {
+                ChromeButton(symbol: "magnifyingglass", label: "Search") {
+                    model.openFloatingSearch()
+                }
+
                 ChromeButton(symbol: "chevron.left", label: "Back") {
                     model.goBack()
                 }
@@ -195,12 +219,16 @@ private struct FloatingChrome: View {
                 ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                     model.reloadOrStop()
                 }
+
+                ChromeButton(symbol: "gearshape", label: "Settings") {
+                    model.isSettingsPresented = true
+                }
             }
             .padding(8)
             .background(.ultraThinMaterial, in: Capsule())
             .overlay {
                 Capsule()
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
             }
             .padding(.bottom, 14)
         }
@@ -209,6 +237,7 @@ private struct FloatingChrome: View {
 
 private struct ChromeHeader: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
     let compact: Bool
 
     var body: some View {
@@ -216,9 +245,9 @@ private struct ChromeHeader: View {
             BrandMark()
 
             if compact == false {
-                Text("ZenFire")
+                Text("Exlon Browser")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.color(.text))
                     .lineLimit(1)
             }
 
@@ -255,12 +284,17 @@ private struct ChromeFooter: View {
             }
 
             PlacementMenu()
+
+            ChromeButton(symbol: "gearshape", label: "Settings") {
+                model.isSettingsPresented = true
+            }
         }
     }
 }
 
 private struct PlacementMenu: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         Menu {
@@ -275,30 +309,83 @@ private struct PlacementMenu: View {
             Image(systemName: model.chromePlacement.symbolName)
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
-                .foregroundStyle(.white)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .foregroundStyle(theme.color(.text))
+                .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .accessibilityLabel("Change chrome placement")
     }
 }
 
-private enum AddressFieldStyle {
+private enum SearchTriggerStyle {
     case sidebar
     case bar
+}
+
+private struct SearchTrigger: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let style: SearchTriggerStyle
+
+    var body: some View {
+        Button {
+            model.openFloatingSearch()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.selectedTab?.url?.host ?? "Search DuckDuckGo")
+                        .font(.system(size: style == .sidebar ? 13 : 15, weight: .semibold))
+                        .foregroundStyle(theme.color(.text))
+                        .lineLimit(1)
+
+                    if style == .sidebar {
+                        Text("Search or enter address")
+                            .font(.caption2)
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "command")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: style == .sidebar ? 46 : 48)
+            .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private enum AddressFieldStyle {
     case floating
 }
 
 private struct AddressField: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @FocusState private var isFocused: Bool
     let style: AddressFieldStyle
+    let focusOnAppear: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(model.selectedTab?.isPrivate == true ? .purple : .cyan)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
-            TextField("Search or enter address", text: addressBinding)
+            TextField("Search DuckDuckGo or enter address", text: addressBinding)
+                .focused($isFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
@@ -306,31 +393,34 @@ private struct AddressField: View {
                 .onSubmit {
                     model.submitAddress()
                 }
-                .foregroundStyle(.white)
-                .font(.system(size: style == .sidebar ? 14 : 16, weight: .medium))
+                .foregroundStyle(theme.color(.text))
+                .font(.system(size: 18, weight: .medium))
 
             if model.selectedTab?.isPrivate == true {
                 Text("Private")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.color(.text))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
-                    .background(.purple.opacity(0.72), in: Capsule())
+                    .background(theme.color(.privateAccent).opacity(0.72), in: Capsule())
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: style == .sidebar ? 44 : 48)
-        .frame(maxWidth: style == .floating ? 640 : .infinity)
-        .background(fieldBackground)
+        .padding(.horizontal, 14)
+        .frame(height: 54)
+        .frame(maxWidth: 680)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(style == .floating ? 0.22 : 0.1), lineWidth: 1)
+                .stroke(theme.color(.border).opacity(0.9), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(style == .floating ? 0.35 : 0), radius: 18, y: 10)
-    }
-
-    private var fieldBackground: AnyShapeStyle {
-        style == .floating ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.white.opacity(0.08))
+        .shadow(color: Color.black.opacity(0.38), radius: 22, y: 12)
+        .onAppear {
+            if focusOnAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    isFocused = true
+                }
+            }
+        }
     }
 
     private var addressBinding: Binding<String> {
@@ -341,7 +431,44 @@ private struct AddressField: View {
     }
 }
 
+private struct FloatingSearchOverlay: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.32)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    model.isFloatingSearchPresented = false
+                }
+
+            VStack(spacing: 12) {
+                AddressField(style: .floating, focusOnAppear: true)
+
+                if let tab = model.selectedTab {
+                    HStack(spacing: 8) {
+                        Image(systemName: tab.isPrivate ? "theatermasks" : "globe")
+                        Text(tab.title)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(tab.url?.host ?? "DuckDuckGo")
+                            .lineLimit(1)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: 680)
+                }
+            }
+            .padding(.top, 18)
+            .padding(.horizontal, 16)
+        }
+    }
+}
+
 private struct TabSection: View {
+    @EnvironmentObject private var theme: BrowserTheme
     let title: String
     let tabs: [BrowserTab]
 
@@ -349,7 +476,7 @@ private struct TabSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
                 .font(.caption2.weight(.bold))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(theme.color(.mutedText))
                 .padding(.horizontal, 4)
 
             ForEach(tabs) { tab in
@@ -366,6 +493,7 @@ private enum TabPillLayout {
 
 private struct TabPill: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
     @ObservedObject var tab: BrowserTab
     let layout: TabPillLayout
 
@@ -381,23 +509,23 @@ private struct TabPill: View {
                 HStack(spacing: 10) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(tab.isPrivate ? Color.purple.opacity(0.8) : Color.cyan.opacity(0.22))
+                            .fill(tab.isPrivate ? theme.color(.privateAccent).opacity(0.82) : theme.color(.accent).opacity(0.24))
                         Image(systemName: tab.isPrivate ? "theatermasks" : "globe")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.color(.text))
                     }
                     .frame(width: 28, height: 28)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(tab.title)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.color(.text))
                             .lineLimit(1)
 
                         if layout == .vertical {
-                    Text(tab.url?.host ?? "Start")
+                            Text(tab.url?.host ?? "DuckDuckGo")
                                 .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.52))
+                                .foregroundStyle(theme.color(.mutedText))
                                 .lineLimit(1)
                         }
                     }
@@ -417,15 +545,15 @@ private struct TabPill: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.62))
+            .foregroundStyle(theme.color(.mutedText))
         }
         .padding(.leading, 10)
         .padding(.trailing, 6)
         .frame(width: layout == .horizontal ? 210 : nil, height: 46)
-        .background(isSelected ? Color.white.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(isSelected ? theme.color(.surface) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isSelected ? Color.cyan.opacity(0.55) : Color.white.opacity(0.06), lineWidth: 1)
+                .stroke(isSelected ? theme.color(.accent).opacity(0.72) : theme.color(.border).opacity(0.35), lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
@@ -433,6 +561,7 @@ private struct TabPill: View {
 
 private struct FloatingTabSwitcher: View {
     @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         Menu {
@@ -469,8 +598,8 @@ private struct FloatingTabSwitcher: View {
             }
             .frame(height: 36)
             .padding(.horizontal, 12)
-            .foregroundStyle(.white)
-            .background(Color.white.opacity(0.1), in: Capsule())
+            .foregroundStyle(theme.color(.text))
+            .background(theme.color(.field), in: Capsule())
         }
     }
 }
@@ -490,6 +619,7 @@ private struct PlacementMenuContent: View {
 }
 
 private struct ChromeButton: View {
+    @EnvironmentObject private var theme: BrowserTheme
     let symbol: String
     let label: String
     let action: () -> Void
@@ -499,8 +629,12 @@ private struct ChromeButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
-                .foregroundStyle(.white)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .foregroundStyle(theme.color(.text))
+                .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.4), lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -508,31 +642,33 @@ private struct ChromeButton: View {
 }
 
 private struct BrandMark: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [.cyan, .purple, .indigo],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            Image(systemName: "flame.fill")
+                .fill(theme.color(.surface))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.accent).opacity(0.8), lineWidth: 1)
+                }
+            Image(systemName: "magnifyingglass")
                 .font(.system(size: 15, weight: .black))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.color(.accent))
         }
         .frame(width: 36, height: 36)
     }
 }
 
 private struct BrowserBackground: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
     var body: some View {
         LinearGradient(
             colors: [
-                Color(red: 0.025, green: 0.028, blue: 0.038),
-                Color(red: 0.04, green: 0.045, blue: 0.06),
-                Color(red: 0.028, green: 0.035, blue: 0.055)
+                theme.color(.canvas),
+                theme.color(.chrome),
+                theme.color(.canvas)
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -541,9 +677,54 @@ private struct BrowserBackground: View {
     }
 }
 
-private extension Color {
-    static let browserChrome = Color(red: 0.047, green: 0.052, blue: 0.068)
-    static let browserCanvas = Color(red: 0.018, green: 0.02, blue: 0.028)
+private struct BrowserSettingsView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Browsing") {
+                    Toggle("Dark Reader style pages", isOn: darkReaderBinding)
+                    Picker("Chrome placement", selection: $model.chromePlacement) {
+                        ForEach(BrowserChromePlacement.allCases) { placement in
+                            Label(placement.title, systemImage: placement.symbolName)
+                                .tag(placement)
+                        }
+                    }
+                }
+
+                Section("Colors") {
+                    ForEach(BrowserThemeToken.allCases) { token in
+                        ColorPicker(token.title, selection: theme.binding(for: token), supportsOpacity: false)
+                    }
+
+                    Button("Reset to Zen dark defaults") {
+                        theme.resetToZenDefaults()
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var darkReaderBinding: Binding<Bool> {
+        Binding(
+            get: { model.isDarkReaderEnabled },
+            set: { model.setDarkReaderEnabled($0) }
+        )
+    }
 }
 
 struct ContentView_Previews: PreviewProvider {

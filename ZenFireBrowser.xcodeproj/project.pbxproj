@@ -13,6 +13,7 @@
 		4A1C0E3F2EED000100A17B01 /* BrowserWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E3E2EED000100A17B01 /* BrowserWebView.swift */; };
 		4A1C0E412EED000100A17B01 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E402EED000100A17B01 /* ContentView.swift */; };
 		4A1C0E432EED000100A17B01 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4A1C0E422EED000100A17B01 /* WebKit.framework */; };
+		4A1C0E4E2EED000100A17B01 /* BrowserTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E4D2EED000100A17B01 /* BrowserTheme.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +25,7 @@
 		4A1C0E402EED000100A17B01 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4A1C0E442EED000100A17B01 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		4A1C0E422EED000100A17B01 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		4A1C0E4D2EED000100A17B01 /* BrowserTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserTheme.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,6 +62,7 @@
 			children = (
 				4A1C0E382EED000100A17B01 /* ZenFireBrowserApp.swift */,
 				4A1C0E3A2EED000100A17B01 /* BrowserTab.swift */,
+				4A1C0E4D2EED000100A17B01 /* BrowserTheme.swift */,
 				4A1C0E3C2EED000100A17B01 /* BrowserViewModel.swift */,
 				4A1C0E3E2EED000100A17B01 /* BrowserWebView.swift */,
 				4A1C0E402EED000100A17B01 /* ContentView.swift */,
@@ -147,6 +150,7 @@
 				4A1C0E392EED000100A17B01 /* ZenFireBrowserApp.swift in Sources */,
 				4A1C0E3B2EED000100A17B01 /* BrowserTab.swift in Sources */,
 				4A1C0E3D2EED000100A17B01 /* BrowserViewModel.swift in Sources */,
+				4A1C0E4E2EED000100A17B01 /* BrowserTheme.swift in Sources */,
 				4A1C0E3F2EED000100A17B01 /* BrowserWebView.swift in Sources */,
 				4A1C0E412EED000100A17B01 /* ContentView.swift in Sources */,
 			);

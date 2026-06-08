@@ -44,6 +44,7 @@ def main() -> int:
         "ZenFireBrowser.xcodeproj/project.pbxproj",
         "ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme",
         "ZenFireBrowser/BrowserTab.swift",
+        "ZenFireBrowser/BrowserTheme.swift",
         "ZenFireBrowser/BrowserViewModel.swift",
         "ZenFireBrowser/BrowserWebView.swift",
         "ZenFireBrowser/ContentView.swift",
