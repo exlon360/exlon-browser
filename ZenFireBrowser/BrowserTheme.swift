@@ -66,12 +66,12 @@ final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
 
     private let defaults = UserDefaults.standard
-    private let storagePrefix = "ZenFireBrowser.theme."
+    private static let storagePrefix = "ZenFireBrowser.theme."
 
     init() {
         var values: [BrowserThemeToken: String] = [:]
         for token in BrowserThemeToken.allCases {
-            values[token] = defaults.string(forKey: storageKey(for: token)) ?? token.defaultHex
+            values[token] = UserDefaults.standard.string(forKey: Self.storageKey(for: token)) ?? token.defaultHex
         }
         self.colorHexByToken = values
     }
@@ -90,17 +90,17 @@ final class BrowserTheme: ObservableObject {
     func setColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultHex
         colorHexByToken[token] = hex
-        defaults.set(hex, forKey: storageKey(for: token))
+        defaults.set(hex, forKey: Self.storageKey(for: token))
     }
 
     func resetToZenDefaults() {
         for token in BrowserThemeToken.allCases {
             colorHexByToken[token] = token.defaultHex
-            defaults.set(token.defaultHex, forKey: storageKey(for: token))
+            defaults.set(token.defaultHex, forKey: Self.storageKey(for: token))
         }
     }
 
-    private func storageKey(for token: BrowserThemeToken) -> String {
+    private static func storageKey(for token: BrowserThemeToken) -> String {
         "\(storagePrefix)\(token.rawValue)"
     }
 }
