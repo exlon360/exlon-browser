@@ -102,6 +102,21 @@ def main() -> int:
         "Settings must expose a user background picker.",
     )
     require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "TabBarStyleControl",
+        "The tab bar must expose local transparency/background controls.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "selectAll",
+        "The floating address field must auto-select text for new tab entry.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "shouldSelectFloatingSearchText",
+        "The browser model must track floating search text selection requests.",
+    )
+    require_contains(
         "ZenFireBrowser/CustomVPNController.swift",
         "NEVPNManager",
         "The custom VPN profile must use native iOS VPN APIs.",

@@ -53,6 +53,7 @@ final class BrowserViewModel: ObservableObject {
     }
     @Published var isFloatingSearchPresented = false
     @Published var floatingSearchText = ""
+    @Published var shouldSelectFloatingSearchText = false
     @Published var isSettingsPresented = false
     @Published var isHistoryPresented = false
     @Published var isDownloadsPresented = false
@@ -167,8 +168,8 @@ final class BrowserViewModel: ObservableObject {
 
     func openNewTabAndSearch(private isPrivate: Bool = false) {
         let tab = openTab(private: isPrivate)
-        floatingSearchText = ""
-        tab.addressText = ""
+        floatingSearchText = tab.addressText
+        shouldSelectFloatingSearchText = true
         isFloatingSearchPresented = true
     }
 
@@ -216,11 +217,13 @@ final class BrowserViewModel: ObservableObject {
         selectedTab?.addressText = submittedText
         selectedTab?.submitAddress(searchEngine: searchEngine, customSearchTemplate: customSearchTemplate)
         floatingSearchText = selectedTab?.addressText ?? submittedText
+        shouldSelectFloatingSearchText = false
         isFloatingSearchPresented = false
     }
 
     func openFloatingSearch() {
         floatingSearchText = selectedTab?.addressText ?? ""
+        shouldSelectFloatingSearchText = true
         isFloatingSearchPresented = true
     }
 
@@ -360,6 +363,7 @@ final class BrowserViewModel: ObservableObject {
 
     func openSearchResult(_ result: BrowserSearchResult) {
         floatingSearchText = result.url.absoluteString
+        shouldSelectFloatingSearchText = false
         selectedTab?.addressText = result.url.absoluteString
         selectedTab?.load(result.url)
         isFloatingSearchPresented = false

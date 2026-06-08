@@ -215,7 +215,7 @@ private struct SideTabHandle: View {
             }
             .frame(width: 30, height: 78)
             .foregroundStyle(theme.color(.text))
-            .background(theme.color(.surface), in: Capsule())
+            .background(theme.color(.surface).opacity(theme.controlOpacity), in: Capsule())
             .overlay {
                 Capsule()
                     .stroke(theme.color(.border).opacity(0.8), lineWidth: 1)
@@ -247,6 +247,8 @@ private struct SideChrome: View {
             SearchTrigger(style: .sidebar)
 
             NewTabActions(layout: .sidebar)
+
+            TabBarStyleControl(compact: false)
 
             TabSection(title: "Tabs", tabs: model.normalTabs)
 
@@ -281,6 +283,7 @@ private struct HorizontalChrome: View {
                 ChromeHeader(compact: false)
                 SearchTrigger(style: .bar)
                 ChromeFooter()
+                TabBarStyleControl(compact: true)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -342,6 +345,8 @@ private struct FloatingChrome: View {
                     ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
                         model.isDownloadsPresented = true
                     }
+
+                    TabBarStyleControl(compact: true)
 
                     ChromeButton(symbol: "gearshape", label: "Settings") {
                         model.isSettingsPresented = true
@@ -443,6 +448,113 @@ private struct PlacementMenu: View {
     }
 }
 
+private struct TabBarStyleControl: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var isPresented = false
+    @State private var isBackgroundImporterPresented = false
+    let compact: Bool
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 15, weight: .semibold))
+                if compact == false {
+                    Text("Tab Bar")
+                        .font(.system(size: 13, weight: .bold))
+                        .lineLimit(1)
+                }
+            }
+            .frame(height: 36)
+            .frame(maxWidth: compact ? nil : .infinity)
+            .padding(.horizontal, compact ? 0 : 12)
+            .frame(width: compact ? 36 : nil)
+            .foregroundStyle(theme.color(.text))
+            .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Configure tab bar")
+        .popover(isPresented: $isPresented) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("Tab Bar")
+                        .font(.headline.weight(.semibold))
+                    Spacer()
+                    Text("\(Int(theme.tabBarTransparency * 100))%")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+
+                Toggle("Transparent", isOn: $theme.isTabBarTransparencyEnabled)
+
+                Slider(value: $theme.tabBarTransparency, in: 0...0.85)
+                    .disabled(theme.isTabBarTransparencyEnabled == false)
+
+                HStack(spacing: 8) {
+                    Button("Solid") {
+                        theme.isTabBarTransparencyEnabled = false
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Clear") {
+                        theme.isTabBarTransparencyEnabled = true
+                        theme.tabBarTransparency = 0.85
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                Divider()
+
+                Toggle("Background", isOn: $theme.isUserBackgroundEnabled)
+                    .disabled(theme.hasUserBackground == false)
+
+                if theme.isUserBackgroundEnabled,
+                   let image = theme.userBackgroundImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(height: 74)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+
+                HStack(spacing: 8) {
+                    Button("Choose") {
+                        isBackgroundImporterPresented = true
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Remove") {
+                        theme.clearUserBackground()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(theme.hasUserBackground == false)
+                }
+            }
+            .padding(16)
+            .frame(width: 300)
+            .background(theme.color(.surface))
+            .foregroundStyle(theme.color(.text))
+        }
+        .fileImporter(
+            isPresented: $isBackgroundImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result,
+               let url = urls.first {
+                theme.setUserBackground(from: url)
+            }
+        }
+    }
+}
+
 private enum SearchTriggerStyle {
     case sidebar
     case bar
@@ -497,7 +609,6 @@ private enum AddressFieldStyle {
 private struct AddressField: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
-    @FocusState private var isFocused: Bool
     let style: AddressFieldStyle
     let focusOnAppear: Bool
 
@@ -507,17 +618,18 @@ private struct AddressField: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
-            TextField("Search \(model.searchEngine.title) or enter address", text: addressBinding)
-                .focused($isFocused)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .submitLabel(.go)
-                .onSubmit {
-                    model.submitAddress()
-                }
-                .foregroundStyle(theme.color(.text))
-                .font(.system(size: 18, weight: .medium))
+            SelectableAddressTextField(
+                text: addressBinding,
+                placeholder: "Search \(model.searchEngine.title) or enter address",
+                textColor: UIColor(theme.color(.text)),
+                placeholderColor: UIColor(theme.color(.mutedText)),
+                tintColor: UIColor(theme.color(.createTab)),
+                shouldFocus: focusOnAppear,
+                shouldSelectText: selectTextBinding
+            ) {
+                model.submitAddress()
+            }
+            .frame(height: 34)
 
             Button {
                 model.submitAddress()
@@ -547,13 +659,6 @@ private struct AddressField: View {
                 .stroke(theme.color(.border).opacity(0.9), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.38), radius: 22, y: 12)
-        .onAppear {
-            if focusOnAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    isFocused = true
-                }
-            }
-        }
     }
 
     private var addressBinding: Binding<String> {
@@ -561,6 +666,90 @@ private struct AddressField: View {
             get: { model.floatingSearchText },
             set: { model.floatingSearchText = $0 }
         )
+    }
+
+    private var selectTextBinding: Binding<Bool> {
+        Binding(
+            get: { model.shouldSelectFloatingSearchText },
+            set: { model.shouldSelectFloatingSearchText = $0 }
+        )
+    }
+}
+
+private struct SelectableAddressTextField: UIViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let textColor: UIColor
+    let placeholderColor: UIColor
+    let tintColor: UIColor
+    let shouldFocus: Bool
+    @Binding var shouldSelectText: Bool
+    let onSubmit: () -> Void
+
+    func makeUIView(context: Context) -> UITextField {
+        let textField = UITextField(frame: .zero)
+        textField.delegate = context.coordinator
+        textField.keyboardType = .URL
+        textField.returnKeyType = .go
+        textField.autocorrectionType = .no
+        textField.autocapitalizationType = .none
+        textField.clearButtonMode = .whileEditing
+        textField.font = .systemFont(ofSize: 18, weight: .medium)
+        textField.backgroundColor = .clear
+        textField.borderStyle = .none
+        return textField
+    }
+
+    func updateUIView(_ textField: UITextField, context: Context) {
+        context.coordinator.parent = self
+        if textField.text != text {
+            textField.text = text
+        }
+        textField.textColor = textColor
+        textField.tintColor = tintColor
+        textField.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .foregroundColor: placeholderColor,
+                .font: UIFont.systemFont(ofSize: 18, weight: .medium)
+            ]
+        )
+
+        guard shouldFocus else { return }
+
+        let shouldSelectCurrentText = shouldSelectText
+        let selectTextBinding = $shouldSelectText
+
+        DispatchQueue.main.async {
+            if textField.isFirstResponder == false {
+                textField.becomeFirstResponder()
+            }
+            if shouldSelectCurrentText {
+                textField.selectAll(nil)
+                selectTextBinding.wrappedValue = false
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: SelectableAddressTextField
+
+        init(parent: SelectableAddressTextField) {
+            self.parent = parent
+        }
+
+        func textFieldDidChangeSelection(_ textField: UITextField) {
+            parent.text = textField.text ?? ""
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.onSubmit()
+            return true
+        }
     }
 }
 

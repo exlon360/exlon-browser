@@ -105,7 +105,7 @@ final class BrowserTheme: ObservableObject {
         }
         self.colorHexByToken = values
         self.isTabBarTransparencyEnabled = UserDefaults.standard.object(forKey: Self.tabBarTransparencyEnabledKey) as? Bool ?? true
-        self.tabBarTransparency = UserDefaults.standard.object(forKey: Self.tabBarTransparencyKey) as? Double ?? 0.32
+        self.tabBarTransparency = UserDefaults.standard.object(forKey: Self.tabBarTransparencyKey) as? Double ?? 0.68
         self.isUserBackgroundEnabled = UserDefaults.standard.object(forKey: Self.userBackgroundEnabledKey) as? Bool ?? false
         self.userBackgroundImageData = UserDefaults.standard.data(forKey: Self.userBackgroundImageDataKey)
     }
@@ -151,7 +151,7 @@ final class BrowserTheme: ObservableObject {
         }
 
         isTabBarTransparencyEnabled = true
-        tabBarTransparency = 0.32
+        tabBarTransparency = 0.68
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
         defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
