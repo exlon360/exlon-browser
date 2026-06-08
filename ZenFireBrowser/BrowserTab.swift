@@ -426,6 +426,7 @@ extension BrowserTab: WKDownloadDelegate {
 }
 
 extension BrowserTab: WKUIDelegate {
+    @available(iOS 18.4, *)
     nonisolated func webView(
         _ webView: WKWebView,
         runOpenPanelWith parameters: WKOpenPanelParameters,
