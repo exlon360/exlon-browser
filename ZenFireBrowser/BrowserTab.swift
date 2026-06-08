@@ -21,6 +21,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var canGoForward = false
     @Published var isDarkReaderEnabled: Bool
 
+    var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
+
     private var observations: [NSKeyValueObservation] = []
 
     init(startURL: URL = BrowserDefaults.homeURL, isPrivate: Bool = false, isDarkReaderEnabled: Bool = false) {
@@ -54,8 +56,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         webView.load(URLRequest(url: url))
     }
 
-    func submitAddress() {
-        let destination = Self.destinationURL(from: addressText)
+    func submitAddress(searchEngine: BrowserSearchEngine, customSearchTemplate: String) {
+        let destination = Self.destinationURL(
+            from: addressText,
+            searchEngine: searchEngine,
+            customSearchTemplate: customSearchTemplate
+        )
         addressText = destination.absoluteString
         load(destination)
     }
@@ -154,7 +160,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         ]
     }
 
-    private static func destinationURL(from rawValue: String) -> URL {
+    private static func destinationURL(
+        from rawValue: String,
+        searchEngine: BrowserSearchEngine,
+        customSearchTemplate: String
+    ) -> URL {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false else {
             return homeURL
@@ -177,16 +187,17 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             return url
         }
 
-        let encodedQuery = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
-        return URL(string: "https://duckduckgo.com/?q=\(encodedQuery)")!
+        return searchEngine.searchURL(for: trimmed, customTemplate: customSearchTemplate)
     }
 }
 
 extension BrowserTab: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor [weak self] in
-            self?.isLoading = false
-            self?.applyDarkReaderStyle()
+            guard let self = self else { return }
+            self.isLoading = false
+            self.applyDarkReaderStyle()
+            self.onNavigationFinished?(self)
         }
     }
 

@@ -43,6 +43,7 @@ def main() -> int:
         "scripts/build_signed_ipa.sh",
         "ZenFireBrowser.xcodeproj/project.pbxproj",
         "ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme",
+        "ZenFireBrowser/BrowserModels.swift",
         "ZenFireBrowser/BrowserTab.swift",
         "ZenFireBrowser/BrowserTheme.swift",
         "ZenFireBrowser/BrowserViewModel.swift",

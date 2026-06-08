@@ -23,17 +23,9 @@ private struct BrowserShell: View {
 
                 switch model.chromePlacement {
                 case .left:
-                    HStack(spacing: 0) {
-                        SideChrome(edge: .left)
-                            .frame(width: sideWidth(for: proxy))
-                        BrowserContent()
-                    }
+                    SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy))
                 case .right:
-                    HStack(spacing: 0) {
-                        BrowserContent()
-                        SideChrome(edge: .right)
-                            .frame(width: sideWidth(for: proxy))
-                    }
+                    SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy))
                 case .top:
                     VStack(spacing: 0) {
                         HorizontalChrome(edge: .top)
@@ -62,12 +54,24 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $model.isHistoryPresented) {
+                BrowserHistoryView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $model.isLocalAIImporterPresented) {
+                LocalAIImportView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
         }
         .tint(theme.color(.accent))
     }
 
     private func sideWidth(for proxy: GeometryProxy) -> CGFloat {
-        min(max(proxy.size.width * 0.28, 260), 340)
+        min(max(proxy.size.width * 0.3, 286), 360)
     }
 }
 
@@ -89,6 +93,11 @@ private struct BrowserContent: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(theme.color(.border).opacity(0.5), lineWidth: 1)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        AITabButton()
+                            .padding(.top, 12)
+                            .padding(.trailing, 12)
                     }
                     .padding(browserPadding)
             }
@@ -123,6 +132,85 @@ private struct LoadingProgress: View {
 private enum SideChromeEdge {
     case left
     case right
+}
+
+private struct SideBrowserLayout: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    let edge: SideChromeEdge
+    let sideWidth: CGFloat
+
+    var body: some View {
+        ZStack(alignment: alignment) {
+            HStack(spacing: 0) {
+                if edge == .left {
+                    if model.areSideTabsCollapsed == false {
+                        SideChrome(edge: .left)
+                            .frame(width: sideWidth)
+                    }
+                    BrowserContent()
+                } else {
+                    BrowserContent()
+                    if model.areSideTabsCollapsed == false {
+                        SideChrome(edge: .right)
+                            .frame(width: sideWidth)
+                    }
+                }
+            }
+
+            SideTabHandle(edge: edge)
+                .offset(x: handleOffset)
+        }
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.areSideTabsCollapsed)
+    }
+
+    private var alignment: Alignment {
+        edge == .left ? .leading : .trailing
+    }
+
+    private var handleOffset: CGFloat {
+        if model.areSideTabsCollapsed {
+            return edge == .left ? -4 : 4
+        }
+
+        return edge == .left ? sideWidth - 14 : -(sideWidth - 14)
+    }
+}
+
+private struct SideTabHandle: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let edge: SideChromeEdge
+
+    var body: some View {
+        Button {
+            model.toggleSideTabs()
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 14, weight: .semibold))
+                Image(systemName: chevronName)
+                    .font(.system(size: 13, weight: .black))
+            }
+            .frame(width: 30, height: 78)
+            .foregroundStyle(theme.color(.text))
+            .background(theme.color(.surface), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(theme.color(.border).opacity(0.8), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(0.25), radius: 10, y: 5)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.areSideTabsCollapsed ? "Show tabs" : "Hide tabs")
+    }
+
+    private var chevronName: String {
+        if model.areSideTabsCollapsed {
+            return edge == .left ? "chevron.right" : "chevron.left"
+        }
+
+        return edge == .left ? "chevron.left" : "chevron.right"
+    }
 }
 
 private struct SideChrome: View {
@@ -199,37 +287,44 @@ private struct FloatingChrome: View {
         VStack {
             Spacer()
 
-            HStack(spacing: 10) {
-                ChromeButton(symbol: "magnifyingglass", label: "Search") {
-                    model.openFloatingSearch()
-                }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ChromeButton(symbol: "magnifyingglass", label: "Search") {
+                        model.openFloatingSearch()
+                    }
 
-                ChromeButton(symbol: "chevron.left", label: "Back") {
-                    model.goBack()
-                }
-                .disabled(model.selectedTab?.canGoBack != true)
+                    ChromeButton(symbol: "chevron.left", label: "Back") {
+                        model.goBack()
+                    }
+                    .disabled(model.selectedTab?.canGoBack != true)
 
-                ChromeButton(symbol: "chevron.right", label: "Forward") {
-                    model.goForward()
-                }
-                .disabled(model.selectedTab?.canGoForward != true)
+                    ChromeButton(symbol: "chevron.right", label: "Forward") {
+                        model.goForward()
+                    }
+                    .disabled(model.selectedTab?.canGoForward != true)
 
-                FloatingTabSwitcher()
+                    FloatingTabSwitcher()
 
-                ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
-                    model.reloadOrStop()
-                }
+                    ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
+                        model.reloadOrStop()
+                    }
 
-                ChromeButton(symbol: "gearshape", label: "Settings") {
-                    model.isSettingsPresented = true
+                    ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
+                        model.isHistoryPresented = true
+                    }
+
+                    ChromeButton(symbol: "gearshape", label: "Settings") {
+                        model.isSettingsPresented = true
+                    }
                 }
+                .padding(8)
             }
-            .padding(8)
             .background(.ultraThinMaterial, in: Capsule())
             .overlay {
                 Capsule()
                     .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
             }
+            .padding(.horizontal, 12)
             .padding(.bottom, 14)
         }
     }
@@ -268,25 +363,31 @@ private struct ChromeFooter: View {
     @EnvironmentObject private var model: BrowserViewModel
 
     var body: some View {
-        HStack(spacing: 8) {
-            ChromeButton(symbol: "chevron.left", label: "Back") {
-                model.goBack()
-            }
-            .disabled(model.selectedTab?.canGoBack != true)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ChromeButton(symbol: "chevron.left", label: "Back") {
+                    model.goBack()
+                }
+                .disabled(model.selectedTab?.canGoBack != true)
 
-            ChromeButton(symbol: "chevron.right", label: "Forward") {
-                model.goForward()
-            }
-            .disabled(model.selectedTab?.canGoForward != true)
+                ChromeButton(symbol: "chevron.right", label: "Forward") {
+                    model.goForward()
+                }
+                .disabled(model.selectedTab?.canGoForward != true)
 
-            ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
-                model.reloadOrStop()
-            }
+                ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
+                    model.reloadOrStop()
+                }
 
-            PlacementMenu()
+                ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
+                    model.isHistoryPresented = true
+                }
 
-            ChromeButton(symbol: "gearshape", label: "Settings") {
-                model.isSettingsPresented = true
+                PlacementMenu()
+
+                ChromeButton(symbol: "gearshape", label: "Settings") {
+                    model.isSettingsPresented = true
+                }
             }
         }
     }
@@ -336,7 +437,7 @@ private struct SearchTrigger: View {
                     .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.selectedTab?.url?.host ?? "Search DuckDuckGo")
+                    Text(model.selectedTab?.url?.host ?? "Search \(model.searchEngine.title)")
                         .font(.system(size: style == .sidebar ? 13 : 15, weight: .semibold))
                         .foregroundStyle(theme.color(.text))
                         .lineLimit(1)
@@ -384,7 +485,7 @@ private struct AddressField: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
-            TextField("Search DuckDuckGo or enter address", text: addressBinding)
+            TextField("Search \(model.searchEngine.title) or enter address", text: addressBinding)
                 .focused($isFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -452,7 +553,7 @@ private struct FloatingSearchOverlay: View {
                         Text(tab.title)
                             .lineLimit(1)
                         Spacer()
-                        Text(tab.url?.host ?? "DuckDuckGo")
+                        Text(tab.url?.host ?? model.searchEngine.title)
                             .lineLimit(1)
                     }
                     .font(.caption.weight(.semibold))
@@ -463,6 +564,164 @@ private struct FloatingSearchOverlay: View {
             }
             .padding(.top, 18)
             .padding(.horizontal, 16)
+        }
+    }
+}
+
+private struct AITabButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Menu {
+            ForEach(AIAssistant.allCases) { assistant in
+                Button {
+                    model.openAIShortcut(assistant)
+                } label: {
+                    Label(assistant.menuTitle, systemImage: assistant.symbolName)
+                }
+            }
+
+            Divider()
+
+            if model.localAIURLText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                Button {
+                    model.openLocalAI()
+                } label: {
+                    Label(model.localAIName, systemImage: "desktopcomputer")
+                }
+            }
+
+            Button {
+                model.isLocalAIImporterPresented = true
+            } label: {
+                Label("Import Local AI", systemImage: "square.and.arrow.down")
+            }
+        } label: {
+            Image(systemName: "sparkles")
+                .font(.system(size: 15, weight: .bold))
+                .frame(width: 38, height: 38)
+                .foregroundStyle(theme.color(.text))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.accent).opacity(0.65), lineWidth: 1)
+                }
+                .shadow(color: Color.black.opacity(0.25), radius: 10, y: 5)
+        }
+        .accessibilityLabel("AI shortcuts")
+    }
+}
+
+private struct BrowserHistoryView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if model.history.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 34, weight: .semibold))
+                        Text("No history yet")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(theme.color(.mutedText))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(theme.color(.canvas))
+                } else {
+                    List {
+                        ForEach(model.history) { item in
+                            Button {
+                                model.openHistoryItem(item)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.title)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(theme.color(.text))
+                                        .lineLimit(1)
+
+                                    Text(item.urlString)
+                                        .font(.caption)
+                                        .foregroundStyle(theme.color(.mutedText))
+                                        .lineLimit(1)
+
+                                    Text(item.visitedAt, style: .relative)
+                                        .font(.caption2)
+                                        .foregroundStyle(theme.color(.mutedText))
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                        .listRowBackground(theme.color(.surface))
+                    }
+                    .scrollContentBackground(.hidden)
+                    .background(theme.color(.canvas))
+                }
+            }
+            .navigationTitle("History")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Clear") {
+                        model.clearHistory()
+                    }
+                    .disabled(model.history.isEmpty)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct LocalAIImportView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var urlText = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Local AI") {
+                    TextField("Name", text: $name)
+                    TextField("URL or host", text: $urlText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+
+                Section {
+                    Button("Import Local AI") {
+                        model.importLocalAI(name: name, urlText: urlText)
+                        model.openLocalAI()
+                        dismiss()
+                    }
+                    .disabled(urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Import Local AI")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                name = model.localAIName
+                urlText = model.localAIURLText
+            }
         }
     }
 }
@@ -498,7 +757,7 @@ private struct TabPill: View {
     let layout: TabPillLayout
 
     private var isSelected: Bool {
-        model.selectedTabID == tab.id
+        model.selectedTabID.map { $0 == tab.id } ?? false
     }
 
     var body: some View {
@@ -523,7 +782,7 @@ private struct TabPill: View {
                             .lineLimit(1)
 
                         if layout == .vertical {
-                            Text(tab.url?.host ?? "DuckDuckGo")
+                            Text(tab.url?.host ?? model.searchEngine.title)
                                 .font(.caption2)
                                 .foregroundStyle(theme.color(.mutedText))
                                 .lineLimit(1)
@@ -687,11 +946,37 @@ private struct BrowserSettingsView: View {
             Form {
                 Section("Browsing") {
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
+                    Toggle("Hide side tabs", isOn: $model.areSideTabsCollapsed)
                     Picker("Chrome placement", selection: $model.chromePlacement) {
                         ForEach(BrowserChromePlacement.allCases) { placement in
                             Label(placement.title, systemImage: placement.symbolName)
                                 .tag(placement)
                         }
+                    }
+                    Picker("Search engine", selection: $model.searchEngine) {
+                        ForEach(BrowserSearchEngine.allCases) { engine in
+                            Text(engine.title)
+                                .tag(engine)
+                        }
+                    }
+
+                    if model.searchEngine == .custom {
+                        TextField("Search URL with {query}", text: $model.customSearchTemplate)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                    }
+                }
+
+                Section("Local AI") {
+                    TextField("Name", text: $model.localAIName)
+                    TextField("URL or host", text: $model.localAIURLText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+
+                    Button("Import Local AI") {
+                        model.isLocalAIImporterPresented = true
                     }
                 }
 
@@ -701,6 +986,13 @@ private struct BrowserSettingsView: View {
                     }
 
                     Button("Reset to Zen dark defaults") {
+                        theme.resetToZenDefaults()
+                    }
+                }
+
+                Section("Reset") {
+                    Button("Reset to default") {
+                        model.resetToDefaults()
                         theme.resetToZenDefaults()
                     }
                 }
