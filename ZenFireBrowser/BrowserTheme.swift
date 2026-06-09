@@ -105,7 +105,7 @@ final class BrowserTheme: ObservableObject {
         }
         self.colorHexByToken = values
         self.isTabBarTransparencyEnabled = UserDefaults.standard.object(forKey: Self.tabBarTransparencyEnabledKey) as? Bool ?? true
-        self.tabBarTransparency = UserDefaults.standard.object(forKey: Self.tabBarTransparencyKey) as? Double ?? 0.68
+        self.tabBarTransparency = UserDefaults.standard.object(forKey: Self.tabBarTransparencyKey) as? Double ?? 0.82
         self.isUserBackgroundEnabled = UserDefaults.standard.object(forKey: Self.userBackgroundEnabledKey) as? Bool ?? false
         self.userBackgroundImageData = UserDefaults.standard.data(forKey: Self.userBackgroundImageDataKey)
     }
@@ -151,7 +151,7 @@ final class BrowserTheme: ObservableObject {
         }
 
         isTabBarTransparencyEnabled = true
-        tabBarTransparency = 0.68
+        tabBarTransparency = 0.82
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
         defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
@@ -165,7 +165,8 @@ final class BrowserTheme: ObservableObject {
             }
         }
 
-        guard let image = UIImage(contentsOfFile: url.path),
+        guard let rawData = try? Data(contentsOf: url),
+              let image = UIImage(data: rawData),
               let data = image.jpegData(compressionQuality: 0.86) else {
             return
         }

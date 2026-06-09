@@ -29,12 +29,12 @@ private struct BrowserShell: View {
                 case .right:
                     SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy))
                 case .top:
-                    VStack(spacing: 0) {
-                        HorizontalChrome(edge: .top)
+                    ZStack(alignment: .top) {
                         BrowserContent()
+                        HorizontalChrome(edge: .top)
                     }
                 case .bottom:
-                    VStack(spacing: 0) {
+                    ZStack(alignment: .bottom) {
                         BrowserContent()
                         HorizontalChrome(edge: .bottom)
                     }
@@ -116,7 +116,7 @@ private struct BrowserContent: View {
     var body: some View {
         ZStack {
             theme.color(.canvas)
-                .opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.72 : 1)
+                .opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.18 : 1)
 
             if let tab = model.selectedTab {
                 BrowserWebView(tab: tab)
@@ -175,19 +175,12 @@ private struct SideBrowserLayout: View {
     let sideWidth: CGFloat
 
     var body: some View {
-        HStack(spacing: 0) {
-            if edge == .left {
-                if model.areSideTabsCollapsed == false {
-                    SideChrome(edge: .left)
-                        .frame(width: sideWidth)
-                }
-                BrowserContent()
-            } else {
-                BrowserContent()
-                if model.areSideTabsCollapsed == false {
-                    SideChrome(edge: .right)
-                        .frame(width: sideWidth)
-                }
+        ZStack(alignment: edge == .left ? .leading : .trailing) {
+            BrowserContent()
+
+            if model.areSideTabsCollapsed == false {
+                SideChrome(edge: edge)
+                    .frame(width: sideWidth)
             }
         }
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.areSideTabsCollapsed)
@@ -222,6 +215,7 @@ private struct SideChrome: View {
         .padding(.top, 12)
         .padding(.bottom, 12)
         .padding(.horizontal, 12)
+        .frame(maxHeight: .infinity)
         .background(ChromeGlassBackground(cornerRadius: 0))
         .shadow(color: Color.black.opacity(0.24), radius: 18, x: edge == .left ? 8 : -8, y: 0)
         .overlay(alignment: edge == .left ? .trailing : .leading) {
@@ -259,6 +253,7 @@ private struct HorizontalChrome: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
         .background(ChromeGlassBackground(cornerRadius: 0))
         .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: edge == .top ? 8 : -8)
         .overlay(alignment: edge == .top ? .bottom : .top) {

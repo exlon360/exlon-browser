@@ -187,6 +187,21 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/BrowserTab.swift",
+        "https://browser.local/contained-browser",
+        "The contained browser start page must use a neutral browser URL, not Glide branding.",
+    )
+    require_absent(
+        "ZenFireBrowser/BrowserTab.swift",
+        "Glide Contained Browser",
+        "The contained browser webpage must not be Glide-branded.",
+    )
+    require_absent(
+        "ZenFireBrowser/BrowserTab.swift",
+        "browser inside Glide",
+        "The contained browser webpage must describe itself as a browser website, not as Glide.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
         "window.location.assign(destination(input.value))",
         "The contained browser website must open entered websites as top-level navigation.",
     )
@@ -229,6 +244,36 @@ def main() -> int:
         "ZenFireBrowser/Info.plist",
         "NSMicrophoneUsageDescription",
         "The app must include microphone permission text for websites.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "ZStack(alignment: edge == .left ? .leading : .trailing)",
+        "Side tab chrome must overlay the web content so transparency is visible.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "ZStack(alignment: .top)",
+        "Top chrome must overlay the web content so transparency is visible.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "ZStack(alignment: .bottom)",
+        "Bottom chrome must overlay the web content so transparency is visible.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "tabBarTransparency = 0.82",
+        "Default tab bar transparency must be clear enough to read as transparent.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "Data(contentsOf: url)",
+        "Wallpaper import must read image data reliably from file-provider URLs.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserWebView.swift",
+        "isOpaque = false",
+        "The web view must allow wallpaper/transparent backgrounds around web content.",
     )
     require_absent(
         "ZenFireBrowser/ContentView.swift",

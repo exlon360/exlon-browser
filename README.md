@@ -10,10 +10,10 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.
 - New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
-- Contained Tabs open a browser-in-browser start page inside a nested `WKWebView`, with its own address bar, tab strip, navigation controls, top-level website loading, popup/new-window handling, audio/video playback, and isolated non-persistent web storage.
+- Contained Tabs open a neutral browser-in-browser website inside a nested `WKWebView`, with its own address bar, tab strip, navigation controls, top-level website loading, popup/new-window handling, audio/video playback, and isolated non-persistent web storage.
 - More polished glass-style tab chrome with a settings toggle and adjustable transparency.
-- Tab bar transparency and background controls are available directly from the tab bar.
-- User-selected image backgrounds with a settings import, enable, and remove flow.
+- Tab bar transparency and background controls are available directly from the tab bar, and side/top/bottom chrome overlays the page so transparency shows the page or wallpaper beneath it.
+- User-selected image backgrounds with a settings import, enable, and remove flow, plus clearer wallpaper visibility behind transparent chrome and browser margins.
 - New tabs focus the floating address field and select its current text.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
 - Normal and private tabs. Private tabs use a non-persistent `WKWebsiteDataStore`.

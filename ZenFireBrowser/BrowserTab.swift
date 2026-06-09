@@ -62,7 +62,6 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = (isPrivate || usesPersistentStorage == false) ? .nonPersistent() : .default()
-        configuration.applicationNameForUserAgent = "Glide/1.0"
 
         self.webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
@@ -193,7 +192,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         addressText = defaultURL.absoluteString
         webView.loadHTMLString(
             Self.containedBrowserHTML(defaultURLString: defaultURL.absoluteString),
-            baseURL: URL(string: "https://glide.local/contained-browser")!
+            baseURL: URL(string: "https://browser.local/contained-browser")!
         )
     }
 
@@ -214,7 +213,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-          <title>Glide Contained Browser</title>
+          <title>Contained Web Browser</title>
           <style>
             :root {
               color-scheme: dark;
@@ -308,9 +307,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         </head>
         <body>
           <main>
-            <div class="mark">G</div>
-            <h1>Contained Browser</h1>
-            <p>This page is a browser inside Glide. Enter a site or search, then the contained tab opens it as a top-level page so audio, video, logins, and sites that block iframes can still work through WebKit.</p>
+            <div class="mark">B</div>
+            <h1>Web Browser</h1>
+            <p>This is a browser website running inside the contained tab. Enter a site or search, then it opens as top-level navigation so audio, video, logins, and sites that block iframes can still work through WebKit.</p>
             <form id="browserForm">
               <input id="address" value="\(defaultURLString)" autocomplete="url" autocapitalize="none" spellcheck="false" aria-label="Website or search">
               <button type="submit">Open</button>
@@ -373,7 +372,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                 Task { @MainActor in
                     self?.url = webView.url
                     if self?.isContainedBrowser == true,
-                       webView.url?.host == "glide.local" {
+                       webView.url?.host == "browser.local" {
                         self?.addressText = BrowserDefaults.containedBrowserStartURL.absoluteString
                         return
                     }
