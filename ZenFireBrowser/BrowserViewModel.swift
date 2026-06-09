@@ -482,16 +482,62 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func clearDownloads() {
+        for item in downloads {
+            deleteDownloadFiles(for: item)
+        }
         downloads = []
         saveDownloads()
     }
 
     func deleteDownload(_ item: BrowserDownloadItem) {
-        if FileManager.default.fileExists(atPath: item.localPath) {
-            try? FileManager.default.removeItem(at: item.localURL)
-        }
+        deleteDownloadFiles(for: item)
         downloads.removeAll { $0.id == item.id }
         saveDownloads()
+    }
+
+    func canExportDownload(_ item: BrowserDownloadItem) -> Bool {
+        guard item.state == .finished else { return false }
+
+        if let encryptedURL = item.encryptedLocalURL {
+            return FileManager.default.fileExists(atPath: encryptedURL.path)
+        }
+
+        return FileManager.default.fileExists(atPath: item.localPath)
+    }
+
+    func prepareDownloadForExport(_ item: BrowserDownloadItem) throws -> URL {
+        guard item.state == .finished else {
+            throw Self.downloadError("That download has not finished yet.")
+        }
+
+        let exportURL = try Self.temporaryExportURL(for: item.filename)
+        if FileManager.default.fileExists(atPath: exportURL.path) {
+            try FileManager.default.removeItem(at: exportURL)
+        }
+
+        if let encryptedURL = item.encryptedLocalURL {
+            guard FileManager.default.fileExists(atPath: encryptedURL.path) else {
+                throw Self.downloadError("The encrypted download file is missing.")
+            }
+            let encryptedData = try Data(contentsOf: encryptedURL)
+            let plaintextData = try vault.decryptData(encryptedData)
+            try plaintextData.write(to: exportURL, options: [.atomic])
+            downloadStatusMessage = "Created a temporary decrypted copy of \(item.filename)."
+            return exportURL
+        }
+
+        guard FileManager.default.fileExists(atPath: item.localPath) else {
+            throw Self.downloadError("The downloaded file is missing.")
+        }
+
+        try FileManager.default.copyItem(at: item.localURL, to: exportURL)
+        downloadStatusMessage = "Created a temporary export copy of \(item.filename)."
+        return exportURL
+    }
+
+    func cleanupPreparedExport(at url: URL) {
+        guard url.deletingLastPathComponent().lastPathComponent == Self.temporaryExportDirectoryName else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     func downloadSelectedTab() {
@@ -832,7 +878,20 @@ final class BrowserViewModel: ObservableObject {
     }
 
     private func updateDownload(_ item: BrowserDownloadItem) {
-        downloads.removeAll { $0.id == item.id || $0.localPath == item.localPath }
+        if item.state == .finished, item.isEncrypted == false {
+            finalizeDownloadedFile(item, plaintextURL: item.localURL)
+            return
+        }
+
+        upsertDownload(item)
+    }
+
+    private func upsertDownload(_ item: BrowserDownloadItem) {
+        downloads.removeAll { existing in
+            existing.id == item.id
+                || existing.localPath == item.localPath
+                || (item.encryptedLocalPath != nil && existing.encryptedLocalPath == item.encryptedLocalPath)
+        }
         downloads.insert(item, at: 0)
         if downloads.count > 100 {
             downloads = Array(downloads.prefix(100))
@@ -856,16 +915,8 @@ final class BrowserViewModel: ObservableObject {
             Task { [weak self] in
                 do {
                     let (temporaryURL, _) = try await URLSession.shared.download(from: url)
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        try FileManager.default.removeItem(at: destination)
-                    }
-                    try FileManager.default.moveItem(at: temporaryURL, to: destination)
-
                     await MainActor.run {
-                        var finished = item
-                        finished.state = .finished
-                        self?.downloadStatusMessage = "Saved \(finished.filename)."
-                        self?.updateDownload(finished)
+                        self?.finalizeDownloadedFile(item, plaintextURL: temporaryURL, displayURL: destination)
                     }
                 } catch {
                     await MainActor.run {
@@ -881,6 +932,97 @@ final class BrowserViewModel: ObservableObject {
             downloadStatusMessage = error.localizedDescription
             isDownloadsPresented = true
         }
+    }
+
+    private func finalizeDownloadedFile(_ item: BrowserDownloadItem, plaintextURL: URL, displayURL: URL? = nil) {
+        var finished = item
+
+        do {
+            guard FileManager.default.fileExists(atPath: plaintextURL.path) else {
+                throw Self.downloadError("The temporary download file is missing.")
+            }
+
+            let plaintextData = try Data(contentsOf: plaintextURL)
+            let encryptedData = try vault.encryptData(plaintextData)
+            let encryptedURL = try encryptedDownloadURL(for: item)
+
+            if FileManager.default.fileExists(atPath: encryptedURL.path) {
+                try FileManager.default.removeItem(at: encryptedURL)
+            }
+
+            try encryptedData.write(to: encryptedURL, options: [.atomic])
+            #if os(iOS)
+            try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: encryptedURL.path)
+            #endif
+            try? FileManager.default.removeItem(at: plaintextURL)
+
+            let presentationURL = displayURL ?? (try? BrowserTab.downloadDestination(for: item.filename))
+            finished.localPath = presentationURL?.path ?? item.localPath
+            finished.state = .finished
+            finished.errorMessage = nil
+            finished.encryptedLocalPath = encryptedURL.path
+            finished.originalByteCount = Int64(plaintextData.count)
+
+            downloadStatusMessage = "Saved encrypted \(finished.filename)."
+            upsertDownload(finished)
+        } catch {
+            try? FileManager.default.removeItem(at: plaintextURL)
+            finished.state = .failed
+            finished.errorMessage = "Download could not be encrypted: \(error.localizedDescription)"
+            downloadStatusMessage = finished.errorMessage ?? error.localizedDescription
+            upsertDownload(finished)
+        }
+    }
+
+    private func deleteDownloadFiles(for item: BrowserDownloadItem) {
+        var paths = Set<String>()
+        paths.insert(item.localPath)
+        if let encryptedLocalPath = item.encryptedLocalPath {
+            paths.insert(encryptedLocalPath)
+        }
+
+        for path in paths where path.isEmpty == false && FileManager.default.fileExists(atPath: path) {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+        }
+    }
+
+    private func encryptedDownloadURL(for item: BrowserDownloadItem) throws -> URL {
+        let directory = try Self.encryptedDownloadsDirectory()
+        let filename = "\(item.id.uuidString)-\(Self.safeDownloadFilename(item.filename)).glidevault"
+        return directory.appendingPathComponent(filename)
+    }
+
+    private static func encryptedDownloadsDirectory() throws -> URL {
+        let applicationSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let directory = applicationSupport.appendingPathComponent("GlideEncryptedDownloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private static let temporaryExportDirectoryName = "GlideExportCopies"
+
+    private static func temporaryExportURL(for filename: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(temporaryExportDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("\(UUID().uuidString)-\(safeDownloadFilename(filename))")
+    }
+
+    private static func safeDownloadFilename(_ filename: String) -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = trimmed.isEmpty ? "download" : trimmed
+        let illegal = CharacterSet(charactersIn: "/\\?%*|\"<>:")
+        return fallback
+            .components(separatedBy: illegal)
+            .joined(separator: "-")
+    }
+
+    private static func downloadError(_ message: String) -> NSError {
+        NSError(domain: "GlideDownloads", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     private func saveDownloads() {

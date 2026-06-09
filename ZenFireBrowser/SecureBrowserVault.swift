@@ -183,12 +183,29 @@ final class SecureBrowserVault {
         defaults.removeObject(forKey: key)
     }
 
+    func encryptData(_ data: Data) throws -> Data {
+        try seal(plaintext: data)
+    }
+
+    func decryptData(_ data: Data) throws -> Data {
+        try openEnvelope(from: data)
+    }
+
     private func secureKey(for key: String) -> String {
         "\(Self.storagePrefix)\(key)"
     }
 
     private func encrypt<T: Encodable>(_ value: T) throws -> Data {
         let plaintext = try JSONEncoder().encode(value)
+        return try seal(plaintext: plaintext)
+    }
+
+    private func decrypt<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        let plaintext = try openEnvelope(from: data)
+        return try JSONDecoder().decode(type, from: plaintext)
+    }
+
+    private func seal(plaintext: Data) throws -> Data {
         let nonce = AES.GCM.Nonce()
         let sealedBox = try AES.GCM.seal(plaintext, using: key, nonce: nonce)
         let envelope = VaultEnvelope(
@@ -203,7 +220,7 @@ final class SecureBrowserVault {
         return try JSONEncoder().encode(envelope)
     }
 
-    private func decrypt<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    private func openEnvelope(from data: Data) throws -> Data {
         let envelope = try JSONDecoder().decode(VaultEnvelope.self, from: data)
         let nonce = try AES.GCM.Nonce(data: envelope.nonce)
         let sealedBox = try AES.GCM.SealedBox(
@@ -211,8 +228,7 @@ final class SecureBrowserVault {
             ciphertext: envelope.ciphertext,
             tag: envelope.tag
         )
-        let plaintext = try AES.GCM.open(sealedBox, using: key)
-        return try JSONDecoder().decode(type, from: plaintext)
+        return try AES.GCM.open(sealedBox, using: key)
     }
 
     private static func deriveKeyData(pin: String, salt: Data) throws -> Data {

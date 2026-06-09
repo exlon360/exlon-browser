@@ -2138,7 +2138,10 @@ private struct BrowserDownloadsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
-    @State private var previewItem: DownloadPreviewItem?
+    @State private var pendingExportRequest: DownloadExportRequest?
+    @State private var preparedExport: PreparedDownloadExport?
+    @State private var preparedExportCleanupURL: URL?
+    @State private var exportErrorMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -2161,11 +2164,18 @@ private struct BrowserDownloadsView: View {
                     .background(theme.color(.canvas))
                 } else {
                     List {
-                        if model.downloadStatusMessage.isEmpty == false {
+                        if model.downloadStatusMessage.isEmpty == false || exportErrorMessage.isEmpty == false {
                             Section {
-                                Label(model.downloadStatusMessage, systemImage: "info.circle")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(theme.color(.mutedText))
+                                if model.downloadStatusMessage.isEmpty == false {
+                                    Label(model.downloadStatusMessage, systemImage: "info.circle")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(theme.color(.mutedText))
+                                }
+                                if exportErrorMessage.isEmpty == false {
+                                    Label(exportErrorMessage, systemImage: "exclamationmark.triangle")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.red)
+                                }
                             }
                             .listRowBackground(theme.color(.surface))
                         }
@@ -2188,6 +2198,12 @@ private struct BrowserDownloadsView: View {
 
                                 HStack(spacing: 10) {
                                     Text(item.state.title)
+                                    if item.isEncrypted {
+                                        Label("Encrypted", systemImage: "lock.fill")
+                                    }
+                                    if let byteCount = item.originalByteCount {
+                                        Text(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))
+                                    }
                                     Text(item.createdAt, style: .relative)
                                 }
                                 .font(.caption2.weight(.semibold))
@@ -2201,15 +2217,17 @@ private struct BrowserDownloadsView: View {
                                 }
 
                                 HStack(spacing: 8) {
-                                    if canOpen(item) {
+                                    if model.canExportDownload(item) {
                                         Button {
-                                            previewItem = DownloadPreviewItem(url: item.localURL)
+                                            requestExport(item, intent: .preview)
                                         } label: {
                                             Label("Open", systemImage: "doc.text.magnifyingglass")
                                         }
                                         .buttonStyle(.bordered)
 
-                                        ShareLink(item: item.localURL) {
+                                        Button {
+                                            requestExport(item, intent: .share)
+                                        } label: {
                                             Label("Share", systemImage: "square.and.arrow.up")
                                         }
                                         .buttonStyle(.bordered)
@@ -2267,14 +2285,63 @@ private struct BrowserDownloadsView: View {
                 }
             }
         }
-        .sheet(item: $previewItem) { item in
-            DownloadPreviewController(url: item.url)
-                .ignoresSafeArea()
+        .confirmationDialog(
+            "Export decrypted file?",
+            isPresented: Binding(
+                get: { pendingExportRequest != nil },
+                set: { isPresented in
+                    if isPresented == false {
+                        pendingExportRequest = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let request = pendingExportRequest {
+                Button(request.intent.confirmationTitle) {
+                    prepareExport(request)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingExportRequest = nil
+            }
+        } message: {
+            Text("Glide keeps downloads encrypted at rest. Continuing creates a temporary decrypted copy outside the vault so iOS can open or share it.")
+        }
+        .sheet(item: $preparedExport, onDismiss: cleanupPreparedExport) { export in
+            switch export.intent {
+            case .preview:
+                DownloadPreviewController(url: export.url)
+                    .ignoresSafeArea()
+            case .share:
+                ActivityShareController(activityItems: [export.url])
+                    .ignoresSafeArea()
+            }
         }
     }
 
-    private func canOpen(_ item: BrowserDownloadItem) -> Bool {
-        item.state == .finished && FileManager.default.fileExists(atPath: item.localPath)
+    private func requestExport(_ item: BrowserDownloadItem, intent: DownloadExportIntent) {
+        exportErrorMessage = ""
+        pendingExportRequest = DownloadExportRequest(item: item, intent: intent)
+    }
+
+    private func prepareExport(_ request: DownloadExportRequest) {
+        pendingExportRequest = nil
+
+        do {
+            let url = try model.prepareDownloadForExport(request.item)
+            preparedExportCleanupURL = url
+            preparedExport = PreparedDownloadExport(url: url, intent: request.intent)
+        } catch {
+            exportErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func cleanupPreparedExport() {
+        if let preparedExportCleanupURL {
+            model.cleanupPreparedExport(at: preparedExportCleanupURL)
+        }
+        preparedExportCleanupURL = nil
     }
 
     private func symbolName(for state: BrowserDownloadState) -> String {
@@ -2300,9 +2367,29 @@ private struct BrowserDownloadsView: View {
     }
 }
 
-private struct DownloadPreviewItem: Identifiable {
+private enum DownloadExportIntent {
+    case preview
+    case share
+
+    var confirmationTitle: String {
+        switch self {
+        case .preview:
+            return "Open Temporary Copy"
+        case .share:
+            return "Share Temporary Copy"
+        }
+    }
+}
+
+private struct DownloadExportRequest {
+    let item: BrowserDownloadItem
+    let intent: DownloadExportIntent
+}
+
+private struct PreparedDownloadExport: Identifiable {
     let id = UUID()
     let url: URL
+    let intent: DownloadExportIntent
 }
 
 private struct DownloadPreviewController: UIViewControllerRepresentable {
@@ -2335,6 +2422,16 @@ private struct DownloadPreviewController: UIViewControllerRepresentable {
             url as NSURL
         }
     }
+}
+
+private struct ActivityShareController: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 private struct CustomVPNView: View {

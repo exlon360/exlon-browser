@@ -26,7 +26,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Private tabs do not write browsing history or show local history suggestions in private search.
 - Normal tabs are restored after relaunch; private tabs are not persisted.
 - History panel for normal browsing, plus a clear-history action.
-- Downloads panel backed by WebKit downloads and a manual "Download Current Tab" action into the app's local Documents/Downloads folder, with preview, share, retry, delete, and Files app visibility.
+- Downloads panel backed by WebKit downloads and a manual "Download Current Tab" action; downloaded file bytes are encrypted at rest in Glide's vault storage, with preview/share only after an export warning creates a temporary decrypted copy.
 - Local crash log detection for dirty foreground exits, with a crash logs menu that appears after unlock when a crash-like relaunch is detected.
 - Web page file-upload fields open a native file picker for sending local files.
 - Native WebKit content-rule ad/tracker blocking is enabled by default with 100-plus blocker domains and cosmetic hiding rules.
@@ -41,7 +41,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 
 iOS apps cannot ship the desktop Firefox/Gecko engine through ordinary Swift app code. This project uses Apple's `WKWebView`, which is the browser view available to iOS apps, and wraps it in a Firefox/Zen/Arc-style experience.
 
-Apple does not expose a way for third-party browsers to AES-encrypt WebKit's internal cache files directly. Glide handles that by running tabs on non-persistent WebKit storage, disabling shared disk URL caching, clearing old app/WebKit cache locations on launch/unlock, and encrypting Glide's own persisted browser data with the PIN-derived vault key.
+Apple does not expose a way for third-party browsers to AES-encrypt WebKit's internal cache files directly. Glide handles that by running tabs on non-persistent WebKit storage, disabling shared disk URL caching, clearing old app/WebKit cache locations on launch/unlock, and encrypting Glide's own persisted browser data and downloaded file blobs with the PIN-derived vault key.
 
 The custom VPN screen is native, not a website shortcut. A working tunnel still requires a real VPN server and the Personal VPN entitlement when the IPA is signed.
 

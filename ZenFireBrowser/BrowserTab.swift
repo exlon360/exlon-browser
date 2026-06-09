@@ -563,6 +563,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         return directory.appendingPathComponent("\(UUID().uuidString)-\(safeName)")
     }
 
+    nonisolated static func temporaryDownloadDestination(for suggestedFilename: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GlideIncomingDownloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let safeName = safeFilename(suggestedFilename)
+        return directory.appendingPathComponent("\(UUID().uuidString)-\(safeName)")
+    }
+
     nonisolated static func downloadFilename(for url: URL, suggestedFilename: String?) -> String {
         let trimmedSuggestion = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if trimmedSuggestion.isEmpty == false,
@@ -668,17 +676,18 @@ extension BrowserTab: WKDownloadDelegate {
 
         do {
             let destination = try Self.downloadDestination(for: suggestedFilename)
+            let temporaryDestination = try Self.temporaryDownloadDestination(for: destination.lastPathComponent)
             let item = BrowserDownloadItem(
                 filename: destination.lastPathComponent,
                 sourceURLString: response.url?.absoluteString ?? "",
-                localPath: destination.path,
+                localPath: temporaryDestination.path,
                 state: .inProgress
             )
 
             Task { @MainActor [weak self] in
                 self?.registerDownload(item, for: identifier)
             }
-            completionHandler(destination)
+            completionHandler(temporaryDestination)
         } catch {
             Task { @MainActor [weak self] in
                 self?.failDownload(for: identifier, error: error)

@@ -233,6 +233,46 @@ def main() -> int:
         "Manual downloads must use native URLSession downloading.",
     )
     require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "encryptData",
+        "Downloaded file bytes must be encryptable through the AES-256 vault.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "decryptData",
+        "Downloaded file bytes must be decryptable only after unlock.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserModels.swift",
+        "encryptedLocalPath",
+        "Downloads must track their encrypted blob path instead of relying on plaintext files.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "GlideEncryptedDownloads",
+        "Encrypted downloads must be stored outside the plaintext Documents/Downloads folder.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "prepareDownloadForExport",
+        "Downloads must decrypt only through an explicit export preparation path.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "temporaryDownloadDestination",
+        "WebKit downloads must land in a temporary staging path before encryption.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Export decrypted file?",
+        "Exporting a downloaded file must show a privacy warning first.",
+    )
+    require_absent(
+        "ZenFireBrowser/ContentView.swift",
+        "ShareLink(item: item.localURL)",
+        "Downloads must not share the stored file URL directly.",
+    )
+    require_contains(
         "ZenFireBrowser/ContentView.swift",
         "QLPreviewController",
         "Downloaded files must support in-app preview.",

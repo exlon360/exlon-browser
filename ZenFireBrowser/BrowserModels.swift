@@ -214,6 +214,8 @@ struct BrowserDownloadItem: Identifiable, Codable, Equatable {
     var createdAt: Date
     var state: BrowserDownloadState
     var errorMessage: String?
+    var encryptedLocalPath: String?
+    var originalByteCount: Int64?
 
     init(
         id: UUID = UUID(),
@@ -222,7 +224,9 @@ struct BrowserDownloadItem: Identifiable, Codable, Equatable {
         localPath: String,
         createdAt: Date = Date(),
         state: BrowserDownloadState,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        encryptedLocalPath: String? = nil,
+        originalByteCount: Int64? = nil
     ) {
         self.id = id
         self.filename = filename
@@ -231,10 +235,21 @@ struct BrowserDownloadItem: Identifiable, Codable, Equatable {
         self.createdAt = createdAt
         self.state = state
         self.errorMessage = errorMessage
+        self.encryptedLocalPath = encryptedLocalPath
+        self.originalByteCount = originalByteCount
     }
 
     var localURL: URL {
         URL(fileURLWithPath: localPath)
+    }
+
+    var encryptedLocalURL: URL? {
+        guard let encryptedLocalPath, encryptedLocalPath.isEmpty == false else { return nil }
+        return URL(fileURLWithPath: encryptedLocalPath)
+    }
+
+    var isEncrypted: Bool {
+        encryptedLocalPath?.isEmpty == false
     }
 }
 
