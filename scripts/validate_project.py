@@ -347,8 +347,23 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/BrowserTab.swift",
-        "Glide Start",
-        "New tabs must use a themed Glide start page instead of a fixed DuckDuckGo page.",
+        "Start Page",
+        "New tabs must use a local blank start page instead of a fixed DuckDuckGo page.",
+    )
+    require_absent(
+        "ZenFireBrowser/BrowserTab.swift",
+        "<h1>Glide</h1>",
+        "The blank start page must not render Glide branding over the wallpaper.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "max(theme.tabBarOpacity, 0.68)",
+        "Floating/bottom chrome must keep a strong opacity floor over custom backgrounds.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "chromeForegroundColor",
+        "Chrome controls must use a high-contrast foreground over custom backgrounds.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",

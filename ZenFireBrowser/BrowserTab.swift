@@ -199,7 +199,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private func loadStartPage() {
         addressText = ""
         webView.loadHTMLString(
-            Self.startPageHTML(defaultSearchURLString: BrowserDefaults.containedBrowserStartURL.absoluteString),
+            Self.startPageHTML(),
             baseURL: BrowserDefaults.homeURL
         )
     }
@@ -370,20 +370,18 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         """
     }
 
-    private static func startPageHTML(defaultSearchURLString: String) -> String {
+    private static func startPageHTML() -> String {
         """
         <!doctype html>
         <html lang="en">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-          <title>Glide Start</title>
+          <title>Start Page</title>
           <style>
             :root {
               color-scheme: dark;
-              font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
               background: transparent;
-              color: #f4f7fb;
             }
             * { box-sizing: border-box; }
             html, body {
@@ -392,139 +390,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               background: transparent;
             }
             body {
-              display: grid;
-              place-items: center;
-              padding: max(22px, env(safe-area-inset-top)) 22px max(22px, env(safe-area-inset-bottom));
-            }
-            main {
-              width: min(740px, 100%);
-              padding: 22px;
-              border: 1px solid rgba(244, 247, 251, 0.20);
-              border-radius: 18px;
-              background: rgba(7, 9, 13, 0.42);
-              box-shadow: 0 30px 90px rgba(0, 0, 0, 0.44);
-              backdrop-filter: blur(28px) saturate(1.25);
-            }
-            .brand {
-              display: flex;
-              align-items: center;
-              gap: 12px;
-              margin-bottom: 22px;
-            }
-            .mark {
-              width: 46px;
-              height: 46px;
-              border-radius: 13px;
-              display: grid;
-              place-items: center;
-              font-size: 21px;
-              font-weight: 900;
-              color: #07090d;
-              background: linear-gradient(135deg, #f4f7fb, #a9b4c8 48%, #d6e2ff);
-              box-shadow: 0 16px 40px rgba(214, 226, 255, 0.18);
-            }
-            h1 {
-              margin: 0;
-              font-size: clamp(30px, 8vw, 66px);
-              line-height: 0.94;
-              letter-spacing: 0;
-            }
-            .sub {
-              margin: 8px 0 0;
-              color: rgba(244, 247, 251, 0.66);
-              font-size: 15px;
-              font-weight: 650;
-            }
-            form {
-              display: flex;
-              gap: 8px;
-              padding: 8px;
-              border: 1px solid rgba(244, 247, 251, 0.20);
-              border-radius: 14px;
-              background: rgba(16, 18, 24, 0.66);
-              backdrop-filter: blur(16px);
-            }
-            input {
-              min-width: 0;
-              flex: 1;
-              height: 48px;
-              border: 0;
-              outline: 0;
-              color: #f4f7fb;
-              background: transparent;
-              font-size: 17px;
-              font-weight: 650;
-            }
-            input::placeholder { color: rgba(244, 247, 251, 0.48); }
-            button {
-              border: 0;
-              border-radius: 11px;
-              min-height: 48px;
-              padding: 0 16px;
-              font-weight: 900;
-              color: #07090d;
-              background: #d6e2ff;
-            }
-            .chips {
-              display: flex;
-              flex-wrap: wrap;
-              gap: 8px;
-              margin-top: 12px;
-            }
-            .chips button {
-              min-height: 38px;
-              color: #f4f7fb;
-              background: rgba(16, 18, 24, 0.54);
-              border: 1px solid rgba(244, 247, 251, 0.16);
+              color: transparent;
             }
           </style>
         </head>
-        <body>
-          <main>
-            <div class="brand">
-              <div class="mark">G</div>
-              <div>
-                <h1>Glide</h1>
-                <p class="sub">Search DuckDuckGo or open a site.</p>
-              </div>
-            </div>
-            <form id="browserForm">
-              <input id="address" placeholder="Search DuckDuckGo or enter address" autocomplete="url" autocapitalize="none" spellcheck="false" aria-label="Website or search">
-              <button type="submit">Go</button>
-            </form>
-            <div class="chips">
-              <button type="button" data-query="privacy news">Privacy</button>
-              <button type="button" data-query="ai tools">AI tools</button>
-              <button type="button" data-url="https://youtube.com/">YouTube</button>
-              <button type="button" data-url="https://wikipedia.org/">Wikipedia</button>
-            </div>
-          </main>
-          <script>
-            const input = document.getElementById("address");
-            const form = document.getElementById("browserForm");
-
-            function destination(raw) {
-              const value = raw.trim();
-              if (!value) return "\(defaultSearchURLString)";
-              if (/^(https?|file):\\/\\//i.test(value)) return value;
-              if (/^(localhost|127\\.0\\.0\\.1)(:|\\/|$)/i.test(value)) return "http://" + value;
-              if (value.includes(".") || value.includes(":")) return "https://" + value;
-              return "https://duckduckgo.com/?q=" + encodeURIComponent(value);
-            }
-
-            form.addEventListener("submit", event => {
-              event.preventDefault();
-              window.location.assign(destination(input.value));
-            });
-
-            document.querySelectorAll("[data-url]").forEach(button => {
-              button.addEventListener("click", () => window.location.assign(button.dataset.url));
-            });
-            document.querySelectorAll("[data-query]").forEach(button => {
-              button.addEventListener("click", () => window.location.assign(destination(button.dataset.query)));
-            });
-          </script>
-        </body>
+        <body aria-label="Blank start page"></body>
         </html>
         """
     }

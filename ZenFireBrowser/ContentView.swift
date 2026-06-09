@@ -120,6 +120,16 @@ private struct BrowserShell: View {
     }
 }
 
+private extension BrowserTheme {
+    var chromeForegroundColor: Color {
+        isUserBackgroundEnabled && hasUserBackground ? .white : color(.text)
+    }
+
+    var chromeSecondaryForegroundColor: Color {
+        isUserBackgroundEnabled && hasUserBackground ? Color.white.opacity(0.72) : color(.mutedText)
+    }
+}
+
 private struct BrowserContent: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -359,7 +369,7 @@ private struct ChromeHeader: View {
             if compact == false {
                 Text("Glide")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(theme.color(.text))
+                    .foregroundStyle(theme.chromeForegroundColor)
                     .lineLimit(1)
             }
 
@@ -414,7 +424,11 @@ private struct ChromeGlassBackground: View {
             .fill(.ultraThinMaterial)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+                    .fill(theme.color(.chrome).opacity(chromeOpacity))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 : 0))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -431,6 +445,12 @@ private struct ChromeGlassBackground: View {
                     )
             }
     }
+
+    private var chromeOpacity: Double {
+        theme.isUserBackgroundEnabled && theme.hasUserBackground
+            ? max(theme.tabBarOpacity, 0.62)
+            : theme.tabBarOpacity
+    }
 }
 
 private struct FloatingChromeBackground: View {
@@ -441,7 +461,11 @@ private struct FloatingChromeBackground: View {
             .fill(.ultraThinMaterial)
             .overlay {
                 Capsule()
-                    .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+                    .fill(theme.color(.chrome).opacity(chromeOpacity))
+            }
+            .overlay {
+                Capsule()
+                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 : 0))
             }
             .overlay {
                 Capsule()
@@ -457,6 +481,12 @@ private struct FloatingChromeBackground: View {
                         )
                     )
             }
+    }
+
+    private var chromeOpacity: Double {
+        theme.isUserBackgroundEnabled && theme.hasUserBackground
+            ? max(theme.tabBarOpacity, 0.68)
+            : theme.tabBarOpacity
     }
 }
 
@@ -475,7 +505,7 @@ private struct ControlGlassBackground: View {
 
     private var controlOpacity: Double {
         theme.isUserBackgroundEnabled && theme.hasUserBackground
-            ? max(theme.controlOpacity, 0.72)
+            ? max(theme.controlOpacity, 0.88)
             : theme.controlOpacity
     }
 }
@@ -497,7 +527,7 @@ private struct PlacementMenu: View {
             Image(systemName: model.chromePlacement.symbolName)
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
-                .foregroundStyle(theme.color(.text))
+                .foregroundStyle(theme.chromeForegroundColor)
                 .background(ControlGlassBackground(cornerRadius: 8))
         }
         .accessibilityLabel("Change chrome placement")
@@ -527,7 +557,7 @@ private struct TabBarStyleControl: View {
             .frame(maxWidth: compact ? nil : .infinity)
             .padding(.horizontal, compact ? 0 : 12)
             .frame(width: compact ? 36 : nil)
-            .foregroundStyle(theme.color(.text))
+            .foregroundStyle(theme.chromeForegroundColor)
             .background(ControlGlassBackground(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -543,8 +573,8 @@ private struct TabBarStyleControl: View {
                         .font(.headline.weight(.semibold))
                     Spacer()
                     Text("\(Int(theme.tabBarTransparency * 100))%")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(theme.color(.mutedText))
+                    .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.chromeSecondaryForegroundColor)
                 }
 
                 Toggle("Transparent", isOn: $theme.isTabBarTransparencyEnabled)
@@ -599,7 +629,7 @@ private struct TabBarStyleControl: View {
             .padding(16)
             .frame(width: 300)
             .background(theme.color(.surface))
-            .foregroundStyle(theme.color(.text))
+            .foregroundStyle(theme.chromeForegroundColor)
         }
         .fileImporter(
             isPresented: $isBackgroundImporterPresented,
@@ -663,13 +693,13 @@ private struct SearchTrigger: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(displayTitle)
                         .font(.system(size: style == .sidebar ? 13 : 15, weight: .semibold))
-                        .foregroundStyle(theme.color(.text))
+                        .foregroundStyle(theme.chromeForegroundColor)
                         .lineLimit(1)
 
                     if style == .sidebar {
                         Text("Search or enter address")
                             .font(.caption2)
-                            .foregroundStyle(theme.color(.mutedText))
+                            .foregroundStyle(theme.chromeSecondaryForegroundColor)
                             .lineLimit(1)
                     }
                 }
@@ -1843,7 +1873,7 @@ private struct NewTabActions: View {
                 Image(systemName: "theatermasks")
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 44, height: 44)
-                    .foregroundStyle(theme.color(.text))
+                    .foregroundStyle(theme.chromeForegroundColor)
                     .background(ControlGlassBackground(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1859,7 +1889,7 @@ private struct NewTabActions: View {
                 Image(systemName: "rectangle.on.rectangle")
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 44, height: 44)
-                    .foregroundStyle(theme.color(.text))
+                    .foregroundStyle(theme.chromeForegroundColor)
                     .background(ControlGlassBackground(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -2107,13 +2137,13 @@ private struct FloatingTabSwitcher: View {
             }
             .frame(height: 36)
             .padding(.horizontal, 12)
-            .foregroundStyle(theme.color(.text))
+            .foregroundStyle(theme.chromeForegroundColor)
             .background {
                 Capsule()
                     .fill(.ultraThinMaterial)
                     .overlay {
                         Capsule()
-                            .fill(theme.color(.field).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.72) : theme.controlOpacity))
+                            .fill(theme.color(.field).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.88) : theme.controlOpacity))
                     }
             }
             .overlay {
@@ -2149,7 +2179,7 @@ private struct ChromeButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
-                .foregroundStyle(theme.color(.text))
+                .foregroundStyle(theme.chromeForegroundColor)
                 .background(ControlGlassBackground(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -2171,7 +2201,7 @@ private struct BrandMark: View {
                 .fill(.ultraThinMaterial)
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(theme.color(.surface).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.72) : theme.controlOpacity))
+                        .fill(theme.color(.surface).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.88) : theme.controlOpacity))
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -2179,7 +2209,7 @@ private struct BrandMark: View {
                 }
             Image(systemName: "globe")
                 .font(.system(size: 15, weight: .black))
-                .foregroundStyle(theme.color(.accent))
+                .foregroundStyle(theme.isUserBackgroundEnabled && theme.hasUserBackground ? Color.white : theme.color(.accent))
         }
         .frame(width: 36, height: 36)
     }
