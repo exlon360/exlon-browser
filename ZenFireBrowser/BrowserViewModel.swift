@@ -43,6 +43,77 @@ enum BrowserChromePlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserToolbarAction: String, CaseIterable, Identifiable {
+    case forward
+    case reload
+    case tabFinder
+    case containedTabs
+    case downloadCurrent
+    case history
+    case downloads
+    case placement
+    case settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .forward:
+            return "Forward"
+        case .reload:
+            return "Reload / Stop"
+        case .tabFinder:
+            return "Tab Finder"
+        case .containedTabs:
+            return "Contained Tabs"
+        case .downloadCurrent:
+            return "Download Current Tab"
+        case .history:
+            return "History"
+        case .downloads:
+            return "Downloads"
+        case .placement:
+            return "Chrome Placement"
+        case .settings:
+            return "Settings"
+        }
+    }
+
+    var menuTitle: String {
+        switch self {
+        case .downloadCurrent:
+            return "Download Current Tab"
+        case .reload:
+            return "Reload / Stop"
+        default:
+            return title
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .forward:
+            return "chevron.right"
+        case .reload:
+            return "arrow.clockwise"
+        case .tabFinder:
+            return "square.grid.2x2"
+        case .containedTabs:
+            return "rectangle.on.rectangle"
+        case .downloadCurrent:
+            return "arrow.down.doc"
+        case .history:
+            return "clock.arrow.circlepath"
+        case .downloads:
+            return "arrow.down.circle"
+        case .placement:
+            return "rectangle.split.2x1"
+        case .settings:
+            return "gearshape"
+        }
+    }
+}
+
 @MainActor
 final class BrowserViewModel: ObservableObject {
     @Published var tabs: [BrowserTab]
@@ -84,6 +155,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         }
     }
+    @Published var moreMenuActionIDs: Set<String> {
+        didSet {
+            vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
+        }
+    }
     @Published var history: [BrowserHistoryItem]
     @Published var essentials: [BrowserEssentialItem]
     @Published var downloads: [BrowserDownloadItem]
@@ -114,6 +190,7 @@ final class BrowserViewModel: ObservableObject {
         let placement = BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
+        let savedMoreMenuActionIDs = vault.load(Set<String>.self, forKey: Self.StorageKey.moreMenuActionIDs, default: [])
         let savedHistory = Self.loadHistory(vault: vault)
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedDownloads = Self.loadDownloads(vault: vault)
@@ -124,6 +201,7 @@ final class BrowserViewModel: ObservableObject {
         self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
+        self.moreMenuActionIDs = savedMoreMenuActionIDs
         self.history = savedHistory
         self.essentials = savedEssentials
         self.downloads = savedDownloads
@@ -436,6 +514,42 @@ final class BrowserViewModel: ObservableObject {
         download(url: url, suggestedFilename: item.filename)
     }
 
+    func isInMoreMenu(_ action: BrowserToolbarAction) -> Bool {
+        moreMenuActionIDs.contains(action.rawValue)
+    }
+
+    func setMoreMenuAction(_ action: BrowserToolbarAction, enabled: Bool) {
+        if enabled {
+            moreMenuActionIDs.insert(action.rawValue)
+        } else {
+            moreMenuActionIDs.remove(action.rawValue)
+        }
+        vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
+    }
+
+    func performToolbarAction(_ action: BrowserToolbarAction) {
+        switch action {
+        case .forward:
+            goForward()
+        case .reload:
+            reloadOrStop()
+        case .tabFinder:
+            isTabFinderPresented = true
+        case .containedTabs:
+            showContainedTabs()
+        case .downloadCurrent:
+            downloadSelectedTab()
+        case .history:
+            isHistoryPresented = true
+        case .downloads:
+            isDownloadsPresented = true
+        case .placement:
+            break
+        case .settings:
+            isSettingsPresented = true
+        }
+    }
+
     func searchResults(for rawQuery: String) -> [BrowserSearchResult] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let canShowHistory = selectedTab?.isPrivate != true
@@ -617,6 +731,7 @@ final class BrowserViewModel: ObservableObject {
         areSideTabsCollapsed = false
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
+        moreMenuActionIDs = []
         localAIName = "Local AI"
         localAIURLText = ""
         setAdBlockerEnabled(true)
@@ -781,6 +896,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
+        vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
         vault.save(history, forKey: Self.StorageKey.history)
         vault.save(essentials, forKey: Self.StorageKey.essentials)
         vault.save(downloads, forKey: Self.StorageKey.downloads)
@@ -873,6 +989,7 @@ final class BrowserViewModel: ObservableObject {
         static let sideTabsCollapsed = "ZenFireBrowser.sideTabsCollapsed"
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
+        static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
         static let history = "ZenFireBrowser.history"
         static let essentials = "ZenFireBrowser.essentials"
         static let openTabs = "ZenFireBrowser.openTabs"

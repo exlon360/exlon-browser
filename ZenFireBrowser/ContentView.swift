@@ -285,6 +285,11 @@ private struct BrowserShell: View {
                     }
                 }
 
+                BrowserPageControls()
+                    .padding(.leading, pageControlsLeadingPadding(for: proxy))
+                    .padding(.top, pageControlsTopPadding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
                 if model.isContainedBrowserPresented {
                     ContainedBrowserOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
@@ -366,6 +371,20 @@ private struct BrowserShell: View {
     private func sideWidth(for proxy: GeometryProxy) -> CGFloat {
         min(max(proxy.size.width * 0.3, 286), 360)
     }
+
+    private func pageControlsLeadingPadding(for proxy: GeometryProxy) -> CGFloat {
+        if model.chromePlacement == .left && model.areSideTabsCollapsed == false {
+            return sideWidth(for: proxy) + 18
+        }
+        return 14
+    }
+
+    private var pageControlsTopPadding: CGFloat {
+        if model.chromePlacement == .top && model.areSideTabsCollapsed == false {
+            return 118
+        }
+        return 14
+    }
 }
 
 private extension BrowserTheme {
@@ -397,11 +416,6 @@ private struct BrowserContent: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(theme.color(.border).opacity(0.5), lineWidth: 1)
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        AITabButton()
-                            .padding(.top, 12)
-                            .padding(.trailing, 12)
                     }
                     .padding(browserPadding)
             }
@@ -562,41 +576,57 @@ private struct FloatingChrome: View {
                         model.openFloatingSearch()
                     }
 
-                    ChromeButton(symbol: "chevron.right", label: "Forward") {
-                        model.goForward()
+                    if model.isInMoreMenu(.forward) == false {
+                        ChromeButton(symbol: "chevron.right", label: "Forward") {
+                            model.goForward()
+                        }
+                        .disabled(model.selectedTab?.canGoForward != true)
                     }
-                    .disabled(model.selectedTab?.canGoForward != true)
 
                     FloatingTabSwitcher()
 
-                    ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
-                        model.isTabFinderPresented = true
+                    if model.isInMoreMenu(.tabFinder) == false {
+                        ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
+                            model.isTabFinderPresented = true
+                        }
                     }
 
-                    ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
-                        model.showContainedTabs()
+                    if model.isInMoreMenu(.containedTabs) == false {
+                        ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
+                            model.showContainedTabs()
+                        }
                     }
 
-                    ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
-                        model.reloadOrStop()
+                    if model.isInMoreMenu(.reload) == false {
+                        ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
+                            model.reloadOrStop()
+                        }
                     }
 
-                    ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
-                        model.downloadSelectedTab()
+                    if model.isInMoreMenu(.downloadCurrent) == false {
+                        ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
+                            model.downloadSelectedTab()
+                        }
                     }
 
-                    ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
-                        model.isHistoryPresented = true
+                    if model.isInMoreMenu(.history) == false {
+                        ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
+                            model.isHistoryPresented = true
+                        }
                     }
 
-                    ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
-                        model.isDownloadsPresented = true
+                    if model.isInMoreMenu(.downloads) == false {
+                        ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
+                            model.isDownloadsPresented = true
+                        }
                     }
 
                     TabBarStyleControl(compact: true)
 
-                    ChromeButton(symbol: "gearshape", label: "Settings") {
-                        model.isSettingsPresented = true
+                    if model.isInMoreMenu(.settings) == false {
+                        ChromeButton(symbol: "gearshape", label: "Settings") {
+                            model.isSettingsPresented = true
+                        }
                     }
                 }
                 .padding(8)
@@ -640,39 +670,57 @@ private struct ChromeFooter: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ChromeButton(symbol: "chevron.right", label: "Forward") {
-                    model.goForward()
-                }
-                .disabled(model.selectedTab?.canGoForward != true)
-
-                ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
-                    model.reloadOrStop()
+                if model.isInMoreMenu(.forward) == false {
+                    ChromeButton(symbol: "chevron.right", label: "Forward") {
+                        model.goForward()
+                    }
+                    .disabled(model.selectedTab?.canGoForward != true)
                 }
 
-                ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
-                    model.isHistoryPresented = true
+                if model.isInMoreMenu(.reload) == false {
+                    ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
+                        model.reloadOrStop()
+                    }
                 }
 
-                ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
-                    model.isTabFinderPresented = true
+                if model.isInMoreMenu(.history) == false {
+                    ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
+                        model.isHistoryPresented = true
+                    }
                 }
 
-                ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
-                    model.downloadSelectedTab()
+                if model.isInMoreMenu(.tabFinder) == false {
+                    ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
+                        model.isTabFinderPresented = true
+                    }
                 }
 
-                ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
-                    model.isDownloadsPresented = true
+                if model.isInMoreMenu(.downloadCurrent) == false {
+                    ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
+                        model.downloadSelectedTab()
+                    }
                 }
 
-                ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
-                    model.showContainedTabs()
+                if model.isInMoreMenu(.downloads) == false {
+                    ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
+                        model.isDownloadsPresented = true
+                    }
                 }
 
-                PlacementMenu()
+                if model.isInMoreMenu(.containedTabs) == false {
+                    ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
+                        model.showContainedTabs()
+                    }
+                }
 
-                ChromeButton(symbol: "gearshape", label: "Settings") {
-                    model.isSettingsPresented = true
+                if model.isInMoreMenu(.placement) == false {
+                    PlacementMenu()
+                }
+
+                if model.isInMoreMenu(.settings) == false {
+                    ChromeButton(symbol: "gearshape", label: "Settings") {
+                        model.isSettingsPresented = true
+                    }
                 }
             }
         }
@@ -1245,6 +1293,100 @@ private struct SearchResultRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct BrowserPageControls: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AITabButton()
+            MoreTabButton()
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.42), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.24), radius: 14, y: 7)
+    }
+}
+
+private struct MoreTabButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Menu {
+            let actions = movedActions
+            if actions.isEmpty {
+                Button {} label: {
+                    Label("Move actions here in Settings", systemImage: "slider.horizontal.3")
+                }
+                .disabled(true)
+            } else {
+                ForEach(actions) { action in
+                    menuContent(for: action)
+                }
+
+                Divider()
+            }
+
+            Button {
+                model.isSettingsPresented = true
+            } label: {
+                Label("Customize More Menu", systemImage: "slider.horizontal.3")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 18, weight: .black))
+                .frame(width: 38, height: 38)
+                .foregroundStyle(theme.color(.text))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.62), lineWidth: 1)
+                }
+        }
+        .accessibilityLabel("More actions")
+    }
+
+    private var movedActions: [BrowserToolbarAction] {
+        BrowserToolbarAction.allCases.filter { model.isInMoreMenu($0) }
+    }
+
+    @ViewBuilder
+    private func menuContent(for action: BrowserToolbarAction) -> some View {
+        if action == .placement {
+            Menu {
+                PlacementMenuContent()
+            } label: {
+                Label(action.menuTitle, systemImage: model.chromePlacement.symbolName)
+            }
+        } else {
+            Button {
+                model.performToolbarAction(action)
+            } label: {
+                Label(menuTitle(for: action), systemImage: menuSymbol(for: action))
+            }
+            .disabled(action == .forward && model.selectedTab?.canGoForward != true)
+        }
+    }
+
+    private func menuTitle(for action: BrowserToolbarAction) -> String {
+        if action == .reload {
+            return model.selectedTab?.isLoading == true ? "Stop Loading" : "Reload"
+        }
+        return action.menuTitle
+    }
+
+    private func menuSymbol(for action: BrowserToolbarAction) -> String {
+        if action == .reload {
+            return model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise"
+        }
+        return action.symbolName
     }
 }
 
@@ -2940,6 +3082,14 @@ private struct BrowserSettingsView: View {
                     }
                 }
 
+                Section("Three-Dot Menu") {
+                    ForEach(BrowserToolbarAction.allCases) { action in
+                        Toggle(isOn: moreMenuBinding(for: action)) {
+                            Label(action.title, systemImage: action.symbolName)
+                        }
+                    }
+                }
+
                 Section("Privacy Lock") {
                     LabeledContent("Encrypted vault") {
                         Label("Unlocked", systemImage: "checkmark.shield")
@@ -3126,6 +3276,13 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isAdBlockerEnabled },
             set: { model.setAdBlockerEnabled($0) }
+        )
+    }
+
+    private func moreMenuBinding(for action: BrowserToolbarAction) -> Binding<Bool> {
+        Binding(
+            get: { model.isInMoreMenu(action) },
+            set: { model.setMoreMenuAction(action, enabled: $0) }
         )
     }
 

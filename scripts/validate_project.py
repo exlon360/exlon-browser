@@ -158,6 +158,41 @@ def main() -> int:
         "The browser must expose an all-tabs tab finder screen.",
     )
     require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "BrowserPageControls",
+        "AI and more actions must live in the left-side page control cluster.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "MoreTabButton",
+        "The page controls must include a three-dot more menu.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "pageControlsLeadingPadding",
+        "Left-side page controls must avoid the default side tab rail.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        'Section("Three-Dot Menu")',
+        "Settings must expose three-dot menu customization.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "moreMenuActionIDs",
+        "Three-dot menu customization must persist in the encrypted browser model.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "BrowserToolbarAction",
+        "Toolbar actions must be modeled for bar/menu customization.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "model.isInMoreMenu(.history) == false",
+        "Moving History to the three-dot menu must hide it from the main bar.",
+    )
+    require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",
         "isTabFinderPresented",
         "The browser model must present the tab finder.",

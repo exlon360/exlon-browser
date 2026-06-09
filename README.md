@@ -33,7 +33,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Gesture controls: two-finger swipe left hides the tab bar, two-finger swipe right reveals it, and three-finger horizontal swipes go back or forward.
 - Collapsible side tabs without a visible side hider handle.
 - Custom VPN profile setup using iOS Personal VPN APIs for a user-supplied country/server.
-- Top-right AI shortcuts for ChatGPT, Gemini, Claude, Grok, and an importable local AI endpoint.
+- Left-side page controls with AI shortcuts for ChatGPT, Gemini, Claude, Grok, an importable local AI endpoint, plus a configurable three-dot menu; moving a toolbar action into the menu hides it from the main chrome bar.
 - Back navigation is gesture-first; the visible chrome keeps forward, reload/stop, close tab, new tab, and new private tab controls.
 - Dark mode enforced in SwiftUI and `Info.plist`.
 
