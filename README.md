@@ -13,6 +13,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.
 - New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
+- Tab Finder sheet for searching, selecting, and closing normal, private, and contained tabs from one place.
 - Contained Tabs open a neutral browser-in-browser website inside a nested `WKWebView`, with its own address bar, tab strip, navigation controls, top-level website loading, popup/new-window handling, audio/video playback, and isolated non-persistent web storage.
 - More polished glass-style tab chrome with a settings toggle and adjustable transparency.
 - Tab bar transparency and background controls are available directly from the tab bar, and side/top/bottom chrome overlays the page so transparency shows the page or wallpaper beneath it.
@@ -25,7 +26,8 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Private tabs do not write browsing history or show local history suggestions in private search.
 - Normal tabs are restored after relaunch; private tabs are not persisted.
 - History panel for normal browsing, plus a clear-history action.
-- Downloads panel backed by WebKit downloads into the app's local Documents/Downloads folder.
+- Downloads panel backed by WebKit downloads and a manual "Download Current Tab" action into the app's local Documents/Downloads folder, with preview, share, retry, delete, and Files app visibility.
+- Local crash log detection for dirty foreground exits, with a crash logs menu that appears after unlock when a crash-like relaunch is detected.
 - Web page file-upload fields open a native file picker for sending local files.
 - Native WebKit content-rule ad/tracker blocking is enabled by default with 100-plus blocker domains and cosmetic hiding rules.
 - Gesture controls: two-finger swipe left hides the tab bar, two-finger swipe right reveals it, and three-finger horizontal swipes go back or forward.

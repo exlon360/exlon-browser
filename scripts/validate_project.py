@@ -87,6 +87,7 @@ def main() -> int:
         "ZenFireBrowser/Assets.xcassets/Contents.json",
         "ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Contents.json",
         "ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png",
+        "ZenFireBrowser/AppCrashReporter.swift",
         "ZenFireBrowser/BrowserContentBlocker.swift",
         "ZenFireBrowser/BrowserModels.swift",
         "ZenFireBrowser/BrowserTab.swift",
@@ -150,6 +151,66 @@ def main() -> int:
         "ZenFireBrowser/BrowserViewModel.swift",
         "vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)",
         "The ad blocker must be enabled by default for fresh installs.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "BrowserTabFinderView",
+        "The browser must expose an all-tabs tab finder screen.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "isTabFinderPresented",
+        "The browser model must present the tab finder.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "selectFromFinder",
+        "The tab finder must select normal and contained tabs.",
+    )
+    require_contains(
+        "ZenFireBrowser/AppCrashReporter.swift",
+        "Previous session ended unexpectedly",
+        "The app must detect and log crash-like dirty foreground exits.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "isCrashLogsPresented",
+        "The security model must present crash logs after unlock.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "CrashLogsView",
+        "The app must include a crash logs menu.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "presentCrashLogsIfNeeded",
+        "Crash logs must be offered automatically after an unread crash-like relaunch.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "downloadSelectedTab",
+        "Downloads must include a manual current-tab download action.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "URLSession.shared.download",
+        "Manual downloads must use native URLSession downloading.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "QLPreviewController",
+        "Downloaded files must support in-app preview.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "UIFileSharingEnabled",
+        "Downloaded files must be visible through iOS file sharing.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "LSSupportsOpeningDocumentsInPlace",
+        "Downloaded files must support opening in place from Files.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",

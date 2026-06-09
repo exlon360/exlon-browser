@@ -58,6 +58,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isFloatingSearchPresented = false
     @Published var floatingSearchText = ""
     @Published var shouldSelectFloatingSearchText = false
+    @Published var isTabFinderPresented = false
     @Published var isSettingsPresented = false
     @Published var isHistoryPresented = false
     @Published var isDownloadsPresented = false
@@ -102,6 +103,7 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var vpnStatusMessage = "Custom VPN profile not configured."
+    @Published var downloadStatusMessage = ""
     private let vault: SecureBrowserVault
     private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
 
@@ -165,6 +167,16 @@ final class BrowserViewModel: ObservableObject {
             floatingSearchText = tab.addressText
         }
         persistOpenTabs()
+    }
+
+    func selectFromFinder(_ tab: BrowserTab) {
+        if containedTabs.contains(where: { $0.id == tab.id }) {
+            selectedContainedTabID = tab.id
+            isContainedBrowserPresented = true
+        } else {
+            select(tab)
+        }
+        isTabFinderPresented = false
     }
 
     @discardableResult
@@ -237,6 +249,14 @@ final class BrowserViewModel: ObservableObject {
 
         if selectedContainedTabID == tab.id {
             selectedContainedTabID = containedTabs.last?.id
+        }
+    }
+
+    func closeFromFinder(_ tab: BrowserTab) {
+        if containedTabs.contains(where: { $0.id == tab.id }) {
+            closeContained(tab)
+        } else {
+            close(tab)
         }
     }
 
@@ -386,6 +406,34 @@ final class BrowserViewModel: ObservableObject {
     func clearDownloads() {
         downloads = []
         saveDownloads()
+    }
+
+    func deleteDownload(_ item: BrowserDownloadItem) {
+        if FileManager.default.fileExists(atPath: item.localPath) {
+            try? FileManager.default.removeItem(at: item.localURL)
+        }
+        downloads.removeAll { $0.id == item.id }
+        saveDownloads()
+    }
+
+    func downloadSelectedTab() {
+        guard let url = selectedTab?.url,
+              Self.shouldPersist(url: url) else {
+            downloadStatusMessage = "Nothing downloadable on the current tab."
+            isDownloadsPresented = true
+            return
+        }
+
+        download(url: url)
+    }
+
+    func retryDownload(_ item: BrowserDownloadItem) {
+        guard let url = URL(string: item.sourceURLString), Self.shouldPersist(url: url) else {
+            downloadStatusMessage = "That download does not have a retryable source URL."
+            return
+        }
+
+        download(url: url, suggestedFilename: item.filename)
     }
 
     func searchResults(for rawQuery: String) -> [BrowserSearchResult] {
@@ -675,6 +723,49 @@ final class BrowserViewModel: ObservableObject {
             downloads = Array(downloads.prefix(100))
         }
         saveDownloads()
+    }
+
+    private func download(url: URL, suggestedFilename: String? = nil) {
+        do {
+            let destination = try BrowserTab.downloadDestination(for: BrowserTab.downloadFilename(for: url, suggestedFilename: suggestedFilename))
+            let item = BrowserDownloadItem(
+                filename: destination.lastPathComponent,
+                sourceURLString: url.absoluteString,
+                localPath: destination.path,
+                state: .inProgress
+            )
+            updateDownload(item)
+            downloadStatusMessage = "Downloading \(item.filename)..."
+            isDownloadsPresented = true
+
+            Task { [weak self] in
+                do {
+                    let (temporaryURL, _) = try await URLSession.shared.download(from: url)
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        try FileManager.default.removeItem(at: destination)
+                    }
+                    try FileManager.default.moveItem(at: temporaryURL, to: destination)
+
+                    await MainActor.run {
+                        var finished = item
+                        finished.state = .finished
+                        self?.downloadStatusMessage = "Saved \(finished.filename)."
+                        self?.updateDownload(finished)
+                    }
+                } catch {
+                    await MainActor.run {
+                        var failed = item
+                        failed.state = .failed
+                        failed.errorMessage = error.localizedDescription
+                        self?.downloadStatusMessage = error.localizedDescription
+                        self?.updateDownload(failed)
+                    }
+                }
+            }
+        } catch {
+            downloadStatusMessage = error.localizedDescription
+            isDownloadsPresented = true
+        }
     }
 
     private func saveDownloads() {

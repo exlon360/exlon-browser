@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import QuickLook
 import UIKit
 import UniformTypeIdentifiers
 
@@ -305,9 +306,21 @@ private struct BrowserShell: View {
                     .environmentObject(security)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $model.isTabFinderPresented) {
+                BrowserTabFinderView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
             .sheet(isPresented: $model.isHistoryPresented) {
                 BrowserHistoryView()
                     .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $security.isCrashLogsPresented) {
+                CrashLogsView()
+                    .environmentObject(security)
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
@@ -342,6 +355,9 @@ private struct BrowserShell: View {
                 allowsMultipleSelection: model.allowsMultipleWebFileImport
             ) { result in
                 model.completeWebFileImport(result)
+            }
+            .onAppear {
+                security.presentCrashLogsIfNeeded()
             }
         }
         .tint(theme.color(.accent))
@@ -553,12 +569,20 @@ private struct FloatingChrome: View {
 
                     FloatingTabSwitcher()
 
+                    ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
+                        model.isTabFinderPresented = true
+                    }
+
                     ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                         model.showContainedTabs()
                     }
 
                     ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                         model.reloadOrStop()
+                    }
+
+                    ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
+                        model.downloadSelectedTab()
                     }
 
                     ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
@@ -627,6 +651,14 @@ private struct ChromeFooter: View {
 
                 ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
                     model.isHistoryPresented = true
+                }
+
+                ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
+                    model.isTabFinderPresented = true
+                }
+
+                ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
+                    model.downloadSelectedTab()
                 }
 
                 ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
@@ -1773,10 +1805,198 @@ private struct TutorialDivider: View {
     }
 }
 
+private struct BrowserTabFinderView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if visibleTabCount == 0 {
+                    VStack(spacing: 12) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 34, weight: .semibold))
+                        Text(query.isEmpty ? "No tabs open" : "No matching tabs")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(theme.color(.mutedText))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(theme.color(.canvas))
+                } else {
+                    List {
+                        tabSection("Normal", tabs: filtered(model.normalTabs), isContained: false)
+                        tabSection("Private", tabs: filtered(model.privateTabs), isContained: false)
+                        tabSection("Contained", tabs: filtered(model.containedTabs), isContained: true)
+                    }
+                    .scrollContentBackground(.hidden)
+                    .background(theme.color(.canvas))
+                }
+            }
+            .navigationTitle("Tab Finder")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find tabs")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        model.openNewTabAndSearch()
+                        dismiss()
+                    } label: {
+                        Label("New Tab", systemImage: "plus")
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tabSection(_ title: String, tabs: [BrowserTab], isContained: Bool) -> some View {
+        if tabs.isEmpty == false {
+            Section("\(title) (\(tabs.count))") {
+                ForEach(tabs) { tab in
+                    TabFinderRow(tab: tab, isContained: isContained) {
+                        model.selectFromFinder(tab)
+                    } closeAction: {
+                        model.closeFromFinder(tab)
+                    }
+                    .listRowBackground(theme.color(.surface))
+                    .contextMenu {
+                        if isContained == false && tab.isPrivate == false {
+                            Button {
+                                model.addEssential(from: tab)
+                            } label: {
+                                Label("Add to Essentials", systemImage: "sparkle")
+                            }
+                        }
+
+                        Button(role: .destructive) {
+                            model.closeFromFinder(tab)
+                        } label: {
+                            Label("Close Tab", systemImage: "xmark")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var visibleTabCount: Int {
+        filtered(model.normalTabs).count + filtered(model.privateTabs).count + filtered(model.containedTabs).count
+    }
+
+    private func filtered(_ tabs: [BrowserTab]) -> [BrowserTab] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmedQuery.isEmpty == false else { return tabs }
+
+        return tabs.filter { tab in
+            tab.title.lowercased().contains(trimmedQuery) ||
+            (tab.url?.absoluteString.lowercased().contains(trimmedQuery) ?? false)
+        }
+    }
+}
+
+private struct TabFinderRow: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @ObservedObject var tab: BrowserTab
+    let isContained: Bool
+    let selectAction: () -> Void
+    let closeAction: () -> Void
+
+    private var isSelected: Bool {
+        if isContained {
+            return model.selectedContainedTabID == tab.id
+        }
+        return model.selectedTabID == tab.id
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: selectAction) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(iconFill)
+                        Image(systemName: iconName)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(theme.color(.text))
+                    }
+                    .frame(width: 36, height: 36)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(tab.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(theme.color(.text))
+                                .lineLimit(1)
+
+                            if isSelected {
+                                Text("ACTIVE")
+                                    .font(.system(size: 9, weight: .black))
+                                    .foregroundStyle(theme.color(.canvas))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 3)
+                                    .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                            }
+                        }
+
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(role: .destructive, action: closeAction) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.color(.mutedText))
+            .accessibilityLabel("Close \(tab.title)")
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var iconName: String {
+        if isContained {
+            return "rectangle.on.rectangle"
+        }
+        return tab.isPrivate ? "theatermasks" : "globe"
+    }
+
+    private var iconFill: Color {
+        if isContained {
+            return theme.color(.accent).opacity(0.28)
+        }
+        return tab.isPrivate ? theme.color(.privateAccent).opacity(0.82) : theme.color(.accent).opacity(0.24)
+    }
+
+    private var subtitle: String {
+        if BrowserTab.isStartPageURL(tab.url) {
+            return "Start Page"
+        }
+        return tab.url?.absoluteString ?? "No URL"
+    }
+}
+
 private struct BrowserDownloadsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
+    @State private var previewItem: DownloadPreviewItem?
 
     var body: some View {
         NavigationStack {
@@ -1787,12 +2007,27 @@ private struct BrowserDownloadsView: View {
                             .font(.system(size: 34, weight: .semibold))
                         Text("No downloads yet")
                             .font(.headline)
+                        Button {
+                            model.downloadSelectedTab()
+                        } label: {
+                            Label("Download Current Tab", systemImage: "arrow.down.doc")
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
                     .foregroundStyle(theme.color(.mutedText))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(theme.color(.canvas))
                 } else {
                     List {
+                        if model.downloadStatusMessage.isEmpty == false {
+                            Section {
+                                Label(model.downloadStatusMessage, systemImage: "info.circle")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(theme.color(.mutedText))
+                            }
+                            .listRowBackground(theme.color(.surface))
+                        }
+
                         ForEach(model.downloads) { item in
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 8) {
@@ -1812,13 +2047,6 @@ private struct BrowserDownloadsView: View {
                                 HStack(spacing: 10) {
                                     Text(item.state.title)
                                     Text(item.createdAt, style: .relative)
-
-                                    if item.state == .finished,
-                                       FileManager.default.fileExists(atPath: item.localPath) {
-                                        ShareLink(item: item.localURL) {
-                                            Label("Share", systemImage: "square.and.arrow.up")
-                                        }
-                                    }
                                 }
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(theme.color(.mutedText))
@@ -1829,6 +2057,39 @@ private struct BrowserDownloadsView: View {
                                         .foregroundStyle(.red)
                                         .lineLimit(2)
                                 }
+
+                                HStack(spacing: 8) {
+                                    if canOpen(item) {
+                                        Button {
+                                            previewItem = DownloadPreviewItem(url: item.localURL)
+                                        } label: {
+                                            Label("Open", systemImage: "doc.text.magnifyingglass")
+                                        }
+                                        .buttonStyle(.bordered)
+
+                                        ShareLink(item: item.localURL) {
+                                            Label("Share", systemImage: "square.and.arrow.up")
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+
+                                    if item.sourceURLString.isEmpty == false {
+                                        Button {
+                                            model.retryDownload(item)
+                                        } label: {
+                                            Label(item.state == .failed ? "Retry" : "Download Again", systemImage: "arrow.clockwise")
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+
+                                    Button(role: .destructive) {
+                                        model.deleteDownload(item)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                .font(.caption.weight(.bold))
                             }
                             .padding(.vertical, 4)
                             .listRowBackground(theme.color(.surface))
@@ -1841,10 +2102,20 @@ private struct BrowserDownloadsView: View {
             .navigationTitle("Downloads")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Clear") {
+                    Button {
                         model.clearDownloads()
+                    } label: {
+                        Label("Clear", systemImage: "trash")
                     }
                     .disabled(model.downloads.isEmpty)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        model.downloadSelectedTab()
+                    } label: {
+                        Label("Download Current Tab", systemImage: "arrow.down.doc")
+                    }
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -1854,6 +2125,14 @@ private struct BrowserDownloadsView: View {
                 }
             }
         }
+        .sheet(item: $previewItem) { item in
+            DownloadPreviewController(url: item.url)
+                .ignoresSafeArea()
+        }
+    }
+
+    private func canOpen(_ item: BrowserDownloadItem) -> Bool {
+        item.state == .finished && FileManager.default.fileExists(atPath: item.localPath)
     }
 
     private func symbolName(for state: BrowserDownloadState) -> String {
@@ -1875,6 +2154,43 @@ private struct BrowserDownloadsView: View {
             return .green
         case .failed:
             return .red
+        }
+    }
+}
+
+private struct DownloadPreviewItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct DownloadPreviewController: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {}
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+
+        init(url: URL) {
+            self.url = url
+        }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+            1
+        }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as NSURL
         }
     }
 }
@@ -2013,6 +2329,93 @@ private struct BrowserHistoryView: View {
                         dismiss()
                     }
                 }
+            }
+        }
+    }
+}
+
+private struct CrashLogsView: View {
+    @EnvironmentObject private var security: AppSecurityModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if security.crashLogs.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "waveform.path.ecg.rectangle")
+                            .font(.system(size: 34, weight: .semibold))
+                        Text("No crash logs")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(theme.color(.mutedText))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(theme.color(.canvas))
+                } else {
+                    List {
+                        Section {
+                            Text("Crash logs are local diagnostics. Glide stores the time, app version, and crash state only, not page contents or URLs.")
+                                .font(.caption)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+                        .listRowBackground(theme.color(.surface))
+
+                        ForEach(security.crashLogs) { log in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: log.isUnread ? "exclamationmark.triangle.fill" : "waveform.path.ecg")
+                                        .foregroundStyle(log.isUnread ? .yellow : theme.color(.accent))
+
+                                    Text(log.title)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(theme.color(.text))
+                                        .lineLimit(2)
+                                }
+
+                                Text(log.reason)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(theme.color(.mutedText))
+
+                                Text(log.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(theme.color(.mutedText))
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 10) {
+                                    Text(log.occurredAt, style: .relative)
+                                    Text("v\(log.appVersion) (\(log.buildNumber))")
+                                }
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(theme.color(.mutedText))
+                            }
+                            .padding(.vertical, 5)
+                            .listRowBackground(theme.color(.surface))
+                        }
+                    }
+                    .scrollContentBackground(.hidden)
+                    .background(theme.color(.canvas))
+                }
+            }
+            .navigationTitle("Crash Logs")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(role: .destructive) {
+                        security.clearCrashLogs()
+                    } label: {
+                        Label("Clear", systemImage: "trash")
+                    }
+                    .disabled(security.crashLogs.isEmpty)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .onDisappear {
+                security.markCrashLogsSeen()
             }
         }
     }
@@ -2360,6 +2763,12 @@ private struct FloatingTabSwitcher: View {
 
             Divider()
 
+            Button {
+                model.isTabFinderPresented = true
+            } label: {
+                Label("Tab Finder", systemImage: "square.grid.2x2")
+            }
+
             PlacementMenuContent()
         } label: {
             HStack(spacing: 6) {
@@ -2513,11 +2922,21 @@ private struct BrowserSettingsView: View {
                     }
 
                     Button("Downloads") {
-                        model.isDownloadsPresented = true
+                        presentAfterDismiss {
+                            model.isDownloadsPresented = true
+                        }
+                    }
+
+                    Button("Tab Finder") {
+                        presentAfterDismiss {
+                            model.isTabFinderPresented = true
+                        }
                     }
 
                     Button("Custom VPN") {
-                        model.isVPNPresented = true
+                        presentAfterDismiss {
+                            model.isVPNPresented = true
+                        }
                     }
                 }
 
@@ -2537,6 +2956,22 @@ private struct BrowserSettingsView: View {
                         security.lock()
                     } label: {
                         Label("Lock Glide Now", systemImage: "lock.fill")
+                    }
+                }
+
+                Section("Crash Logs") {
+                    LabeledContent("Status") {
+                        Text(security.hasUnreadCrashLogs ? "New crash detected" : "\(security.crashLogs.count) saved")
+                            .foregroundStyle(security.hasUnreadCrashLogs ? .yellow : theme.color(.mutedText))
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            security.refreshCrashLogs()
+                            security.isCrashLogsPresented = true
+                        }
+                    } label: {
+                        Label("Open Crash Logs", systemImage: "waveform.path.ecg.rectangle")
                     }
                 }
 
@@ -2692,6 +3127,11 @@ private struct BrowserSettingsView: View {
             get: { model.isAdBlockerEnabled },
             set: { model.setAdBlockerEnabled($0) }
         )
+    }
+
+    private func presentAfterDismiss(_ action: @escaping () -> Void) {
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: action)
     }
 }
 

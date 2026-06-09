@@ -337,6 +337,9 @@ final class AppSecurityModel: ObservableObject {
     @Published var message = ""
     @Published var biometricTitle = "Face ID"
     @Published var isBiometricAvailable = false
+    @Published var crashLogs: [AppCrashLogEntry] = []
+    @Published var isCrashLogsPresented = false
+    private var didAutoPresentCrashLogs = false
 
     var isConfigured: Bool {
         SecureBrowserVault.isConfigured
@@ -349,6 +352,7 @@ final class AppSecurityModel: ObservableObject {
     init() {
         SecureBrowserVault.prepareLaunchPrivacy()
         refreshBiometricAvailability()
+        refreshCrashLogs()
     }
 
     func refreshBiometricAvailability() {
@@ -390,5 +394,30 @@ final class AppSecurityModel: ObservableObject {
     func lock() {
         vault = nil
         message = "Locked."
+    }
+
+    var hasUnreadCrashLogs: Bool {
+        crashLogs.contains { $0.isUnread }
+    }
+
+    func refreshCrashLogs() {
+        crashLogs = AppCrashReporter.shared.logs()
+    }
+
+    func presentCrashLogsIfNeeded() {
+        refreshCrashLogs()
+        guard didAutoPresentCrashLogs == false, hasUnreadCrashLogs else { return }
+        didAutoPresentCrashLogs = true
+        isCrashLogsPresented = true
+    }
+
+    func markCrashLogsSeen() {
+        AppCrashReporter.shared.markAllSeen()
+        refreshCrashLogs()
+    }
+
+    func clearCrashLogs() {
+        AppCrashReporter.shared.clearLogs()
+        refreshCrashLogs()
     }
 }

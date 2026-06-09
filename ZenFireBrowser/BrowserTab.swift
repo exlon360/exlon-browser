@@ -483,7 +483,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         return searchEngine.searchURL(for: trimmed, customTemplate: customSearchTemplate)
     }
 
-    static func isStartPageURL(_ url: URL?) -> Bool {
+    nonisolated static func isStartPageURL(_ url: URL?) -> Bool {
         url?.host == BrowserDefaults.homeURL.host
     }
 
@@ -540,7 +540,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         activeDownloads.removeValue(forKey: identifier)
     }
 
-    nonisolated private static func downloadDestination(for suggestedFilename: String) throws -> URL {
+    nonisolated static func downloadDestination(for suggestedFilename: String) throws -> URL {
         let directory = try downloadsDirectory()
         let safeName = safeFilename(suggestedFilename)
         var candidate = directory.appendingPathComponent(safeName)
@@ -561,6 +561,21 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         }
 
         return directory.appendingPathComponent("\(UUID().uuidString)-\(safeName)")
+    }
+
+    nonisolated static func downloadFilename(for url: URL, suggestedFilename: String?) -> String {
+        let trimmedSuggestion = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmedSuggestion.isEmpty == false,
+           Self.isStartPageURL(url) == false {
+            return safeFilename(trimmedSuggestion)
+        }
+
+        let lastPathComponent = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if lastPathComponent.isEmpty == false {
+            return safeFilename(lastPathComponent)
+        }
+
+        return safeFilename(url.host ?? "download")
     }
 
     nonisolated private static func downloadsDirectory() throws -> URL {
