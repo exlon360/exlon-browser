@@ -8,7 +8,7 @@ struct BrowserWebView: UIViewRepresentable {
         tab.webView.isOpaque = false
         tab.webView.backgroundColor = .clear
         tab.webView.scrollView.backgroundColor = .clear
-        tab.webView
+        return tab.webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
