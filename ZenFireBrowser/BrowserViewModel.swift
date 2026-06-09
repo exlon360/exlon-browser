@@ -1,6 +1,7 @@
 import Combine
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 enum BrowserChromePlacement: String, CaseIterable, Identifiable {
     case top
@@ -83,6 +84,7 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var history: [BrowserHistoryItem]
+    @Published var essentials: [BrowserEssentialItem]
     @Published var downloads: [BrowserDownloadItem]
     @Published var localAIName: String {
         didSet {
@@ -110,6 +112,7 @@ final class BrowserViewModel: ObservableObject {
         let selectedSearchEngine = BrowserSearchEngine(rawValue: defaults.string(forKey: Self.StorageKey.searchEngine) ?? "") ?? .duckDuckGo
         let savedCustomSearch = defaults.string(forKey: Self.StorageKey.customSearchTemplate) ?? BrowserSearchEngine.defaultCustomTemplate
         let savedHistory = Self.loadHistory()
+        let savedEssentials = Self.loadEssentials()
         let savedDownloads = Self.loadDownloads()
         let savedVPNProfile = Self.loadVPNProfile()
         let restoredTabs = Self.loadTabs(isDarkReaderEnabled: darkReaderEnabled, isAdBlockerEnabled: adBlockerEnabled)
@@ -119,6 +122,7 @@ final class BrowserViewModel: ObservableObject {
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.history = savedHistory
+        self.essentials = savedEssentials
         self.downloads = savedDownloads
         self.isTutorialPresented = defaults.bool(forKey: Self.StorageKey.hasCompletedTutorial) == false
         self.isDarkReaderEnabled = darkReaderEnabled
@@ -303,8 +307,22 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
+    func setTabBarCollapsed(_ collapsed: Bool) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            areSideTabsCollapsed = collapsed
+        }
+    }
+
     func toggleSideTabs() {
-        areSideTabsCollapsed.toggle()
+        setTabBarCollapsed(!areSideTabsCollapsed)
+    }
+
+    func handleTwoFingerSwipe(deltaX: CGFloat) {
+        if deltaX < 0 {
+            setTabBarCollapsed(true)
+        } else {
+            setTabBarCollapsed(false)
+        }
     }
 
     func completeTutorial() {
@@ -324,6 +342,37 @@ final class BrowserViewModel: ObservableObject {
         guard let url = item.url else { return }
         selectedTab?.load(url)
         isHistoryPresented = false
+    }
+
+    func addEssential(from tab: BrowserTab) {
+        guard tab.isPrivate == false,
+              let url = tab.url,
+              Self.shouldPersist(url: url) else {
+            return
+        }
+
+        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let item = BrowserEssentialItem(
+            title: title.isEmpty ? (url.host ?? url.absoluteString) : title,
+            urlString: url.absoluteString
+        )
+
+        essentials.removeAll { $0.urlString == item.urlString }
+        essentials.insert(item, at: 0)
+        if essentials.count > 16 {
+            essentials = Array(essentials.prefix(16))
+        }
+        saveEssentials()
+    }
+
+    func openEssential(_ item: BrowserEssentialItem) {
+        guard let url = item.url else { return }
+        selectedTab?.load(url)
+    }
+
+    func removeEssential(_ item: BrowserEssentialItem) {
+        essentials.removeAll { $0.id == item.id }
+        saveEssentials()
     }
 
     func clearHistory() {
@@ -521,6 +570,8 @@ final class BrowserViewModel: ObservableObject {
         localAIURLText = ""
         setAdBlockerEnabled(true)
         setDarkReaderEnabled(false)
+        essentials = []
+        saveEssentials()
         saveVPNProfile(.empty)
     }
 
@@ -531,8 +582,8 @@ final class BrowserViewModel: ObservableObject {
         tab.onDownloadUpdated = { [weak self] item in
             self?.updateDownload(item)
         }
-        tab.onTwoFingerSwipe = { [weak self] in
-            self?.toggleSideTabs()
+        tab.onTwoFingerSwipe = { [weak self] deltaX in
+            self?.handleTwoFingerSwipe(deltaX: deltaX)
         }
         tab.onThreeFingerSwipe = { [weak self] deltaX in
             self?.handleThreeFingerSwipe(deltaX: deltaX)
@@ -546,8 +597,8 @@ final class BrowserViewModel: ObservableObject {
         tab.onDownloadUpdated = { [weak self] item in
             self?.updateDownload(item)
         }
-        tab.onTwoFingerSwipe = { [weak self] in
-            self?.toggleSideTabs()
+        tab.onTwoFingerSwipe = { [weak self] deltaX in
+            self?.handleTwoFingerSwipe(deltaX: deltaX)
         }
         tab.onThreeFingerSwipe = { [weak tab] deltaX in
             if deltaX > 0 {
@@ -610,6 +661,11 @@ final class BrowserViewModel: ObservableObject {
     private func saveHistory() {
         guard let data = try? JSONEncoder().encode(history) else { return }
         UserDefaults.standard.set(data, forKey: Self.StorageKey.history)
+    }
+
+    private func saveEssentials() {
+        guard let data = try? JSONEncoder().encode(essentials) else { return }
+        UserDefaults.standard.set(data, forKey: Self.StorageKey.essentials)
     }
 
     private func updateDownload(_ item: BrowserDownloadItem) {
@@ -685,6 +741,15 @@ final class BrowserViewModel: ObservableObject {
         return downloads
     }
 
+    private static func loadEssentials() -> [BrowserEssentialItem] {
+        guard let data = UserDefaults.standard.data(forKey: StorageKey.essentials),
+              let essentials = try? JSONDecoder().decode([BrowserEssentialItem].self, from: data) else {
+            return []
+        }
+
+        return essentials
+    }
+
     private static func loadVPNProfile() -> CustomVPNProfile {
         guard let data = UserDefaults.standard.data(forKey: StorageKey.vpnProfile),
               let profile = try? JSONDecoder().decode(CustomVPNProfile.self, from: data) else {
@@ -695,6 +760,10 @@ final class BrowserViewModel: ObservableObject {
     }
 
     private static func shouldPersist(url: URL) -> Bool {
+        guard BrowserTab.isStartPageURL(url) == false,
+              url.host != "browser.local" else {
+            return false
+        }
         guard let scheme = url.scheme?.lowercased() else { return false }
         return ["http", "https", "file"].contains(scheme)
     }
@@ -719,6 +788,7 @@ final class BrowserViewModel: ObservableObject {
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
         static let history = "ZenFireBrowser.history"
+        static let essentials = "ZenFireBrowser.essentials"
         static let openTabs = "ZenFireBrowser.openTabs"
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"

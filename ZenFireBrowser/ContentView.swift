@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
 
@@ -31,16 +32,25 @@ private struct BrowserShell: View {
                 case .top:
                     ZStack(alignment: .top) {
                         BrowserContent()
-                        HorizontalChrome(edge: .top)
+                        if model.areSideTabsCollapsed == false {
+                            HorizontalChrome(edge: .top)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
                     }
                 case .bottom:
                     ZStack(alignment: .bottom) {
                         BrowserContent()
-                        HorizontalChrome(edge: .bottom)
+                        if model.areSideTabsCollapsed == false {
+                            HorizontalChrome(edge: .bottom)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
                 case .floating:
                     BrowserContent()
-                    FloatingChrome()
+                    if model.areSideTabsCollapsed == false {
+                        FloatingChrome()
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
 
                 if model.isContainedBrowserPresented {
@@ -55,6 +65,7 @@ private struct BrowserShell: View {
             }
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
+            .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView()
@@ -181,9 +192,16 @@ private struct SideBrowserLayout: View {
             if model.areSideTabsCollapsed == false {
                 SideChrome(edge: edge)
                     .frame(width: sideWidth)
+                    .transition(chromeTransition)
             }
         }
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.areSideTabsCollapsed)
+    }
+
+    private var chromeTransition: AnyTransition {
+        edge == .left
+            ? .move(edge: .leading).combined(with: .opacity)
+            : .move(edge: .trailing).combined(with: .opacity)
     }
 }
 
@@ -201,6 +219,10 @@ private struct SideChrome: View {
             NewTabActions(layout: .sidebar)
 
             TabBarStyleControl(compact: false)
+
+            if model.essentials.isEmpty == false {
+                EssentialsSection()
+            }
 
             TabSection(title: "Tabs", tabs: model.normalTabs)
 
@@ -243,6 +265,10 @@ private struct HorizontalChrome: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     NewTabActions(layout: .strip)
+
+                    ForEach(model.essentials) { item in
+                        EssentialPill(item: item, layout: .horizontal)
+                    }
 
                     ForEach(model.tabs) { tab in
                         TabPill(tab: tab, layout: .horizontal)
@@ -385,7 +411,11 @@ private struct ChromeGlassBackground: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+            .fill(.ultraThinMaterial)
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
@@ -408,7 +438,11 @@ private struct FloatingChromeBackground: View {
 
     var body: some View {
         Capsule()
-            .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+            .fill(.ultraThinMaterial)
+            .overlay {
+                Capsule()
+                    .fill(theme.color(.chrome).opacity(theme.tabBarOpacity))
+            }
             .overlay {
                 Capsule()
                     .fill(
@@ -423,6 +457,26 @@ private struct FloatingChromeBackground: View {
                         )
                     )
             }
+    }
+}
+
+private struct ControlGlassBackground: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(theme.color(.field).opacity(controlOpacity))
+            }
+    }
+
+    private var controlOpacity: Double {
+        theme.isUserBackgroundEnabled && theme.hasUserBackground
+            ? max(theme.controlOpacity, 0.72)
+            : theme.controlOpacity
     }
 }
 
@@ -444,7 +498,7 @@ private struct PlacementMenu: View {
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
                 .foregroundStyle(theme.color(.text))
-                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(ControlGlassBackground(cornerRadius: 8))
         }
         .accessibilityLabel("Change chrome placement")
     }
@@ -474,7 +528,7 @@ private struct TabBarStyleControl: View {
             .padding(.horizontal, compact ? 0 : 12)
             .frame(width: compact ? 36 : nil)
             .foregroundStyle(theme.color(.text))
-            .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(ControlGlassBackground(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
@@ -527,10 +581,13 @@ private struct TabBarStyleControl: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button("Choose") {
+                    Button("Files") {
                         isBackgroundImporterPresented = true
                     }
                     .buttonStyle(.borderedProminent)
+
+                    BackgroundPhotoPickerButton(title: "Photos")
+                        .buttonStyle(.bordered)
 
                     Button("Remove") {
                         theme.clearUserBackground()
@@ -557,6 +614,33 @@ private struct TabBarStyleControl: View {
     }
 }
 
+private struct BackgroundPhotoPickerButton: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var selectedPhoto: PhotosPickerItem?
+    let title: String
+
+    var body: some View {
+        PhotosPicker(selection: $selectedPhoto, matching: .images, photoLibrary: .shared()) {
+            Label(title, systemImage: "photo.on.rectangle")
+        }
+        .onChange(of: selectedPhoto) { _, newPhoto in
+            importPhoto(newPhoto)
+        }
+    }
+
+    private func importPhoto(_ item: PhotosPickerItem?) {
+        guard let item = item else { return }
+
+        Task {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+            await MainActor.run {
+                theme.setUserBackground(fromImageData: data)
+                selectedPhoto = nil
+            }
+        }
+    }
+}
+
 private enum SearchTriggerStyle {
     case sidebar
     case bar
@@ -577,7 +661,7 @@ private struct SearchTrigger: View {
                     .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.selectedTab?.url?.host ?? "Search \(model.searchEngine.title)")
+                    Text(displayTitle)
                         .font(.system(size: style == .sidebar ? 13 : 15, weight: .semibold))
                         .foregroundStyle(theme.color(.text))
                         .lineLimit(1)
@@ -594,13 +678,21 @@ private struct SearchTrigger: View {
             }
             .padding(.horizontal, 12)
             .frame(height: style == .sidebar ? 46 : 48)
-            .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(ControlGlassBackground(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private var displayTitle: String {
+        if BrowserTab.isStartPageURL(model.selectedTab?.url) {
+            return "Search \(model.searchEngine.title)"
+        }
+
+        return model.selectedTab?.url?.host ?? "Search \(model.searchEngine.title)"
     }
 }
 
@@ -777,7 +869,7 @@ private struct FloatingSearchOverlay: View {
                         Text(tab.title)
                             .lineLimit(1)
                         Spacer()
-                        Text(tab.url?.host ?? model.searchEngine.title)
+                        Text(BrowserTab.isStartPageURL(tab.url) ? "Start Page" : (tab.url?.host ?? model.searchEngine.title))
                             .lineLimit(1)
                     }
                     .font(.caption.weight(.semibold))
@@ -1214,113 +1306,162 @@ private struct ContainedTabPill: View {
 private struct FirstRunTutorialView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @State private var step = 0
 
     var body: some View {
         ZStack {
             BrowserBackground()
 
-            ScrollView {
-                VStack(spacing: 20) {
+            VStack(spacing: 18) {
+                Spacer(minLength: 10)
+
+                VStack(spacing: 22) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(theme.color(.surface).opacity(0.92))
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(.ultraThinMaterial)
                             .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(theme.color(.accent).opacity(0.75), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(theme.color(.surface).opacity(0.62))
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(theme.color(.accent).opacity(0.55), lineWidth: 1)
                             }
                         Image(systemName: "globe")
-                            .font(.system(size: 25, weight: .black))
+                            .font(.system(size: 28, weight: .black))
                             .foregroundStyle(theme.color(.createTab))
                     }
-                    .frame(width: 62, height: 62)
-                    .shadow(color: theme.color(.accent).opacity(0.18), radius: 20, y: 10)
+                    .frame(width: 72, height: 72)
+                    .shadow(color: theme.color(.accent).opacity(0.22), radius: 26, y: 14)
 
-                    VStack(spacing: 8) {
-                        Text("Glide")
-                            .font(.system(size: 34, weight: .black))
-                            .foregroundStyle(theme.color(.text))
-                            .multilineTextAlignment(.center)
+                    Group {
+                        if step == 0 {
+                            VStack(spacing: 10) {
+                                Text("Welcome to Glide")
+                                    .font(.system(size: 38, weight: .black))
+                                    .foregroundStyle(theme.color(.text))
+                                    .multilineTextAlignment(.center)
 
-                        Text("Dark, lightweight, and gesture-first.")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(theme.color(.mutedText))
-                            .multilineTextAlignment(.center)
-                    }
+                                Text("A lighter, glassy browser built around fast search and side tabs.")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(theme.color(.mutedText))
+                                    .multilineTextAlignment(.center)
+                            }
+                            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
+                        } else {
+                            VStack(spacing: 12) {
+                                Text("Ready to glide the web")
+                                    .font(.system(size: 36, weight: .black))
+                                    .foregroundStyle(theme.color(.text))
+                                    .multilineTextAlignment(.center)
 
-                    VStack(spacing: 0) {
-                        TutorialFeatureRow(
-                            symbol: "plus.circle.fill",
-                            title: "New tabs start in search",
-                            detail: "Tap plus and the floating search bar opens selected and ready.",
-                            tint: .createTab
-                        )
+                                VStack(spacing: 0) {
+                                    TutorialFeatureRow(
+                                        symbol: "arrow.left.and.right",
+                                        title: "Gestures",
+                                        detail: "Two fingers left hides the tab bar, two fingers right reveals it. Three fingers moves back or forward.",
+                                        tint: .accent
+                                    )
 
-                        TutorialDivider()
+                                    TutorialDivider()
 
-                        TutorialFeatureRow(
-                            symbol: "arrow.left.and.right",
-                            title: "Back is gesture-first",
-                            detail: "Use the iOS edge swipe or a three-finger horizontal swipe to move back and forward.",
-                            tint: .accent
-                        )
-
-                        TutorialDivider()
-
-                        TutorialFeatureRow(
-                            symbol: "sidebar.left",
-                            title: "Hide tabs with two fingers",
-                            detail: "A two-finger swipe tucks the side tabs away, and the side handle brings them back.",
-                            tint: .accent
-                        )
-
-                        TutorialDivider()
-
-                        TutorialFeatureRow(
-                            symbol: "shield.lefthalf.filled",
-                            title: "Ad blocking is already on",
-                            detail: "Native WebKit rules block 100-plus ad, tracker, and sponsored-content sources automatically.",
-                            tint: .privateAccent
-                        )
-
-                        TutorialDivider()
-
-                        TutorialFeatureRow(
-                            symbol: "theatermasks",
-                            title: "Private tabs stay private",
-                            detail: "Private browsing uses non-persistent storage and does not write history.",
-                            tint: .privateAccent
-                        )
-                    }
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
-                    }
-                    .shadow(color: Color.black.opacity(0.34), radius: 26, y: 16)
-
-                    Button {
-                        model.completeTutorial()
-                        model.openFloatingSearch()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Text("Start browsing")
-                                .font(.system(size: 16, weight: .bold))
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 14, weight: .black))
+                                    TutorialFeatureRow(
+                                        symbol: "sparkle",
+                                        title: "Essentials",
+                                        detail: "Hold a tab and add it to Essentials for a saved launcher.",
+                                        tint: .createTab
+                                    )
+                                }
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(theme.color(.border).opacity(0.72), lineWidth: 1)
+                                }
+                            }
+                            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .foregroundStyle(theme.color(.canvas))
-                        .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Start browsing")
+                    .id(step)
+                    .animation(.spring(response: 0.42, dampingFraction: 0.86), value: step)
                 }
                 .frame(maxWidth: 560)
                 .padding(.horizontal, 22)
-                .padding(.vertical, 34)
-                .frame(maxWidth: .infinity)
+
+                Spacer(minLength: 6)
+
+                TutorialQuickCustomization()
+                    .frame(maxWidth: 560)
+                    .padding(.horizontal, 22)
+
+                Button {
+                    if step == 0 {
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            step = 1
+                        }
+                    } else {
+                        model.completeTutorial()
+                        model.openFloatingSearch()
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Text(step == 0 ? "Next" : "Start browsing")
+                            .font(.system(size: 16, weight: .bold))
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 14, weight: .black))
+                    }
+                    .frame(maxWidth: 560)
+                    .frame(height: 54)
+                    .foregroundStyle(theme.color(.canvas))
+                    .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(step == 0 ? "Next" : "Start browsing")
+                .padding(.horizontal, 22)
+                .padding(.bottom, 24)
             }
+        }
+    }
+}
+
+private struct TutorialQuickCustomization: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Quick customization")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(theme.color(.mutedText))
+
+            HStack(spacing: 8) {
+                Button {
+                    model.setTabBarCollapsed(!model.areSideTabsCollapsed)
+                } label: {
+                    Label(model.areSideTabsCollapsed ? "Reveal" : "Hide", systemImage: model.areSideTabsCollapsed ? "sidebar.left" : "sidebar.leading")
+                }
+
+                Button {
+                    theme.isTabBarTransparencyEnabled = true
+                    theme.tabBarTransparency = 0.58
+                } label: {
+                    Label("Glass", systemImage: "square.stack.3d.up")
+                }
+
+                Button {
+                    theme.isTabBarTransparencyEnabled = true
+                    theme.tabBarTransparency = 0.85
+                } label: {
+                    Label("Liquid", systemImage: "drop")
+                }
+            }
+            .font(.system(size: 13, weight: .bold))
+            .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
         }
     }
 }
@@ -1687,7 +1828,7 @@ private struct NewTabActions: View {
                 .padding(.horizontal, 12)
                 .frame(width: layout == .strip ? 136 : nil, height: 44)
                 .frame(maxWidth: layout == .sidebar ? .infinity : nil)
-                .background(theme.color(.createTab).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(theme.color(.createTab).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.9) : theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
@@ -1703,7 +1844,7 @@ private struct NewTabActions: View {
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 44, height: 44)
                     .foregroundStyle(theme.color(.text))
-                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(ControlGlassBackground(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(theme.color(.privateAccent).opacity(0.55), lineWidth: 1)
@@ -1719,7 +1860,7 @@ private struct NewTabActions: View {
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 44, height: 44)
                     .foregroundStyle(theme.color(.text))
-                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(ControlGlassBackground(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(theme.color(.accent).opacity(0.55), lineWidth: 1)
@@ -1727,6 +1868,89 @@ private struct NewTabActions: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New Contained Tab")
+        }
+    }
+}
+
+private struct EssentialsSection: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkle")
+                    .font(.caption.weight(.black))
+                Text("ESSENTIALS")
+                    .font(.caption2.weight(.bold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(theme.color(.mutedText))
+            .padding(.horizontal, 4)
+
+            ForEach(model.essentials) { item in
+                EssentialPill(item: item, layout: .vertical)
+            }
+        }
+    }
+}
+
+private enum EssentialPillLayout {
+    case vertical
+    case horizontal
+}
+
+private struct EssentialPill: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let item: BrowserEssentialItem
+    let layout: EssentialPillLayout
+
+    var body: some View {
+        Button {
+            model.openEssential(item)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(theme.color(.canvas))
+                    .background(theme.color(.createTab).opacity(0.9), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(theme.color(.text))
+                        .lineLimit(1)
+
+                    if layout == .vertical {
+                        Text(item.url?.host ?? item.urlString)
+                            .font(.caption2)
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 10)
+            .frame(width: layout == .horizontal ? 178 : nil, height: 44)
+            .frame(maxWidth: layout == .vertical ? .infinity : nil)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(ControlGlassBackground(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.createTab).opacity(0.38), lineWidth: 1)
+        }
+        .contextMenu {
+            Button(role: .destructive) {
+                model.removeEssential(item)
+            } label: {
+                Label("Remove from Essentials", systemImage: "xmark")
+            }
         }
     }
 }
@@ -1787,7 +2011,7 @@ private struct TabPill: View {
                             .lineLimit(1)
 
                         if layout == .vertical {
-                            Text(tab.url?.host ?? model.searchEngine.title)
+                            Text(subtitle)
                                 .font(.caption2)
                                 .foregroundStyle(theme.color(.mutedText))
                                 .lineLimit(1)
@@ -1820,6 +2044,27 @@ private struct TabPill: View {
                 .stroke(isSelected ? theme.color(.accent).opacity(0.72) : theme.color(.border).opacity(0.35), lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contextMenu {
+            if tab.isPrivate == false {
+                Button {
+                    model.addEssential(from: tab)
+                } label: {
+                    Label("Add to Essentials", systemImage: "sparkle")
+                }
+            }
+
+            Button(role: .destructive) {
+                model.close(tab)
+            } label: {
+                Label("Close Tab", systemImage: "xmark")
+            }
+        }
+    }
+
+    private var subtitle: String {
+        BrowserTab.isStartPageURL(tab.url)
+            ? "Start Page"
+            : (tab.url?.host ?? model.searchEngine.title)
     }
 }
 
@@ -1863,7 +2108,18 @@ private struct FloatingTabSwitcher: View {
             .frame(height: 36)
             .padding(.horizontal, 12)
             .foregroundStyle(theme.color(.text))
-            .background(theme.color(.field).opacity(theme.controlOpacity), in: Capsule())
+            .background {
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        Capsule()
+                            .fill(theme.color(.field).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.72) : theme.controlOpacity))
+                    }
+            }
+            .overlay {
+                Capsule()
+                    .stroke(theme.color(.border).opacity(0.48), lineWidth: 1)
+            }
         }
     }
 }
@@ -1894,7 +2150,7 @@ private struct ChromeButton: View {
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
                 .foregroundStyle(theme.color(.text))
-                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(ControlGlassBackground(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.border).opacity(0.4), lineWidth: 1)
@@ -1902,6 +2158,7 @@ private struct ChromeButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .shadow(color: Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.24 : 0.08), radius: 8, y: 4)
     }
 }
 
@@ -1911,7 +2168,11 @@ private struct BrandMark: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(theme.color(.surface).opacity(theme.controlOpacity))
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.color(.surface).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.72) : theme.controlOpacity))
+                }
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.accent).opacity(0.8), lineWidth: 1)
@@ -1959,6 +2220,7 @@ private struct BrowserSettingsView: View {
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
     @State private var isBackgroundImporterPresented = false
+    @State private var savedThemeName = ""
 
     var body: some View {
         NavigationStack {
@@ -1966,7 +2228,7 @@ private struct BrowserSettingsView: View {
                 Section("Browsing") {
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
-                    Toggle("Hide side tabs", isOn: $model.areSideTabsCollapsed)
+                    Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
                     Picker("Chrome placement", selection: $model.chromePlacement) {
                         ForEach(BrowserChromePlacement.allCases) { placement in
                             Label(placement.title, systemImage: placement.symbolName)
@@ -2027,8 +2289,12 @@ private struct BrowserSettingsView: View {
                             }
                     }
 
-                    Button("Choose background") {
-                        isBackgroundImporterPresented = true
+                    HStack(spacing: 10) {
+                        Button("Choose from Files") {
+                            isBackgroundImporterPresented = true
+                        }
+
+                        BackgroundPhotoPickerButton(title: "Choose from Photos")
                     }
 
                     Button("Remove background") {
@@ -2056,6 +2322,48 @@ private struct BrowserSettingsView: View {
 
                     Button("Reset to Zen dark defaults") {
                         theme.resetToZenDefaults()
+                    }
+                }
+
+                Section("Saved Themes") {
+                    TextField("Theme name", text: $savedThemeName)
+                        .textInputAutocapitalization(.words)
+
+                    Button("Save current theme") {
+                        theme.saveCurrentTheme(named: savedThemeName)
+                        savedThemeName = ""
+                    }
+
+                    if theme.savedThemes.isEmpty {
+                        Text("No saved themes yet")
+                            .foregroundStyle(theme.color(.mutedText))
+                    } else {
+                        ForEach(theme.savedThemes) { savedTheme in
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(savedTheme.name)
+                                        .font(.body.weight(.semibold))
+                                    Text("\(Int(savedTheme.tabBarTransparency * 100))% transparent")
+                                        .font(.caption)
+                                        .foregroundStyle(theme.color(.mutedText))
+                                }
+
+                                Spacer()
+
+                                Button("Apply") {
+                                    theme.applySavedTheme(savedTheme)
+                                }
+                                .buttonStyle(.bordered)
+
+                                Button(role: .destructive) {
+                                    theme.deleteSavedTheme(savedTheme)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel("Delete \(savedTheme.name)")
+                            }
+                        }
                     }
                 }
 

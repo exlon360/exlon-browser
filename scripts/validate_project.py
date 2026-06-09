@@ -317,8 +317,38 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",
-        "Choose background",
-        "Settings must expose a user background picker.",
+        "Choose from Files",
+        "Settings must expose a file-based user background picker.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "PhotosPicker",
+        "Settings must expose a Photos-based user background picker.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "SavedBrowserTheme",
+        "The browser must support saved themes.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Saved Themes",
+        "Settings must expose saved theme controls.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Add to Essentials",
+        "Long-press tab menus must expose Add to Essentials.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "handleTwoFingerSwipe(deltaX",
+        "Two-finger gestures must use direction instead of blind toggling.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "Glide Start",
+        "New tabs must use a themed Glide start page instead of a fixed DuckDuckGo page.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",

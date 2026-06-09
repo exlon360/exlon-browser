@@ -171,6 +171,24 @@ struct BrowserSearchResult: Identifiable {
     var url: URL
 }
 
+struct BrowserEssentialItem: Identifiable, Codable, Equatable {
+    let id: UUID
+    var title: String
+    var urlString: String
+    var addedAt: Date
+
+    init(id: UUID = UUID(), title: String, urlString: String, addedAt: Date = Date()) {
+        self.id = id
+        self.title = title
+        self.urlString = urlString
+        self.addedAt = addedAt
+    }
+
+    var url: URL? {
+        URL(string: urlString)
+    }
+}
+
 enum BrowserDownloadState: String, Codable {
     case inProgress
     case finished

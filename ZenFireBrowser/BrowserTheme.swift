@@ -66,6 +66,37 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
     }
 }
 
+struct SavedBrowserTheme: Identifiable, Codable, Equatable {
+    var id: UUID
+    var name: String
+    var colorHexByToken: [String: String]
+    var isTabBarTransparencyEnabled: Bool
+    var tabBarTransparency: Double
+    var isUserBackgroundEnabled: Bool
+    var userBackgroundImageData: Data?
+    var savedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        colorHexByToken: [String: String],
+        isTabBarTransparencyEnabled: Bool,
+        tabBarTransparency: Double,
+        isUserBackgroundEnabled: Bool,
+        userBackgroundImageData: Data?,
+        savedAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.colorHexByToken = colorHexByToken
+        self.isTabBarTransparencyEnabled = isTabBarTransparencyEnabled
+        self.tabBarTransparency = tabBarTransparency
+        self.isUserBackgroundEnabled = isUserBackgroundEnabled
+        self.userBackgroundImageData = userBackgroundImageData
+        self.savedAt = savedAt
+    }
+}
+
 @MainActor
 final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
@@ -90,6 +121,7 @@ final class BrowserTheme: ObservableObject {
         }
     }
     @Published private var userBackgroundImageData: Data?
+    @Published var savedThemes: [SavedBrowserTheme]
 
     private let defaults = UserDefaults.standard
     private static let storagePrefix = "ZenFireBrowser.theme."
@@ -97,6 +129,7 @@ final class BrowserTheme: ObservableObject {
     private static let tabBarTransparencyKey = "\(storagePrefix)tabBarTransparency"
     private static let userBackgroundEnabledKey = "\(storagePrefix)userBackgroundEnabled"
     private static let userBackgroundImageDataKey = "\(storagePrefix)userBackgroundImageData"
+    private static let savedThemesKey = "\(storagePrefix)savedThemes"
 
     init() {
         var values: [BrowserThemeToken: String] = [:]
@@ -108,6 +141,7 @@ final class BrowserTheme: ObservableObject {
         self.tabBarTransparency = UserDefaults.standard.object(forKey: Self.tabBarTransparencyKey) as? Double ?? 0.82
         self.isUserBackgroundEnabled = UserDefaults.standard.object(forKey: Self.userBackgroundEnabledKey) as? Bool ?? false
         self.userBackgroundImageData = UserDefaults.standard.data(forKey: Self.userBackgroundImageDataKey)
+        self.savedThemes = Self.loadSavedThemes()
     }
 
     func color(_ token: BrowserThemeToken) -> Color {
@@ -165,8 +199,15 @@ final class BrowserTheme: ObservableObject {
             }
         }
 
-        guard let rawData = try? Data(contentsOf: url),
-              let image = UIImage(data: rawData),
+        guard let rawData = try? Data(contentsOf: url) else {
+            return
+        }
+
+        setUserBackground(fromImageData: rawData)
+    }
+
+    func setUserBackground(fromImageData rawData: Data) {
+        guard let image = UIImage(data: rawData),
               let data = image.jpegData(compressionQuality: 0.86) else {
             return
         }
@@ -180,6 +221,65 @@ final class BrowserTheme: ObservableObject {
         userBackgroundImageData = nil
         isUserBackgroundEnabled = false
         defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
+    }
+
+    func saveCurrentTheme(named rawName: String) {
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let themeName = trimmedName.isEmpty ? "Saved Theme \(savedThemes.count + 1)" : trimmedName
+        let savedColors = Dictionary(uniqueKeysWithValues: colorHexByToken.map { ($0.key.rawValue, $0.value) })
+        let theme = SavedBrowserTheme(
+            name: themeName,
+            colorHexByToken: savedColors,
+            isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
+            tabBarTransparency: tabBarTransparency,
+            isUserBackgroundEnabled: isUserBackgroundEnabled,
+            userBackgroundImageData: userBackgroundImageData
+        )
+
+        savedThemes.removeAll { $0.name.caseInsensitiveCompare(themeName) == .orderedSame }
+        savedThemes.insert(theme, at: 0)
+        if savedThemes.count > 12 {
+            savedThemes = Array(savedThemes.prefix(12))
+        }
+        persistSavedThemes()
+    }
+
+    func applySavedTheme(_ savedTheme: SavedBrowserTheme) {
+        for token in BrowserThemeToken.allCases {
+            let value = savedTheme.colorHexByToken[token.rawValue] ?? token.defaultHex
+            colorHexByToken[token] = value
+            defaults.set(value, forKey: Self.storageKey(for: token))
+        }
+
+        isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
+        tabBarTransparency = savedTheme.tabBarTransparency
+        userBackgroundImageData = savedTheme.userBackgroundImageData
+        isUserBackgroundEnabled = savedTheme.isUserBackgroundEnabled && savedTheme.userBackgroundImageData != nil
+
+        if let data = savedTheme.userBackgroundImageData {
+            defaults.set(data, forKey: Self.userBackgroundImageDataKey)
+        } else {
+            defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
+        }
+    }
+
+    func deleteSavedTheme(_ savedTheme: SavedBrowserTheme) {
+        savedThemes.removeAll { $0.id == savedTheme.id }
+        persistSavedThemes()
+    }
+
+    private func persistSavedThemes() {
+        guard let data = try? JSONEncoder().encode(savedThemes) else { return }
+        defaults.set(data, forKey: Self.savedThemesKey)
+    }
+
+    private static func loadSavedThemes() -> [SavedBrowserTheme] {
+        guard let data = UserDefaults.standard.data(forKey: Self.savedThemesKey),
+              let themes = try? JSONDecoder().decode([SavedBrowserTheme].self, from: data) else {
+            return []
+        }
+
+        return themes
     }
 
     private static func storageKey(for token: BrowserThemeToken) -> String {
