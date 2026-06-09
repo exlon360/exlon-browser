@@ -52,7 +52,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isContainedBrowserPresented = false
     @Published var chromePlacement: BrowserChromePlacement {
         didSet {
-            UserDefaults.standard.set(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
+            vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
         }
     }
     @Published var isFloatingSearchPresented = false
@@ -70,17 +70,17 @@ final class BrowserViewModel: ObservableObject {
     @Published var isAdBlockerEnabled: Bool
     @Published var areSideTabsCollapsed: Bool {
         didSet {
-            UserDefaults.standard.set(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
+            vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         }
     }
     @Published var searchEngine: BrowserSearchEngine {
         didSet {
-            UserDefaults.standard.set(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
+            vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         }
     }
     @Published var customSearchTemplate: String {
         didSet {
-            UserDefaults.standard.set(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
+            vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         }
     }
     @Published var history: [BrowserHistoryItem]
@@ -88,12 +88,12 @@ final class BrowserViewModel: ObservableObject {
     @Published var downloads: [BrowserDownloadItem]
     @Published var localAIName: String {
         didSet {
-            UserDefaults.standard.set(localAIName, forKey: Self.StorageKey.localAIName)
+            vault.save(localAIName, forKey: Self.StorageKey.localAIName)
         }
     }
     @Published var localAIURLText: String {
         didSet {
-            UserDefaults.standard.set(localAIURLText, forKey: Self.StorageKey.localAIURLText)
+            vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
         }
     }
     @Published var vpnProfile: CustomVPNProfile {
@@ -102,33 +102,34 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var vpnStatusMessage = "Custom VPN profile not configured."
+    private let vault: SecureBrowserVault
     private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
 
-    init() {
-        let defaults = UserDefaults.standard
-        let darkReaderEnabled = defaults.bool(forKey: Self.StorageKey.darkReaderEnabled)
-        let adBlockerEnabled = defaults.object(forKey: Self.StorageKey.adBlockerEnabled) as? Bool ?? true
-        let placement = BrowserChromePlacement(rawValue: defaults.string(forKey: Self.StorageKey.chromePlacement) ?? "") ?? .left
-        let selectedSearchEngine = BrowserSearchEngine(rawValue: defaults.string(forKey: Self.StorageKey.searchEngine) ?? "") ?? .duckDuckGo
-        let savedCustomSearch = defaults.string(forKey: Self.StorageKey.customSearchTemplate) ?? BrowserSearchEngine.defaultCustomTemplate
-        let savedHistory = Self.loadHistory()
-        let savedEssentials = Self.loadEssentials()
-        let savedDownloads = Self.loadDownloads()
-        let savedVPNProfile = Self.loadVPNProfile()
-        let restoredTabs = Self.loadTabs(isDarkReaderEnabled: darkReaderEnabled, isAdBlockerEnabled: adBlockerEnabled)
+    init(vault: SecureBrowserVault) {
+        self.vault = vault
+        let darkReaderEnabled = vault.load(Bool.self, forKey: Self.StorageKey.darkReaderEnabled, default: false)
+        let adBlockerEnabled = vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)
+        let placement = BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left
+        let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
+        let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
+        let savedHistory = Self.loadHistory(vault: vault)
+        let savedEssentials = Self.loadEssentials(vault: vault)
+        let savedDownloads = Self.loadDownloads(vault: vault)
+        let savedVPNProfile = Self.loadVPNProfile(vault: vault)
+        let restoredTabs = Self.loadTabs(vault: vault, isDarkReaderEnabled: darkReaderEnabled, isAdBlockerEnabled: adBlockerEnabled)
 
         self.chromePlacement = placement
-        self.areSideTabsCollapsed = defaults.bool(forKey: Self.StorageKey.sideTabsCollapsed)
+        self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.history = savedHistory
         self.essentials = savedEssentials
         self.downloads = savedDownloads
-        self.isTutorialPresented = defaults.bool(forKey: Self.StorageKey.hasCompletedTutorial) == false
+        self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
         self.isAdBlockerEnabled = adBlockerEnabled
-        self.localAIName = defaults.string(forKey: Self.StorageKey.localAIName) ?? "Local AI"
-        self.localAIURLText = defaults.string(forKey: Self.StorageKey.localAIURLText) ?? ""
+        self.localAIName = vault.load(String.self, forKey: Self.StorageKey.localAIName, default: "Local AI")
+        self.localAIURLText = vault.load(String.self, forKey: Self.StorageKey.localAIURLText, default: "")
         self.vpnProfile = savedVPNProfile
         self.vpnStatusMessage = savedVPNProfile.isConfigured ? "Custom VPN profile saved." : "Custom VPN profile not configured."
         self.tabs = restoredTabs.tabs
@@ -137,6 +138,7 @@ final class BrowserViewModel: ObservableObject {
         for tab in tabs {
             configure(tab)
         }
+        migrateLoadedStateToEncryptedVault()
     }
 
     var selectedTab: BrowserTab? {
@@ -170,6 +172,7 @@ final class BrowserViewModel: ObservableObject {
         let tab = BrowserTab(
             startURL: startURL,
             isPrivate: isPrivate,
+            usesPersistentStorage: false,
             isDarkReaderEnabled: isDarkReaderEnabled,
             isAdBlockerEnabled: isAdBlockerEnabled
         )
@@ -287,7 +290,7 @@ final class BrowserViewModel: ObservableObject {
 
     func setDarkReaderEnabled(_ enabled: Bool) {
         isDarkReaderEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: Self.StorageKey.darkReaderEnabled)
+        vault.save(enabled, forKey: Self.StorageKey.darkReaderEnabled)
         for tab in tabs {
             tab.setDarkReaderEnabled(enabled)
         }
@@ -298,7 +301,7 @@ final class BrowserViewModel: ObservableObject {
 
     func setAdBlockerEnabled(_ enabled: Bool) {
         isAdBlockerEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: Self.StorageKey.adBlockerEnabled)
+        vault.save(enabled, forKey: Self.StorageKey.adBlockerEnabled)
         for tab in tabs {
             tab.setAdBlockerEnabled(enabled)
         }
@@ -327,7 +330,7 @@ final class BrowserViewModel: ObservableObject {
 
     func completeTutorial() {
         isTutorialPresented = false
-        UserDefaults.standard.set(true, forKey: Self.StorageKey.hasCompletedTutorial)
+        vault.save(true, forKey: Self.StorageKey.hasCompletedTutorial)
     }
 
     func handleThreeFingerSwipe(deltaX: CGFloat) {
@@ -654,18 +657,15 @@ final class BrowserViewModel: ObservableObject {
             )
         }
 
-        guard let data = try? JSONEncoder().encode(persistedTabs) else { return }
-        UserDefaults.standard.set(data, forKey: Self.StorageKey.openTabs)
+        vault.save(persistedTabs, forKey: Self.StorageKey.openTabs)
     }
 
     private func saveHistory() {
-        guard let data = try? JSONEncoder().encode(history) else { return }
-        UserDefaults.standard.set(data, forKey: Self.StorageKey.history)
+        vault.save(history, forKey: Self.StorageKey.history)
     }
 
     private func saveEssentials() {
-        guard let data = try? JSONEncoder().encode(essentials) else { return }
-        UserDefaults.standard.set(data, forKey: Self.StorageKey.essentials)
+        vault.save(essentials, forKey: Self.StorageKey.essentials)
     }
 
     private func updateDownload(_ item: BrowserDownloadItem) {
@@ -678,24 +678,38 @@ final class BrowserViewModel: ObservableObject {
     }
 
     private func saveDownloads() {
-        guard let data = try? JSONEncoder().encode(downloads) else { return }
-        UserDefaults.standard.set(data, forKey: Self.StorageKey.downloads)
+        vault.save(downloads, forKey: Self.StorageKey.downloads)
     }
 
     private func persistVPNProfile() {
-        guard let data = try? JSONEncoder().encode(vpnProfile) else { return }
-        UserDefaults.standard.set(data, forKey: Self.StorageKey.vpnProfile)
+        vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
+    }
+
+    private func migrateLoadedStateToEncryptedVault() {
+        vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
+        vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
+        vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
+        vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
+        vault.save(history, forKey: Self.StorageKey.history)
+        vault.save(essentials, forKey: Self.StorageKey.essentials)
+        vault.save(downloads, forKey: Self.StorageKey.downloads)
+        vault.save(localAIName, forKey: Self.StorageKey.localAIName)
+        vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
+        vault.save(isAdBlockerEnabled, forKey: Self.StorageKey.adBlockerEnabled)
+        vault.save(isDarkReaderEnabled, forKey: Self.StorageKey.darkReaderEnabled)
+        vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
+        vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
+        persistOpenTabs()
     }
 
     private static func loadTabs(
+        vault: SecureBrowserVault,
         isDarkReaderEnabled: Bool,
         isAdBlockerEnabled: Bool
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
-        let defaults = UserDefaults.standard
-        guard let data = defaults.data(forKey: StorageKey.openTabs),
-              let savedTabs = try? JSONDecoder().decode([PersistedBrowserTab].self, from: data),
-              savedTabs.isEmpty == false else {
-            let firstTab = BrowserTab(isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
+        let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
+        guard savedTabs.isEmpty == false else {
+            let firstTab = BrowserTab(usesPersistentStorage: false, isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
             return ([firstTab], firstTab.id)
         }
 
@@ -706,6 +720,7 @@ final class BrowserViewModel: ObservableObject {
             guard let url = URL(string: savedTab.urlString) else { continue }
             let tab = BrowserTab(
                 startURL: url,
+                usesPersistentStorage: false,
                 isDarkReaderEnabled: isDarkReaderEnabled,
                 isAdBlockerEnabled: isAdBlockerEnabled
             )
@@ -716,47 +731,27 @@ final class BrowserViewModel: ObservableObject {
         }
 
         if restoredTabs.isEmpty {
-            let firstTab = BrowserTab(isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
+            let firstTab = BrowserTab(usesPersistentStorage: false, isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
             return ([firstTab], firstTab.id)
         }
 
         return (restoredTabs, selectedID ?? restoredTabs.first?.id)
     }
 
-    private static func loadHistory() -> [BrowserHistoryItem] {
-        guard let data = UserDefaults.standard.data(forKey: StorageKey.history),
-              let history = try? JSONDecoder().decode([BrowserHistoryItem].self, from: data) else {
-            return []
-        }
-
-        return history
+    private static func loadHistory(vault: SecureBrowserVault) -> [BrowserHistoryItem] {
+        vault.load([BrowserHistoryItem].self, forKey: StorageKey.history, default: [])
     }
 
-    private static func loadDownloads() -> [BrowserDownloadItem] {
-        guard let data = UserDefaults.standard.data(forKey: StorageKey.downloads),
-              let downloads = try? JSONDecoder().decode([BrowserDownloadItem].self, from: data) else {
-            return []
-        }
-
-        return downloads
+    private static func loadDownloads(vault: SecureBrowserVault) -> [BrowserDownloadItem] {
+        vault.load([BrowserDownloadItem].self, forKey: StorageKey.downloads, default: [])
     }
 
-    private static func loadEssentials() -> [BrowserEssentialItem] {
-        guard let data = UserDefaults.standard.data(forKey: StorageKey.essentials),
-              let essentials = try? JSONDecoder().decode([BrowserEssentialItem].self, from: data) else {
-            return []
-        }
-
-        return essentials
+    private static func loadEssentials(vault: SecureBrowserVault) -> [BrowserEssentialItem] {
+        vault.load([BrowserEssentialItem].self, forKey: StorageKey.essentials, default: [])
     }
 
-    private static func loadVPNProfile() -> CustomVPNProfile {
-        guard let data = UserDefaults.standard.data(forKey: StorageKey.vpnProfile),
-              let profile = try? JSONDecoder().decode(CustomVPNProfile.self, from: data) else {
-            return .empty
-        }
-
-        return profile
+    private static func loadVPNProfile(vault: SecureBrowserVault) -> CustomVPNProfile {
+        vault.load(CustomVPNProfile.self, forKey: StorageKey.vpnProfile, default: .empty)
     }
 
     private static func shouldPersist(url: URL) -> Bool {

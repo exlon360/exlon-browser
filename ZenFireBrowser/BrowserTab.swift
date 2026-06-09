@@ -38,7 +38,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     init(
         startURL: URL = BrowserDefaults.homeURL,
         isPrivate: Bool = false,
-        usesPersistentStorage: Bool = true,
+        usesPersistentStorage: Bool = false,
         isContainedBrowser: Bool = false,
         isDarkReaderEnabled: Bool = false,
         isAdBlockerEnabled: Bool = true

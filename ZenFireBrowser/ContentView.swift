@@ -4,8 +4,34 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @StateObject private var model = BrowserViewModel()
-    @StateObject private var theme = BrowserTheme()
+    @StateObject private var security = AppSecurityModel()
+
+    var body: some View {
+        Group {
+            if let vault = security.vault {
+                BrowserUnlockedRoot(vault: vault)
+                    .id("unlocked")
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
+            } else {
+                BrowserLockView()
+                    .id("locked")
+                    .transition(.opacity.combined(with: .scale(scale: 1.015)))
+            }
+        }
+        .environmentObject(security)
+        .animation(.spring(response: 0.32, dampingFraction: 0.88), value: security.isUnlocked)
+        .preferredColorScheme(.dark)
+    }
+}
+
+private struct BrowserUnlockedRoot: View {
+    @StateObject private var model: BrowserViewModel
+    @StateObject private var theme: BrowserTheme
+
+    init(vault: SecureBrowserVault) {
+        _model = StateObject(wrappedValue: BrowserViewModel(vault: vault))
+        _theme = StateObject(wrappedValue: BrowserTheme(vault: vault))
+    }
 
     var body: some View {
         BrowserShell()
@@ -15,9 +41,214 @@ struct ContentView: View {
     }
 }
 
+private struct BrowserLockView: View {
+    @EnvironmentObject private var security: AppSecurityModel
+    @State private var pin = ""
+    @State private var confirmation = ""
+    @FocusState private var focusedField: LockField?
+
+    private enum LockField {
+        case pin
+        case confirmation
+    }
+
+    var body: some View {
+        ZStack {
+            SecureLockBackground()
+
+            VStack(spacing: 22) {
+                Spacer(minLength: 18)
+
+                VStack(spacing: 18) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color(red: 0.08, green: 0.09, blue: 0.12).opacity(0.72))
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                            }
+
+                        Image(systemName: security.isConfigured ? "lock.shield.fill" : "lock.badge.plus")
+                            .font(.system(size: 30, weight: .black))
+                            .foregroundStyle(Color(red: 0.84, green: 0.89, blue: 1.0))
+                    }
+                    .frame(width: 74, height: 74)
+                    .shadow(color: Color.black.opacity(0.34), radius: 22, y: 14)
+
+                    VStack(spacing: 8) {
+                        Text(security.isConfigured ? "Glide is locked" : "Secure Glide")
+                            .font(.system(size: 34, weight: .black))
+                            .foregroundStyle(Color(red: 0.96, green: 0.98, blue: 1.0))
+                            .multilineTextAlignment(.center)
+
+                        Text(security.isConfigured ? "Enter your PIN to open the encrypted vault." : "Create a PIN for the encrypted browser vault.")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.66))
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 24)
+
+                VStack(spacing: 12) {
+                    SecurePINField(
+                        title: security.isConfigured ? "PIN" : "New PIN",
+                        text: $pin
+                    )
+                    .focused($focusedField, equals: .pin)
+                    .onSubmit(submit)
+
+                    if security.isConfigured == false {
+                        SecurePINField(title: "Confirm PIN", text: $confirmation)
+                            .focused($focusedField, equals: .confirmation)
+                            .onSubmit(submit)
+                    }
+
+                    if security.message.isEmpty == false {
+                        Text(security.message)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(red: 1.0, green: 0.64, blue: 0.64))
+                            .multilineTextAlignment(.center)
+                            .transition(.opacity)
+                    }
+                }
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 24)
+
+                VStack(spacing: 10) {
+                    Button(action: submit) {
+                        HStack(spacing: 10) {
+                            Text(security.isConfigured ? "Unlock" : "Create PIN")
+                                .font(.system(size: 16, weight: .bold))
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 14, weight: .black))
+                        }
+                        .frame(maxWidth: 440)
+                        .frame(height: 54)
+                        .foregroundStyle(Color(red: 0.05, green: 0.06, blue: 0.08))
+                        .background(Color(red: 0.84, green: 0.89, blue: 1.0), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(canSubmit == false)
+                    .opacity(canSubmit ? 1 : 0.48)
+                    .accessibilityLabel(security.isConfigured ? "Unlock Glide" : "Create Glide PIN")
+
+                    if security.isConfigured && security.isBiometricAvailable {
+                        Button {
+                            security.unlockWithBiometrics()
+                        } label: {
+                            Label("Use \(security.biometricTitle)", systemImage: "faceid")
+                                .font(.system(size: 15, weight: .bold))
+                                .frame(maxWidth: 440)
+                                .frame(height: 48)
+                                .foregroundStyle(Color.white.opacity(0.92))
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+
+                Spacer(minLength: 18)
+            }
+        }
+        .onAppear {
+            security.refreshBiometricAvailability()
+            focusedField = .pin
+        }
+        .onChange(of: pin) { _, value in
+            let cleaned = sanitizedPIN(value)
+            if cleaned != value {
+                pin = cleaned
+            }
+        }
+        .onChange(of: confirmation) { _, value in
+            let cleaned = sanitizedPIN(value)
+            if cleaned != value {
+                confirmation = cleaned
+            }
+        }
+    }
+
+    private var canSubmit: Bool {
+        if security.isConfigured {
+            return pin.trimmingCharacters(in: .whitespacesAndNewlines).count >= 4
+        }
+
+        return pin.count >= 4 && confirmation.count >= 4
+    }
+
+    private func submit() {
+        if security.isConfigured {
+            security.unlock(pin: pin)
+        } else {
+            security.setup(pin: pin, confirmation: confirmation)
+        }
+    }
+
+    private func sanitizedPIN(_ value: String) -> String {
+        String(value.filter { $0.isNumber }.prefix(12))
+    }
+}
+
+private struct SecurePINField: View {
+    let title: String
+    @Binding var text: String
+
+    var body: some View {
+        SecureField(title, text: $text)
+            .textContentType(.oneTimeCode)
+            .keyboardType(.numberPad)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .font(.system(size: 18, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.white)
+            .tint(Color(red: 0.84, green: 0.89, blue: 1.0))
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            }
+            .privacySensitive()
+    }
+}
+
+private struct SecureLockBackground: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.03, green: 0.035, blue: 0.05),
+                    Color(red: 0.08, green: 0.09, blue: 0.12),
+                    Color(red: 0.02, green: 0.025, blue: 0.035)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .opacity(0.08)
+                .ignoresSafeArea()
+        }
+    }
+}
+
 private struct BrowserShell: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var security: AppSecurityModel
 
     var body: some View {
         GeometryReader { proxy in
@@ -71,6 +302,7 @@ private struct BrowserShell: View {
                 BrowserSettingsView()
                     .environmentObject(model)
                     .environmentObject(theme)
+                    .environmentObject(security)
                     .preferredColorScheme(.dark)
             }
             .sheet(isPresented: $model.isHistoryPresented) {
@@ -2248,6 +2480,7 @@ private struct BrowserBackground: View {
 private struct BrowserSettingsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var security: AppSecurityModel
     @Environment(\.dismiss) private var dismiss
     @State private var isBackgroundImporterPresented = false
     @State private var savedThemeName = ""
@@ -2285,6 +2518,25 @@ private struct BrowserSettingsView: View {
 
                     Button("Custom VPN") {
                         model.isVPNPresented = true
+                    }
+                }
+
+                Section("Privacy Lock") {
+                    LabeledContent("Encrypted vault") {
+                        Label("Unlocked", systemImage: "checkmark.shield")
+                            .foregroundStyle(theme.color(.accent))
+                    }
+
+                    LabeledContent("Biometric unlock") {
+                        Text(security.isBiometricAvailable ? security.biometricTitle : "Unavailable")
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+
+                    Button(role: .destructive) {
+                        dismiss()
+                        security.lock()
+                    } label: {
+                        Label("Lock Glide Now", systemImage: "lock.fill")
                     }
                 }
 

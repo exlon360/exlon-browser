@@ -96,6 +96,7 @@ def main() -> int:
         "ZenFireBrowser/ContentView.swift",
         "ZenFireBrowser/CustomVPNController.swift",
         "ZenFireBrowser/Info.plist",
+        "ZenFireBrowser/SecureBrowserVault.swift",
         "ZenFireBrowser/ZenFireBrowserApp.swift",
     ]
 
@@ -147,8 +148,73 @@ def main() -> int:
     require_minimum_blocked_domains(100)
     require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",
-        "defaults.object(forKey: Self.StorageKey.adBlockerEnabled) as? Bool ?? true",
+        "vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)",
         "The ad blocker must be enabled by default for fresh installs.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "BrowserLockView",
+        "The browser must show a PIN/Face ID lock screen before the browser UI.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "BrowserUnlockedRoot(vault: vault)",
+        "The browser model and theme must be created only after the secure vault unlocks.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "security.lock()",
+        "Settings must allow locking Glide without quitting the app.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "NSFaceIDUsageDescription",
+        "Face ID unlock must include an iOS usage description.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "PBKDF2-HMAC-SHA256",
+        "The vault envelope must record PBKDF2-HMAC-SHA256 as the PIN KDF.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "CCKeyDerivationPBKDF",
+        "The vault must derive its AES key from the PIN with PBKDF2.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "kCCPRFHmacAlgSHA256",
+        "PBKDF2 must use HMAC-SHA256.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "AES.GCM.seal",
+        "The vault must encrypt saved browser state with AES-256-GCM.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "biometryCurrentSet",
+        "Face ID/Touch ID unlock must bind the stored key to the current biometric enrollment.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "URLCache(memoryCapacity: 8 * 1024 * 1024, diskCapacity: 0",
+        "Shared URL loading must disable unencrypted disk cache.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "removeUnencryptedCacheFiles",
+        "Launch privacy prep must clear unencrypted app cache files.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "init(vault: SecureBrowserVault)",
+        "Theme preferences must load through the encrypted vault.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "init(vault: SecureBrowserVault)",
+        "Browser state must load through the encrypted vault.",
     )
     require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",

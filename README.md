@@ -6,6 +6,8 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 
 - Side tabs by default, with placement switching for left, right, top, bottom, and floating chrome.
 - Glide app icon and home-screen display name.
+- PIN unlock at launch, with optional Face ID/Touch ID unlock for the same secure vault.
+- Glide browser state, history, restored tabs, theme data, local AI settings, VPN profile metadata, downloads metadata, and settings are saved through a PIN-derived AES-256-GCM vault using PBKDF2-HMAC-SHA256.
 - First-launch tutorial with a smooth Welcome to Glide flow and quick customization for tab visibility plus glass/liquid chrome.
 - Blank transparent start page for new tabs so the app wallpaper/background is the first thing you see; search still opens through the floating address bar and DuckDuckGo by default.
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
@@ -19,7 +21,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Essentials: long-press a normal tab to add it to a saved launcher strip/section.
 - New tabs focus the floating address field and select its current text.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
-- Normal and private tabs. Private tabs use a non-persistent `WKWebsiteDataStore`.
+- Normal and private tabs use non-persistent `WKWebsiteDataStore` instances so WebKit does not keep an app-controlled persistent disk cache.
 - Private tabs do not write browsing history or show local history suggestions in private search.
 - Normal tabs are restored after relaunch; private tabs are not persisted.
 - History panel for normal browsing, plus a clear-history action.
@@ -36,6 +38,8 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 ## Notes
 
 iOS apps cannot ship the desktop Firefox/Gecko engine through ordinary Swift app code. This project uses Apple's `WKWebView`, which is the browser view available to iOS apps, and wraps it in a Firefox/Zen/Arc-style experience.
+
+Apple does not expose a way for third-party browsers to AES-encrypt WebKit's internal cache files directly. Glide handles that by running tabs on non-persistent WebKit storage, disabling shared disk URL caching, clearing old app/WebKit cache locations on launch/unlock, and encrypting Glide's own persisted browser data with the PIN-derived vault key.
 
 The custom VPN screen is native, not a website shortcut. A working tunnel still requires a real VPN server and the Personal VPN entitlement when the IPA is signed.
 

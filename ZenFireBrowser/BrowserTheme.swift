@@ -102,7 +102,7 @@ final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
     @Published var isTabBarTransparencyEnabled: Bool {
         didSet {
-            defaults.set(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
+            vault.save(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
         }
     }
     @Published var tabBarTransparency: Double {
@@ -112,18 +112,18 @@ final class BrowserTheme: ObservableObject {
                 tabBarTransparency = clamped
                 return
             }
-            defaults.set(tabBarTransparency, forKey: Self.tabBarTransparencyKey)
+            vault.save(tabBarTransparency, forKey: Self.tabBarTransparencyKey)
         }
     }
     @Published var isUserBackgroundEnabled: Bool {
         didSet {
-            defaults.set(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
+            vault.save(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
         }
     }
     @Published private var userBackgroundImageData: Data?
     @Published var savedThemes: [SavedBrowserTheme]
 
-    private let defaults = UserDefaults.standard
+    private let vault: SecureBrowserVault
     private static let storagePrefix = "ZenFireBrowser.theme."
     private static let tabBarTransparencyEnabledKey = "\(storagePrefix)tabBarTransparencyEnabled"
     private static let tabBarTransparencyKey = "\(storagePrefix)tabBarTransparency"
@@ -131,17 +131,19 @@ final class BrowserTheme: ObservableObject {
     private static let userBackgroundImageDataKey = "\(storagePrefix)userBackgroundImageData"
     private static let savedThemesKey = "\(storagePrefix)savedThemes"
 
-    init() {
+    init(vault: SecureBrowserVault) {
+        self.vault = vault
         var values: [BrowserThemeToken: String] = [:]
         for token in BrowserThemeToken.allCases {
-            values[token] = UserDefaults.standard.string(forKey: Self.storageKey(for: token)) ?? token.defaultHex
+            values[token] = vault.load(String.self, forKey: Self.storageKey(for: token), default: token.defaultHex)
         }
         self.colorHexByToken = values
-        self.isTabBarTransparencyEnabled = UserDefaults.standard.object(forKey: Self.tabBarTransparencyEnabledKey) as? Bool ?? true
-        self.tabBarTransparency = UserDefaults.standard.object(forKey: Self.tabBarTransparencyKey) as? Double ?? 0.82
-        self.isUserBackgroundEnabled = UserDefaults.standard.object(forKey: Self.userBackgroundEnabledKey) as? Bool ?? false
-        self.userBackgroundImageData = UserDefaults.standard.data(forKey: Self.userBackgroundImageDataKey)
-        self.savedThemes = Self.loadSavedThemes()
+        self.isTabBarTransparencyEnabled = vault.load(Bool.self, forKey: Self.tabBarTransparencyEnabledKey, default: true)
+        self.tabBarTransparency = vault.load(Double.self, forKey: Self.tabBarTransparencyKey, default: 0.82)
+        self.isUserBackgroundEnabled = vault.load(Bool.self, forKey: Self.userBackgroundEnabledKey, default: false)
+        self.userBackgroundImageData = vault.loadOptional(Data.self, forKey: Self.userBackgroundImageDataKey)
+        self.savedThemes = vault.load([SavedBrowserTheme].self, forKey: Self.savedThemesKey, default: [])
+        migrateLoadedThemeToEncryptedVault()
     }
 
     func color(_ token: BrowserThemeToken) -> Color {
@@ -175,20 +177,20 @@ final class BrowserTheme: ObservableObject {
     func setColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultHex
         colorHexByToken[token] = hex
-        defaults.set(hex, forKey: Self.storageKey(for: token))
+        vault.save(hex, forKey: Self.storageKey(for: token))
     }
 
     func resetToZenDefaults() {
         for token in BrowserThemeToken.allCases {
             colorHexByToken[token] = token.defaultHex
-            defaults.set(token.defaultHex, forKey: Self.storageKey(for: token))
+            vault.save(token.defaultHex, forKey: Self.storageKey(for: token))
         }
 
         isTabBarTransparencyEnabled = true
         tabBarTransparency = 0.82
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
-        defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
+        vault.remove(Self.userBackgroundImageDataKey)
     }
 
     func setUserBackground(from url: URL) {
@@ -214,13 +216,13 @@ final class BrowserTheme: ObservableObject {
 
         userBackgroundImageData = data
         isUserBackgroundEnabled = true
-        defaults.set(data, forKey: Self.userBackgroundImageDataKey)
+        vault.save(data, forKey: Self.userBackgroundImageDataKey)
     }
 
     func clearUserBackground() {
         userBackgroundImageData = nil
         isUserBackgroundEnabled = false
-        defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
+        vault.remove(Self.userBackgroundImageDataKey)
     }
 
     func saveCurrentTheme(named rawName: String) {
@@ -248,7 +250,7 @@ final class BrowserTheme: ObservableObject {
         for token in BrowserThemeToken.allCases {
             let value = savedTheme.colorHexByToken[token.rawValue] ?? token.defaultHex
             colorHexByToken[token] = value
-            defaults.set(value, forKey: Self.storageKey(for: token))
+            vault.save(value, forKey: Self.storageKey(for: token))
         }
 
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
@@ -257,9 +259,9 @@ final class BrowserTheme: ObservableObject {
         isUserBackgroundEnabled = savedTheme.isUserBackgroundEnabled && savedTheme.userBackgroundImageData != nil
 
         if let data = savedTheme.userBackgroundImageData {
-            defaults.set(data, forKey: Self.userBackgroundImageDataKey)
+            vault.save(data, forKey: Self.userBackgroundImageDataKey)
         } else {
-            defaults.removeObject(forKey: Self.userBackgroundImageDataKey)
+            vault.remove(Self.userBackgroundImageDataKey)
         }
     }
 
@@ -269,17 +271,22 @@ final class BrowserTheme: ObservableObject {
     }
 
     private func persistSavedThemes() {
-        guard let data = try? JSONEncoder().encode(savedThemes) else { return }
-        defaults.set(data, forKey: Self.savedThemesKey)
+        vault.save(savedThemes, forKey: Self.savedThemesKey)
     }
 
-    private static func loadSavedThemes() -> [SavedBrowserTheme] {
-        guard let data = UserDefaults.standard.data(forKey: Self.savedThemesKey),
-              let themes = try? JSONDecoder().decode([SavedBrowserTheme].self, from: data) else {
-            return []
+    private func migrateLoadedThemeToEncryptedVault() {
+        for token in BrowserThemeToken.allCases {
+            vault.save(colorHexByToken[token] ?? token.defaultHex, forKey: Self.storageKey(for: token))
         }
-
-        return themes
+        vault.save(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
+        vault.save(tabBarTransparency, forKey: Self.tabBarTransparencyKey)
+        vault.save(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
+        if let userBackgroundImageData = userBackgroundImageData {
+            vault.save(userBackgroundImageData, forKey: Self.userBackgroundImageDataKey)
+        } else {
+            vault.remove(Self.userBackgroundImageDataKey)
+        }
+        vault.save(savedThemes, forKey: Self.savedThemesKey)
     }
 
     private static func storageKey(for token: BrowserThemeToken) -> String {
