@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -49,6 +50,29 @@ def parse_xml(path: str) -> None:
         raise SystemExit(f"Invalid XML in {path}: {error}") from error
 
 
+def parse_json(path: str) -> None:
+    try:
+        json.loads(read(path))
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"Invalid JSON in {path}: {error}") from error
+
+
+def require_app_icon_files() -> None:
+    icon_dir = ROOT / "ZenFireBrowser/Assets.xcassets/AppIcon.appiconset"
+    contents = json.loads((icon_dir / "Contents.json").read_text(encoding="utf-8"))
+    filenames = [
+        image["filename"]
+        for image in contents.get("images", [])
+        if "filename" in image
+    ]
+    if len(filenames) < 18:
+        raise SystemExit(f"The app icon set must include the full iPhone/iPad icon set; found {len(filenames)} entries.")
+
+    for filename in filenames:
+        if not (icon_dir / filename).is_file():
+            raise SystemExit(f"Missing app icon image: {filename}")
+
+
 def main() -> int:
     required_files = [
         ".github/workflows/ios-ci.yml",
@@ -60,6 +84,9 @@ def main() -> int:
         "scripts/build_signed_ipa.sh",
         "ZenFireBrowser.xcodeproj/project.pbxproj",
         "ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme",
+        "ZenFireBrowser/Assets.xcassets/Contents.json",
+        "ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png",
         "ZenFireBrowser/BrowserContentBlocker.swift",
         "ZenFireBrowser/BrowserModels.swift",
         "ZenFireBrowser/BrowserTab.swift",
@@ -77,6 +104,35 @@ def main() -> int:
 
     parse_xml("ZenFireBrowser/Info.plist")
     parse_xml("ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme")
+    parse_json("ZenFireBrowser/Assets.xcassets/Contents.json")
+    parse_json("ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Contents.json")
+    require_app_icon_files()
+
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "<key>CFBundleDisplayName</key>\n\t<string>Glide</string>",
+        "The installed app display name must be Glide.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "<key>CFBundleName</key>\n\t<string>Glide</string>",
+        "The bundle name must be Glide.",
+    )
+    require_contains(
+        "ZenFireBrowser.xcodeproj/project.pbxproj",
+        "ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;",
+        "The Xcode target must use the Glide app icon asset catalog.",
+    )
+    require_contains(
+        "ZenFireBrowser.xcodeproj/project.pbxproj",
+        "Assets.xcassets in Resources",
+        "The asset catalog must be included in the target resources.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        'Text("Glide")',
+        "The in-app brand must be Glide.",
+    )
 
     require_contains(
         "ZenFireBrowser/BrowserTab.swift",

@@ -1,10 +1,11 @@
-# ZenFireBrowser
+# Glide
 
-ZenFireBrowser is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface and a Firefox-inspired privacy posture.
+Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface and a Firefox-inspired privacy posture.
 
 ## What is included
 
 - Side tabs by default, with placement switching for left, right, top, bottom, and floating chrome.
+- Glide app icon and home-screen display name.
 - First-launch tutorial covering search, gesture navigation, private tabs, hidden side tabs, and automatic ad blocking.
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.

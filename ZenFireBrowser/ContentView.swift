@@ -336,7 +336,7 @@ private struct ChromeHeader: View {
             BrandMark()
 
             if compact == false {
-                Text("Exlon Browser")
+                Text("Glide")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(theme.color(.text))
                     .lineLimit(1)
@@ -1241,7 +1241,7 @@ private struct FirstRunTutorialView: View {
                     .shadow(color: theme.color(.accent).opacity(0.18), radius: 20, y: 10)
 
                     VStack(spacing: 8) {
-                        Text("Exlon Browser")
+                        Text("Glide")
                             .font(.system(size: 34, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)

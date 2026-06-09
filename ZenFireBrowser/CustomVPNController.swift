@@ -31,7 +31,7 @@ enum CustomVPNController {
         tunnel.authenticationMethod = .none
         tunnel.disconnectOnSleep = false
 
-        manager.localizedDescription = "Exlon Browser \(profile.countryName)"
+        manager.localizedDescription = "Glide \(profile.countryName)"
         manager.protocolConfiguration = tunnel
         manager.isEnabled = profile.isEnabled
 

@@ -18,6 +18,7 @@
 		4A1C0E532EED000100A17B01 /* BrowserContentBlocker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E522EED000100A17B01 /* BrowserContentBlocker.swift */; };
 		4A1C0E552EED000100A17B01 /* CustomVPNController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E542EED000100A17B01 /* CustomVPNController.swift */; };
 		4A1C0E572EED000100A17B01 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4A1C0E562EED000100A17B01 /* NetworkExtension.framework */; };
+		4A1C0E592EED000100A17B01 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4A1C0E582EED000100A17B01 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 		4A1C0E522EED000100A17B01 /* BrowserContentBlocker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserContentBlocker.swift; sourceTree = "<group>"; };
 		4A1C0E542EED000100A17B01 /* CustomVPNController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVPNController.swift; sourceTree = "<group>"; };
 		4A1C0E562EED000100A17B01 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
+		4A1C0E582EED000100A17B01 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,6 +80,7 @@
 				4A1C0E3E2EED000100A17B01 /* BrowserWebView.swift */,
 				4A1C0E402EED000100A17B01 /* ContentView.swift */,
 				4A1C0E542EED000100A17B01 /* CustomVPNController.swift */,
+				4A1C0E582EED000100A17B01 /* Assets.xcassets */,
 				4A1C0E442EED000100A17B01 /* Info.plist */,
 			);
 			path = ZenFireBrowser;
@@ -150,6 +153,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4A1C0E592EED000100A17B01 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -293,6 +297,7 @@
 		4A1C0E492EED000100A17B01 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -319,6 +324,7 @@
 		4A1C0E4A2EED000100A17B01 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
