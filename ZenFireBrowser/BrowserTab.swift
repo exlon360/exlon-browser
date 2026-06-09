@@ -1,16 +1,19 @@
 import Combine
+import AVFoundation
 import Foundation
 import UIKit
 import WebKit
 
 enum BrowserDefaults {
     static let homeURL = URL(string: "https://duckduckgo.com/")!
+    static let containedBrowserStartURL = URL(string: "https://duckduckgo.com/")!
 }
 
 @MainActor
 final class BrowserTab: NSObject, Identifiable, ObservableObject {
     let id = UUID()
     let isPrivate: Bool
+    let isContainedBrowser: Bool
     let webView: WKWebView
 
     @Published var title: String
@@ -36,22 +39,30 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         startURL: URL = BrowserDefaults.homeURL,
         isPrivate: Bool = false,
         usesPersistentStorage: Bool = true,
+        isContainedBrowser: Bool = false,
         isDarkReaderEnabled: Bool = false,
         isAdBlockerEnabled: Bool = true
     ) {
         self.isPrivate = isPrivate
+        self.isContainedBrowser = isContainedBrowser
         self.isDarkReaderEnabled = isDarkReaderEnabled
         self.isAdBlockerEnabled = isAdBlockerEnabled
-        self.title = isPrivate ? "Private Start" : "Start"
+        self.title = isContainedBrowser ? "Contained Browser" : (isPrivate ? "Private Start" : "Start")
         self.url = startURL
         self.addressText = startURL.absoluteString
+
+        Self.configureAudioPlayback()
 
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = WKUserContentController()
         configuration.allowsInlineMediaPlayback = true
+        configuration.allowsAirPlayForMediaPlayback = true
+        configuration.allowsPictureInPictureMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = (isPrivate || usesPersistentStorage == false) ? .nonPersistent() : .default()
-        configuration.applicationNameForUserAgent = "ZenFireBrowser/1.0"
+        configuration.applicationNameForUserAgent = "Glide/1.0"
 
         self.webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
@@ -66,11 +77,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         if isAdBlockerEnabled {
             BrowserContentBlocker.setEnabled(true, on: webView.configuration.userContentController) { [weak self] _ in
                 Task { @MainActor in
-                    self?.load(startURL)
+                    self?.loadInitialContent(startURL)
                 }
             }
         } else {
-            load(startURL)
+            loadInitialContent(startURL)
         }
     }
 
@@ -170,11 +181,190 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         webView.evaluateJavaScript(script)
     }
 
+    private func loadInitialContent(_ startURL: URL) {
+        if isContainedBrowser {
+            loadContainedBrowserStartPage(defaultURL: startURL)
+        } else {
+            load(startURL)
+        }
+    }
+
+    private func loadContainedBrowserStartPage(defaultURL: URL) {
+        addressText = defaultURL.absoluteString
+        webView.loadHTMLString(
+            Self.containedBrowserHTML(defaultURLString: defaultURL.absoluteString),
+            baseURL: URL(string: "https://glide.local/contained-browser")!
+        )
+    }
+
+    private static func configureAudioPlayback() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+        } catch {
+            // Web audio still works without the session; this only improves iOS routing behavior.
+        }
+    }
+
+    private static func containedBrowserHTML(defaultURLString: String) -> String {
+        """
+        <!doctype html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+          <title>Glide Contained Browser</title>
+          <style>
+            :root {
+              color-scheme: dark;
+              font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+              background: #07090d;
+              color: #f4f7fb;
+            }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              min-height: 100vh;
+              display: grid;
+              place-items: center;
+              padding: 22px;
+              background:
+                radial-gradient(circle at 78% 18%, rgba(169, 180, 200, 0.18), transparent 32%),
+                linear-gradient(135deg, #07090d 0%, #101826 48%, #07090d 100%);
+            }
+            main {
+              width: min(760px, 100%);
+              border: 1px solid rgba(169, 180, 200, 0.34);
+              border-radius: 8px;
+              padding: 18px;
+              background: rgba(16, 18, 24, 0.78);
+              box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
+              backdrop-filter: blur(20px);
+            }
+            .mark {
+              width: 42px;
+              height: 42px;
+              border-radius: 8px;
+              display: grid;
+              place-items: center;
+              margin-bottom: 14px;
+              font-size: 22px;
+              font-weight: 900;
+              color: #07090d;
+              background: linear-gradient(135deg, #f4f7fb, #9fb7ff);
+            }
+            h1 {
+              margin: 0 0 7px;
+              font-size: clamp(28px, 7vw, 52px);
+              line-height: 0.95;
+              letter-spacing: 0;
+            }
+            p {
+              margin: 0 0 18px;
+              color: #a9b4c8;
+              font-size: 15px;
+              line-height: 1.45;
+            }
+            form {
+              display: flex;
+              gap: 8px;
+              padding: 7px;
+              border: 1px solid rgba(169, 180, 200, 0.32);
+              border-radius: 8px;
+              background: rgba(32, 36, 45, 0.86);
+            }
+            input {
+              min-width: 0;
+              flex: 1;
+              height: 42px;
+              border: 0;
+              outline: 0;
+              color: #f4f7fb;
+              background: transparent;
+              font-size: 16px;
+            }
+            button {
+              border: 0;
+              border-radius: 8px;
+              min-height: 42px;
+              padding: 0 14px;
+              font-weight: 800;
+              color: #07090d;
+              background: #d6e2ff;
+            }
+            .chips {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 8px;
+              margin-top: 12px;
+            }
+            .chips button {
+              color: #f4f7fb;
+              background: rgba(32, 36, 45, 0.9);
+              border: 1px solid rgba(169, 180, 200, 0.22);
+            }
+          </style>
+        </head>
+        <body>
+          <main>
+            <div class="mark">G</div>
+            <h1>Contained Browser</h1>
+            <p>This page is a browser inside Glide. Enter a site or search, then the contained tab opens it as a top-level page so audio, video, logins, and sites that block iframes can still work through WebKit.</p>
+            <form id="browserForm">
+              <input id="address" value="\(defaultURLString)" autocomplete="url" autocapitalize="none" spellcheck="false" aria-label="Website or search">
+              <button type="submit">Open</button>
+            </form>
+            <div class="chips">
+              <button type="button" data-url="https://youtube.com/">YouTube</button>
+              <button type="button" data-url="https://open.spotify.com/">Spotify</button>
+              <button type="button" data-url="https://wikipedia.org/">Wikipedia</button>
+              <button type="button" data-url="https://duckduckgo.com/">Search</button>
+            </div>
+          </main>
+          <script>
+            const input = document.getElementById("address");
+            const form = document.getElementById("browserForm");
+
+            function destination(raw) {
+              const value = raw.trim();
+              if (!value) return "\(defaultURLString)";
+              if (/^(https?|file):\\/\\//i.test(value)) return value;
+              if (/^(localhost|127\\.0\\.0\\.1)(:|\\/|$)/i.test(value)) return "http://" + value;
+              if (value.includes(".") || value.includes(":")) return "https://" + value;
+              return "https://duckduckgo.com/?q=" + encodeURIComponent(value);
+            }
+
+            form.addEventListener("submit", event => {
+              event.preventDefault();
+              window.location.assign(destination(input.value));
+            });
+
+            document.querySelectorAll("[data-url]").forEach(button => {
+              button.addEventListener("click", () => {
+                input.value = button.dataset.url;
+                window.location.assign(button.dataset.url);
+              });
+            });
+
+            input.focus();
+            input.select();
+          </script>
+        </body>
+        </html>
+        """
+    }
+
     private func bindWebViewState() {
         observations = [
             webView.observe(\.title, options: [.initial, .new]) { [weak self] webView, _ in
                 Task { @MainActor in
-                    let fallback = self?.isPrivate == true ? "Private Tab" : "New Tab"
+                    let fallback: String
+                    if self?.isContainedBrowser == true {
+                        fallback = "Contained Browser"
+                    } else {
+                        fallback = self?.isPrivate == true ? "Private Tab" : "New Tab"
+                    }
                     let title = webView.title?.trimmingCharacters(in: .whitespacesAndNewlines)
                     self?.title = title?.isEmpty == false ? title ?? fallback : fallback
                 }
@@ -182,6 +372,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             webView.observe(\.url, options: [.initial, .new]) { [weak self] webView, _ in
                 Task { @MainActor in
                     self?.url = webView.url
+                    if self?.isContainedBrowser == true,
+                       webView.url?.host == "glide.local" {
+                        self?.addressText = BrowserDefaults.containedBrowserStartURL.absoluteString
+                        return
+                    }
                     if let absoluteString = webView.url?.absoluteString {
                         self?.addressText = absoluteString
                     }
@@ -346,6 +541,7 @@ extension BrowserTab: WKNavigationDelegate {
         preferences: WKWebpagePreferences,
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
+        preferences.allowsContentJavaScript = true
         if navigationAction.shouldPerformDownload {
             decisionHandler(.download, preferences)
         } else {
@@ -441,6 +637,60 @@ extension BrowserTab: WKDownloadDelegate {
 }
 
 extension BrowserTab: WKUIDelegate {
+    nonisolated func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard navigationAction.targetFrame == nil else { return nil }
+
+        if let requestURL = navigationAction.request.url {
+            webView.load(URLRequest(url: requestURL))
+        }
+
+        return nil
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        completionHandler()
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(true)
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        completionHandler(defaultText)
+    }
+
+    @available(iOS 15.0, *)
+    nonisolated func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.prompt)
+    }
+
     @available(iOS 18.4, *)
     nonisolated func webView(
         _ webView: WKWebView,

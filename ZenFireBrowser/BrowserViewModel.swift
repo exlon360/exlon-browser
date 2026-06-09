@@ -188,10 +188,11 @@ final class BrowserViewModel: ObservableObject {
     }
 
     @discardableResult
-    func openContainedTab(startURL: URL = BrowserDefaults.homeURL) -> BrowserTab {
+    func openContainedTab(startURL: URL = BrowserDefaults.containedBrowserStartURL) -> BrowserTab {
         let tab = BrowserTab(
             startURL: startURL,
             usesPersistentStorage: false,
+            isContainedBrowser: true,
             isDarkReaderEnabled: isDarkReaderEnabled,
             isAdBlockerEnabled: isAdBlockerEnabled
         )

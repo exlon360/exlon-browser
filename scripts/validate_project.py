@@ -175,6 +175,61 @@ def main() -> int:
         "usesPersistentStorage: false",
         "Contained tabs must use isolated non-persistent web storage.",
     )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "BrowserDefaults.containedBrowserStartURL",
+        "Contained tabs must open the browser-in-browser start page by default.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "containedBrowserHTML",
+        "Contained tabs must provide a local browser-in-browser website.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "window.location.assign(destination(input.value))",
+        "The contained browser website must open entered websites as top-level navigation.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "mediaTypesRequiringUserActionForPlayback = []",
+        "WebKit tabs must allow website audio and video playback.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "allowsAirPlayForMediaPlayback = true",
+        "WebKit tabs must allow audio routing/AirPlay playback.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "createWebViewWith",
+        "WebKit tabs must handle popup and target=_blank navigation.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "requestMediaCapturePermissionFor",
+        "WebKit tabs must support website camera/microphone permission prompts.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "NSAllowsArbitraryLoads",
+        "The browser must allow broad website loading in WKWebView.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "NSAllowsLocalNetworking",
+        "The browser must allow local-network websites.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "UIBackgroundModes",
+        "The app must declare audio background mode for website audio.",
+    )
+    require_contains(
+        "ZenFireBrowser/Info.plist",
+        "NSMicrophoneUsageDescription",
+        "The app must include microphone permission text for websites.",
+    )
     require_absent(
         "ZenFireBrowser/ContentView.swift",
         "SideTabHandle",
