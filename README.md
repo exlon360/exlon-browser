@@ -114,4 +114,4 @@ git tag emu-v0.1.0
 git push origin emu-v0.1.0
 ```
 
-This no-remote design requires bundled local engines inside the IPA for real execution. iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.
+This design requires bundled local emulator engines inside the IPA for real execution. iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.

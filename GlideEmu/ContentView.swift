@@ -78,11 +78,17 @@ struct ContentView: View {
             ) { result in
                 library.importFiles(result)
             }
+            .fullScreenCover(isPresented: $library.isEmulatorPresented) {
+                EmulatorScreenView()
+                    .environmentObject(library)
+                    .preferredColorScheme(.dark)
+            }
             .onOpenURL { url in
                 library.importExternalURL(url)
             }
         }
         .tint(Color(red: 0.57, green: 0.86, blue: 0.74))
+        .environmentObject(library)
     }
 }
 
@@ -265,7 +271,7 @@ private struct PackageLibraryView: View {
                             Button {
                                 runAction(package)
                             } label: {
-                                Label("Run Locally", systemImage: "play.fill")
+                                Label("Run", systemImage: "play.fill")
                             }
 
                             Button(role: .destructive) {
@@ -379,7 +385,7 @@ private struct PackageDetailView: View {
                         Button {
                             runAction(package)
                         } label: {
-                            Label("Run Locally", systemImage: "play.fill")
+                            Label("Run", systemImage: "play.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
@@ -425,7 +431,7 @@ private struct SessionConsoleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Local Engine Session")
+                Text("Emulator")
                     .font(.headline.weight(.black))
                     .foregroundStyle(.white)
 
@@ -454,27 +460,21 @@ private struct SessionConsoleView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    LocalTouchSurfaceView(sendEvent: touchAction)
-                        .frame(height: 128)
-                        .padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 8) {
+                        LocalTouchSurfaceView(sendEvent: touchAction)
+                            .frame(height: 150)
 
-                    HStack(spacing: 8) {
-                        TouchCommandButton(title: "Back", symbolName: "chevron.left") {
-                            touchAction(.key("back"))
-                        }
-                        TouchCommandButton(title: "Home", symbolName: "house") {
-                            touchAction(.key("home"))
-                        }
-                        TouchCommandButton(title: "Menu", symbolName: "line.3.horizontal") {
-                            touchAction(.key("menu"))
-                        }
+                        Text("Touch the screen area directly. Tap, drag, and pinch are sent to the local emulator core.")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(.top, 4)
 
                     Button("Clear Session", action: clearAction)
                         .buttonStyle(.bordered)
                         .padding(.top, 4)
                 } else {
-                    Text("No session yet. Choose a package and press Run Locally.")
+                    Text("No session yet. Choose a package and press Run.")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -490,22 +490,102 @@ private struct SessionConsoleView: View {
     }
 }
 
+private struct EmulatorScreenView: View {
+    @EnvironmentObject private var library: EmuLibrary
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                if let session = library.activeSession {
+                    ZStack {
+                        LocalTouchSurfaceView { event in
+                            library.recordTouch(event)
+                        }
+
+                        EmulatorOverlay(session: session)
+                    }
+                    .ignoresSafeArea()
+                } else {
+                    Text("No emulator session")
+                        .font(.headline.weight(.black))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 28)
+                .onEnded { value in
+                    if value.translation.height > 80 {
+                        library.isEmulatorPresented = false
+                        dismiss()
+                    }
+                }
+        )
+    }
+}
+
+private struct EmulatorOverlay: View {
+    let session: EmuSession
+
+    var body: some View {
+        VStack {
+            HStack(spacing: 10) {
+                Image(systemName: session.packageKind.symbolName)
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(Color(red: 0.57, green: 0.86, blue: 0.74))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.packageName)
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    Text(session.state.title)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.64))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .background(Color.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(12)
+
+            Spacer()
+
+            if let line = session.logLines.last {
+                Text(line)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(2)
+                    .padding(10)
+                    .background(Color.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(12)
+            }
+        }
+    }
+}
+
 private struct LocalTouchSurfaceView: View {
     let sendEvent: (EmuTouchEvent) -> Void
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(0.055))
+                Rectangle()
+                    .fill(Color.white.opacity(0.045))
 
                 VStack(spacing: 6) {
-                    Image(systemName: "hand.tap")
-                        .font(.system(size: 22, weight: .black))
+                    Image(systemName: "rectangle.and.hand.point.up.left")
+                        .font(.system(size: 28, weight: .black))
                         .foregroundStyle(Color(red: 0.57, green: 0.86, blue: 0.74))
 
-                    Text("Touch Surface")
-                        .font(.caption.weight(.black))
+                    Text("Emulator Touchscreen")
+                        .font(.headline.weight(.black))
                         .foregroundStyle(.white)
                 }
             }
@@ -539,22 +619,6 @@ private struct LocalTouchSurfaceView: View {
         let x = min(max(point.x / width, 0), 1)
         let y = min(max(point.y / height, 0), 1)
         return (Double(x), Double(y))
-    }
-}
-
-private struct TouchCommandButton: View {
-    let title: String
-    let symbolName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: symbolName)
-                .font(.caption.weight(.black))
-                .frame(maxWidth: .infinity)
-                .frame(height: 36)
-        }
-        .buttonStyle(.bordered)
     }
 }
 

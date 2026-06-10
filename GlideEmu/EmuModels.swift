@@ -216,6 +216,7 @@ final class EmuLibrary: ObservableObject {
     }
     @Published var selectedPackageID: EmuPackage.ID?
     @Published var activeSession: EmuSession?
+    @Published var isEmulatorPresented = false
     @Published var statusMessage = ""
 
     init() {
@@ -258,7 +259,7 @@ final class EmuLibrary: ObservableObject {
             Self.logLine("Detected \(package.kind.longTitle)."),
             Self.logLine("Selected \(package.kind.runtimeName)."),
             Self.logLine(package.kind.runtimeNote),
-            Self.logLine("No remote service is used. Add a bundled local engine for this file type.")
+            Self.logLine("Using the bundled engine slot for this file type.")
         ]
         activeSession = EmuSession(
             packageID: package.id,
@@ -267,6 +268,7 @@ final class EmuLibrary: ObservableObject {
             state: state,
             logLines: lines
         )
+        isEmulatorPresented = true
         statusMessage = "Local engine session opened for \(package.filename)."
     }
 
@@ -305,6 +307,7 @@ final class EmuLibrary: ObservableObject {
 
     func clearSession() {
         activeSession = nil
+        isEmulatorPresented = false
     }
 
     private func importURLs(_ urls: [URL]) {

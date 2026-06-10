@@ -912,9 +912,19 @@ def main() -> int:
         "Glide Emu must expose touch controls for local engines.",
     )
     require_contains(
+        "GlideEmu/ContentView.swift",
+        "EmulatorScreenView",
+        "Glide Emu must open packages into a full-screen emulator surface.",
+    )
+    require_contains(
         "GlideEmu/EmuModels.swift",
         "func run(_ package: EmuPackage)",
         "Glide Emu must include a run-session entry point.",
+    )
+    require_contains(
+        "GlideEmu/EmuModels.swift",
+        "isEmulatorPresented = true",
+        "Glide Emu must present the emulator screen when Run is pressed.",
     )
     require_contains(
         "GlideEmu/EmuModels.swift",
@@ -930,6 +940,11 @@ def main() -> int:
         "GlideEmu/EmuModels.swift",
         "POST /api/sessions",
         "Glide Emu must not depend on a remote VM bridge API.",
+    )
+    require_absent(
+        "GlideEmu/ContentView.swift",
+        "TouchCommandButton",
+        "Glide Emu guest controls must use the touchscreen surface instead of command buttons.",
     )
     require_contains(
         ".github/workflows/build-glide-emu-ipa.yml",
