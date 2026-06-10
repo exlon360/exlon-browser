@@ -2515,7 +2515,7 @@ private struct BrowserTabFinderView: View {
             return filtered(model.visiblePrivateTabs).count
         }
 
-        filtered(model.normalTabs).count + filtered(model.privateTabs).count + filtered(model.containedTabs).count
+        return filtered(model.normalTabs).count + filtered(model.privateTabs).count + filtered(model.containedTabs).count
     }
 
     private func filtered(_ tabs: [BrowserTab]) -> [BrowserTab] {
