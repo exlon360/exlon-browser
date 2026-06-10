@@ -511,7 +511,7 @@ private struct LoadingProgress: View {
     @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
-        GeometryReader { _ in
+        GeometryReader { proxy in
             if tab.isLoading {
                 Rectangle()
                     .fill(theme.color(.accent))
