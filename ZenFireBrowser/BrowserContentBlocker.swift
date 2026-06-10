@@ -510,6 +510,10 @@ enum BrowserContentBlocker {
     ]
 
     private static let compatibilityDomains = [
+        "browser.local",
+        "duckduckgo.com",
+        "lite.duckduckgo.com",
+        "html.duckduckgo.com",
         "youtube.com",
         "youtu.be",
         "googlevideo.com",

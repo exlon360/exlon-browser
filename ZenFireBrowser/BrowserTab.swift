@@ -416,8 +416,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+          <meta http-equiv="x-dns-prefetch-control" content="on">
           <link rel="preconnect" href="https://lite.duckduckgo.com">
           <link rel="dns-prefetch" href="//lite.duckduckgo.com">
+          <link rel="preconnect" href="https://duckduckgo.com">
+          <link rel="dns-prefetch" href="//duckduckgo.com">
           <title>Contained Web Browser</title>
           <style>
             :root {
@@ -657,6 +660,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             const reloadButton = document.getElementById("reloadButton");
             const audioButton = document.getElementById("audioButton");
             const fullPageButton = document.getElementById("fullPageButton");
+            try { frame.fetchPriority = "high"; } catch (_) {}
             const directDomains = [
               "youtube.com",
               "youtu.be",
@@ -742,6 +746,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             let index = -1;
             let statusTimer = undefined;
             let frameStatusTimer = undefined;
+            let warmTimer = undefined;
+            const warmedOrigins = new Set();
             let audioContext = undefined;
 
             function destination(raw) {
@@ -753,25 +759,62 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               return "https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(value);
             }
 
-            function hostFor(url) {
+            function parsedURL(url) {
               try {
-                return new URL(url).hostname.replace(/^www\\./, "").toLowerCase();
+                return new URL(url);
               } catch (_) {
-                return "";
+                return undefined;
               }
             }
 
+            function warmDestination(url) {
+              const parsed = parsedURL(url);
+              if (!parsed || !/^https?:$/.test(parsed.protocol) || warmedOrigins.has(parsed.origin)) {
+                return;
+              }
+              warmedOrigins.add(parsed.origin);
+
+              const dns = document.createElement("link");
+              dns.rel = "dns-prefetch";
+              dns.href = "//" + parsed.host;
+              document.head.appendChild(dns);
+
+              const preconnect = document.createElement("link");
+              preconnect.rel = "preconnect";
+              preconnect.href = parsed.origin;
+              preconnect.crossOrigin = "";
+              document.head.appendChild(preconnect);
+            }
+
+            function scheduleWarmDestination(raw) {
+              clearTimeout(warmTimer);
+              warmTimer = setTimeout(() => {
+                warmDestination(destination(raw || initialURL));
+              }, 90);
+            }
+
+            function hostFor(url) {
+              return parsedURL(url)?.hostname.replace(/^www\\./, "").toLowerCase() || "";
+            }
+
             function shouldOpenDirect(url) {
-              try {
-                const parsed = new URL(url);
+              const parsed = parsedURL(url);
+              if (parsed) {
                 const host = parsed.hostname.replace(/^www\\./, "").toLowerCase();
                 const path = parsed.pathname.toLowerCase();
                 return directDomains.some(domain => host === domain || host.endsWith("." + domain)) ||
                   directPathHints.some(hint => path === hint || path.startsWith(hint + "/") || path.includes(hint + "/"));
-              } catch (_) {
-                const host = hostFor(url);
-                return directDomains.some(domain => host === domain || host.endsWith("." + domain));
               }
+              const host = hostFor(url);
+              return directDomains.some(domain => host === domain || host.endsWith("." + domain));
+            }
+
+            function isSearchStartURL(url) {
+              const host = hostFor(url);
+              return host === "duckduckgo.com" ||
+                host === "lite.duckduckgo.com" ||
+                host === "html.duckduckgo.com" ||
+                host.endsWith(".duckduckgo.com");
             }
 
             function showStatus(message) {
@@ -790,6 +833,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             function openInner(raw, push = true) {
               const url = destination(raw);
               input.value = url;
+              warmDestination(url);
 
               if (shouldOpenDirect(url)) {
                 showStatus("Opening full site for media and compatibility");
@@ -797,14 +841,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                 return;
               }
 
-              clearTimeout(frameStatusTimer);
-              frame.dataset.target = url;
-              frame.src = url;
-              frameStatusTimer = setTimeout(() => {
-                if (frame.dataset.target === url) {
-                  showStatus("Still loading. Open Page is fastest for protected sites");
-                }
-              }, 2200);
+              loadFrame(url);
 
               if (push) {
                 stack = stack.slice(0, index + 1);
@@ -816,12 +853,29 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               showStatus("Loading inside contained browser");
             }
 
+            function loadFrame(url) {
+              clearTimeout(frameStatusTimer);
+              frame.dataset.target = url;
+              warmDestination(url);
+              frame.src = url;
+              frameStatusTimer = setTimeout(() => {
+                if (frame.dataset.target === url) {
+                  showStatus("Still loading. Open Page is fastest for protected sites");
+                }
+              }, 1400);
+            }
+
             form.addEventListener("submit", event => {
               event.preventDefault();
               openInner(input.value);
             });
 
+            input.addEventListener("input", () => scheduleWarmDestination(input.value));
+            input.addEventListener("focus", () => scheduleWarmDestination(input.value || initialURL));
+
             document.querySelectorAll("[data-url]").forEach(button => {
+              button.addEventListener("pointerdown", () => warmDestination(button.dataset.url), { passive: true });
+              button.addEventListener("mouseenter", () => warmDestination(button.dataset.url));
               button.addEventListener("click", () => {
                 openInner(button.dataset.url);
               });
@@ -831,7 +885,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               if (index <= 0) return;
               index -= 1;
               input.value = stack[index];
-              frame.src = stack[index];
+              loadFrame(stack[index]);
               updateButtons();
             });
 
@@ -839,13 +893,13 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               if (index >= stack.length - 1) return;
               index += 1;
               input.value = stack[index];
-              frame.src = stack[index];
+              loadFrame(stack[index]);
               updateButtons();
             });
 
             reloadButton.addEventListener("click", () => {
               if (!input.value) return;
-              frame.src = input.value;
+              loadFrame(input.value);
               showStatus("Reloading");
             });
 
@@ -882,7 +936,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               showStatus("Loaded");
             });
 
-            openInner(initialURL);
+            warmDestination(initialURL);
+            if (isSearchStartURL(initialURL)) {
+              input.value = "";
+              updateButtons();
+              showStatus("Ready");
+            } else {
+              openInner(initialURL);
+            }
             input.focus();
             input.select();
           </script>
