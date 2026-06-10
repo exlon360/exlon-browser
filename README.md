@@ -107,6 +107,8 @@ Then run the `Build Signed IPA` workflow manually.
 
 `GlideEmu.xcodeproj` is a separate SwiftUI iOS app from the Glide browser. It registers `.dmg`, `.apk`, `.exe`, and `.deb` document imports, copies selected packages into app storage, keeps a local package library, and opens a local-engine touch session for the selected package type.
 
+The `.exe` path now has a real local DOSBox-style runtime: imported DOS-compatible EXE files are packed on-device into a `.jsdos` bundle, mounted without installing, and launched in a full-screen WebKit emulator surface with touch and audio. The js-dos v7 runtime assets are bundled with the app. Modern Windows PE apps, APKs, DEBs, and DMGs still need their own emulator cores; iOS cannot execute those package formats natively.
+
 Build it from GitHub Actions with the `Build Glide Emu IPA` workflow. For release assets, push an `emu-v*` tag, such as:
 
 ```bash
@@ -114,4 +116,4 @@ git tag emu-v0.1.0
 git push origin emu-v0.1.0
 ```
 
-This design requires bundled local emulator engines inside the IPA for real execution. iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.
+Each non-DOS package type requires a bundled local emulator engine inside the IPA for real execution. iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.

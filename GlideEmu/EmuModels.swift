@@ -50,7 +50,7 @@ enum EmuPackageKind: String, Codable, CaseIterable, Identifiable {
         case .apk:
             return "Android package"
         case .exe:
-            return "Windows executable"
+            return "DOS/Windows executable"
         case .deb:
             return "Debian package"
         case .unknown:
@@ -80,7 +80,7 @@ enum EmuPackageKind: String, Codable, CaseIterable, Identifiable {
         case .apk:
             return "Local Android engine"
         case .exe:
-            return "Local Windows engine"
+            return "Local DOSBox EXE engine"
         case .deb:
             return "Local Linux engine"
         case .unknown:
@@ -95,7 +95,7 @@ enum EmuPackageKind: String, Codable, CaseIterable, Identifiable {
         case .apk:
             return "APK files need a bundled local Android runtime before they can run."
         case .exe:
-            return "EXE files need a bundled local Windows compatibility engine before they can run."
+            return "DOS-compatible EXE files run locally through the bundled DOSBox runtime."
         case .deb:
             return "DEB files need a bundled local Linux userspace engine before they can run."
         case .unknown:
@@ -106,6 +106,7 @@ enum EmuPackageKind: String, Codable, CaseIterable, Identifiable {
 
 enum EmuSessionState: String, Codable {
     case ready
+    case running
     case engineMissing
     case failed
 
@@ -113,6 +114,8 @@ enum EmuSessionState: String, Codable {
         switch self {
         case .ready:
             return "Ready"
+        case .running:
+            return "Running"
         case .engineMissing:
             return "Engine Missing"
         case .failed:
@@ -163,6 +166,7 @@ struct EmuSession: Identifiable, Codable, Equatable {
     var logLines: [String]
     var isAudioEnabled: Bool
     var audioSampleRate: Double
+    var runtimeBundlePath: String?
 
     init(
         id: UUID = UUID(),
@@ -173,7 +177,8 @@ struct EmuSession: Identifiable, Codable, Equatable {
         state: EmuSessionState,
         logLines: [String],
         isAudioEnabled: Bool = false,
-        audioSampleRate: Double = 48_000
+        audioSampleRate: Double = 48_000,
+        runtimeBundlePath: String? = nil
     ) {
         self.id = id
         self.packageID = packageID
@@ -184,6 +189,12 @@ struct EmuSession: Identifiable, Codable, Equatable {
         self.logLines = logLines
         self.isAudioEnabled = isAudioEnabled
         self.audioSampleRate = audioSampleRate
+        self.runtimeBundlePath = runtimeBundlePath
+    }
+
+    var runtimeBundleURL: URL? {
+        guard let runtimeBundlePath = runtimeBundlePath else { return nil }
+        return URL(fileURLWithPath: runtimeBundlePath)
     }
 }
 
@@ -226,6 +237,7 @@ final class EmuLibrary: ObservableObject {
     @Published var isEmulatorPresented = false
     @Published var statusMessage = ""
     private let audioOutput = EmulatorAudioOutput()
+    private let dosBundleBuilder = DOSBundleBuilder()
 
     init() {
         let savedPackages = Self.loadPackages()
@@ -261,6 +273,12 @@ final class EmuLibrary: ObservableObject {
 
     func run(_ package: EmuPackage) {
         selectedPackageID = package.id
+
+        if package.kind == .exe {
+            runDOSExecutable(package)
+            return
+        }
+
         let state: EmuSessionState = package.kind == .unknown ? .failed : .engineMissing
         let audioStarted = startAudioOutput()
         var lines = [
@@ -286,6 +304,53 @@ final class EmuLibrary: ObservableObject {
         )
         isEmulatorPresented = true
         statusMessage = "Local engine session opened for \(package.filename)."
+    }
+
+    private func runDOSExecutable(_ package: EmuPackage) {
+        do {
+            let bundleURL = try dosBundleBuilder.buildBundle(for: package)
+            let audioStarted = startAudioOutput()
+            var lines = [
+                Self.logLine("Loaded \(package.filename)."),
+                Self.logLine("Detected \(package.kind.longTitle)."),
+                Self.logLine("Packed \(package.filename) as a DOSBox .jsdos runtime bundle."),
+                Self.logLine("Starting local DOSBox web emulator with direct touchscreen input."),
+                Self.logLine("This runs DOS-compatible EXE files; modern Windows PE apps need a separate Windows engine.")
+            ]
+            lines.append(
+                audioStarted
+                    ? Self.logLine("Audio output ready at \(Int(audioOutput.sampleRate)) Hz.")
+                    : Self.logLine("Audio output could not start on this device.")
+            )
+
+            activeSession = EmuSession(
+                packageID: package.id,
+                packageName: package.filename,
+                packageKind: package.kind,
+                state: .running,
+                logLines: lines,
+                isAudioEnabled: audioStarted,
+                audioSampleRate: audioOutput.sampleRate,
+                runtimeBundlePath: bundleURL.path
+            )
+            isEmulatorPresented = true
+            statusMessage = "Running \(package.filename) in the DOSBox engine."
+        } catch {
+            activeSession = EmuSession(
+                packageID: package.id,
+                packageName: package.filename,
+                packageKind: package.kind,
+                state: .failed,
+                logLines: [
+                    Self.logLine("Loaded \(package.filename)."),
+                    Self.logLine("Could not prepare DOS runtime bundle: \(error.localizedDescription)")
+                ],
+                isAudioEnabled: false,
+                audioSampleRate: audioOutput.sampleRate
+            )
+            isEmulatorPresented = true
+            statusMessage = "Could not run \(package.filename)."
+        }
     }
 
     func recordTouch(_ event: EmuTouchEvent) {

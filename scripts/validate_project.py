@@ -929,6 +929,45 @@ def main() -> int:
     )
     require_contains(
         "GlideEmu/EmuModels.swift",
+        "runDOSExecutable",
+        "Glide Emu must route EXE packages into a real DOS runtime.",
+    )
+    require_contains(
+        "GlideEmu/DOSRuntime.swift",
+        "DOSBundleBuilder",
+        "Glide Emu must build DOS runtime bundles for imported EXE files.",
+    )
+    require_contains(
+        "GlideEmu/DOSRuntime.swift",
+        "WKURLSchemeHandler",
+        "Glide Emu must serve the DOS bundle to its local WebKit runtime.",
+    )
+    require_contains(
+        "GlideEmu/DOSRuntime.swift",
+        "glideemu://runtime/assets/js-dos.js",
+        "Glide Emu must load its bundled js-dos runtime assets.",
+    )
+    for asset_name in [
+        "js-dos.js",
+        "js-dos.css",
+        "wlibzip.js",
+        "wlibzip.wasm",
+        "wdosbox.js",
+        "wdosbox.wasm",
+    ]:
+        require_file(f"GlideEmu/DOSRuntimeAssets/{asset_name}")
+    require_contains(
+        "GlideEmu/DOSRuntime.swift",
+        "Dos(document.getElementById(\"jsdos\"))",
+        "Glide Emu must start the js-dos DOSBox runtime.",
+    )
+    require_contains(
+        "GlideEmu/ContentView.swift",
+        "DOSWebRunnerView",
+        "Glide Emu must show the real DOS runner for executable sessions.",
+    )
+    require_contains(
+        "GlideEmu/EmuModels.swift",
         "isEmulatorPresented = true",
         "Glide Emu must present the emulator screen when Run is pressed.",
     )
@@ -951,6 +990,16 @@ def main() -> int:
         "GlideEmu.xcodeproj/project.pbxproj",
         "AVFoundation.framework in Frameworks",
         "Glide Emu must link AVFoundation for emulator audio.",
+    )
+    require_contains(
+        "GlideEmu.xcodeproj/project.pbxproj",
+        "WebKit.framework in Frameworks",
+        "Glide Emu must link WebKit for the DOS emulator surface.",
+    )
+    require_contains(
+        "GlideEmu.xcodeproj/project.pbxproj",
+        "DOSRuntimeAssets in Resources",
+        "Glide Emu must copy bundled DOS runtime assets into the app.",
     )
     require_contains(
         "GlideEmu/EmuModels.swift",

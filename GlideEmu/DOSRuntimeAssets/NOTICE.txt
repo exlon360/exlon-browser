@@ -1,0 +1,13 @@
+Glide Emu bundles js-dos v7 runtime assets from:
+https://js-dos.com/v7/build/releases/latest/
+
+js-dos is distributed under GPL-2.0 according to its npm package metadata:
+https://www.npmjs.com/package/js-dos
+
+Bundled files:
+- js-dos.js
+- js-dos.css
+- wlibzip.js
+- wlibzip.wasm
+- wdosbox.js
+- wdosbox.wasm

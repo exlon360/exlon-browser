@@ -461,10 +461,26 @@ private struct SessionConsoleView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        LocalTouchSurfaceView(sendEvent: touchAction)
-                            .frame(height: 150)
+                        if session.runtimeBundleURL == nil {
+                            LocalTouchSurfaceView(sendEvent: touchAction)
+                                .frame(height: 150)
+                        } else {
+                            HStack(spacing: 10) {
+                                Image(systemName: "display")
+                                    .font(.system(size: 18, weight: .black))
+                                    .foregroundStyle(Color(red: 0.57, green: 0.86, blue: 0.74))
 
-                        Text("Touch the screen area directly. Tap, drag, and pinch are sent to the local emulator core.")
+                                Text("DOS runtime is open full screen. Touch the emulator display directly.")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+
+                        Text(session.runtimeBundleURL == nil ? "Touch the screen area directly. Tap, drag, and pinch are sent to the local emulator core." : "The imported EXE is mounted without installing it; WebKit audio and touch events go straight into the DOS runtime.")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
@@ -502,11 +518,17 @@ private struct EmulatorScreenView: View {
             VStack(spacing: 0) {
                 if let session = library.activeSession {
                     ZStack {
-                        LocalTouchSurfaceView { event in
-                            library.recordTouch(event)
+                        if let runtimeBundleURL = session.runtimeBundleURL {
+                            DOSWebRunnerView(bundleURL: runtimeBundleURL, title: session.packageName)
+                                .ignoresSafeArea()
+                        } else {
+                            LocalTouchSurfaceView { event in
+                                library.recordTouch(event)
+                            }
                         }
 
                         EmulatorOverlay(session: session)
+                            .allowsHitTesting(false)
                     }
                     .ignoresSafeArea()
                 } else {
@@ -516,7 +538,7 @@ private struct EmulatorScreenView: View {
                 }
             }
         }
-        .gesture(
+        .simultaneousGesture(
             DragGesture(minimumDistance: 28)
                 .onEnded { value in
                     if value.translation.height > 80 {
