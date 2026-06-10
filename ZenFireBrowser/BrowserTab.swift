@@ -223,6 +223,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     private static func containedBrowserHTML(defaultURLString: String) -> String {
+        let escapedDefaultURL = htmlEscaped(defaultURLString)
+        let scriptDefaultURL = javaScriptEscaped(defaultURLString)
+
         """
         <!doctype html>
         <html lang="en">
@@ -238,53 +241,83 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               color: #f4f7fb;
             }
             * { box-sizing: border-box; }
+            html {
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+            }
             body {
               margin: 0;
-              min-height: 100vh;
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+              background: #07090d;
+            }
+            .browser {
               display: grid;
-              place-items: center;
-              padding: 22px;
+              grid-template-rows: auto 1fr;
+              width: 100%;
+              height: 100%;
               background:
-                radial-gradient(circle at 78% 18%, rgba(169, 180, 200, 0.18), transparent 32%),
-                linear-gradient(135deg, #07090d 0%, #101826 48%, #07090d 100%);
+                radial-gradient(circle at 84% 12%, rgba(169, 180, 200, 0.16), transparent 28%),
+                linear-gradient(135deg, #07090d 0%, #101218 46%, #07090d 100%);
             }
-            main {
-              width: min(760px, 100%);
-              border: 1px solid rgba(169, 180, 200, 0.34);
-              border-radius: 8px;
-              padding: 18px;
-              background: rgba(16, 18, 24, 0.78);
-              box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
-              backdrop-filter: blur(20px);
+            header {
+              display: grid;
+              gap: 9px;
+              padding: 12px;
+              border-bottom: 1px solid rgba(169, 180, 200, 0.22);
+              background: rgba(16, 18, 24, 0.82);
+              backdrop-filter: blur(24px);
             }
-            .mark {
-              width: 42px;
-              height: 42px;
+            .topline {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+            }
+            .brand {
+              width: 30px;
+              height: 30px;
               border-radius: 8px;
               display: grid;
               place-items: center;
-              margin-bottom: 14px;
-              font-size: 22px;
-              font-weight: 900;
+              font-size: 15px;
+              font-weight: 950;
               color: #07090d;
               background: linear-gradient(135deg, #f4f7fb, #9fb7ff);
+              flex: none;
             }
-            h1 {
-              margin: 0 0 7px;
-              font-size: clamp(28px, 7vw, 52px);
-              line-height: 0.95;
-              letter-spacing: 0;
+            .title {
+              display: grid;
+              min-width: 0;
             }
-            p {
-              margin: 0 0 18px;
+            .title strong {
+              font-size: 14px;
+              line-height: 1.1;
+            }
+            .title span {
+              margin-top: 2px;
+              font-size: 11px;
               color: #a9b4c8;
-              font-size: 15px;
-              line-height: 1.45;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+            .toolbar {
+              display: grid;
+              grid-template-columns: auto 1fr auto;
+              gap: 8px;
+              align-items: center;
+            }
+            .nav {
+              display: flex;
+              gap: 6px;
             }
             form {
               display: flex;
               gap: 8px;
-              padding: 7px;
+              min-width: 0;
+              padding: 6px;
               border: 1px solid rgba(169, 180, 200, 0.32);
               border-radius: 8px;
               background: rgba(32, 36, 45, 0.86);
@@ -292,82 +325,248 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             input {
               min-width: 0;
               flex: 1;
-              height: 42px;
+              height: 36px;
               border: 0;
               outline: 0;
               color: #f4f7fb;
               background: transparent;
-              font-size: 16px;
+              font-size: 15px;
             }
             button {
               border: 0;
               border-radius: 8px;
-              min-height: 42px;
-              padding: 0 14px;
+              min-height: 36px;
+              padding: 0 11px;
               font-weight: 800;
               color: #07090d;
               background: #d6e2ff;
+              touch-action: manipulation;
+            }
+            button.icon {
+              width: 36px;
+              padding: 0;
+              color: #f4f7fb;
+              background: rgba(32, 36, 45, 0.92);
+              border: 1px solid rgba(169, 180, 200, 0.26);
+            }
+            button.secondary {
+              color: #f4f7fb;
+              background: rgba(32, 36, 45, 0.92);
+              border: 1px solid rgba(169, 180, 200, 0.26);
             }
             .chips {
               display: flex;
               flex-wrap: wrap;
               gap: 8px;
-              margin-top: 12px;
             }
             .chips button {
+              min-height: 30px;
+              padding: 0 10px;
               color: #f4f7fb;
               background: rgba(32, 36, 45, 0.9);
               border: 1px solid rgba(169, 180, 200, 0.22);
+              font-size: 12px;
+            }
+            .viewport {
+              position: relative;
+              min-height: 0;
+              background: #05070a;
+            }
+            iframe {
+              position: absolute;
+              inset: 0;
+              width: 100%;
+              height: 100%;
+              border: 0;
+              background: #fff;
+            }
+            .status {
+              position: absolute;
+              left: 12px;
+              bottom: 12px;
+              max-width: min(560px, calc(100% - 24px));
+              padding: 8px 10px;
+              border-radius: 8px;
+              color: #f4f7fb;
+              background: rgba(7, 9, 13, 0.76);
+              border: 1px solid rgba(169, 180, 200, 0.22);
+              font-size: 12px;
+              font-weight: 700;
+              opacity: 0;
+              transform: translateY(8px);
+              transition: opacity 160ms ease, transform 160ms ease;
+              pointer-events: none;
+            }
+            .status.visible {
+              opacity: 1;
+              transform: translateY(0);
+            }
+            @media (max-width: 680px) {
+              header { padding: 10px; }
+              .toolbar { grid-template-columns: 1fr; }
+              .nav { order: 2; }
+              form { order: 1; }
+              .secondary { order: 3; }
+              .chips { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
             }
           </style>
         </head>
         <body>
-          <main>
-            <div class="mark">B</div>
-            <h1>Web Browser</h1>
-            <p>This is a browser website running inside the contained tab. Enter a site or search, then it opens as top-level navigation so audio, video, logins, and sites that block iframes can still work through WebKit.</p>
-            <form id="browserForm">
-              <input id="address" value="\(defaultURLString)" autocomplete="url" autocapitalize="none" spellcheck="false" aria-label="Website or search">
-              <button type="submit">Open</button>
-            </form>
+          <main class="browser">
+            <header>
+              <div class="topline">
+                <div class="brand">B</div>
+                <div class="title">
+                  <strong>Contained Web Browser</strong>
+                  <span id="currentLabel">Browser website inside this tab</span>
+                </div>
+              </div>
+              <div class="toolbar">
+                <div class="nav" aria-label="Inner browser controls">
+                  <button class="icon" id="backButton" type="button" aria-label="Back">&lt;</button>
+                  <button class="icon" id="forwardButton" type="button" aria-label="Forward">&gt;</button>
+                  <button class="icon" id="reloadButton" type="button" aria-label="Reload">R</button>
+                </div>
+                <form id="browserForm">
+                  <input id="address" value="\(escapedDefaultURL)" autocomplete="url" autocapitalize="none" spellcheck="false" aria-label="Website or search">
+                  <button type="submit">Open</button>
+                </form>
+                <button class="secondary" id="fullPageButton" type="button">Open Page</button>
+              </div>
             <div class="chips">
               <button type="button" data-url="https://youtube.com/">YouTube</button>
               <button type="button" data-url="https://open.spotify.com/">Spotify</button>
               <button type="button" data-url="https://wikipedia.org/">Wikipedia</button>
               <button type="button" data-url="https://duckduckgo.com/">Search</button>
             </div>
+            </header>
+            <section class="viewport">
+              <iframe
+                id="viewport"
+                title="Contained website viewport"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; clipboard-read; clipboard-write; camera; microphone; geolocation"
+                referrerpolicy="no-referrer-when-downgrade"
+                allowfullscreen>
+              </iframe>
+              <div class="status" id="status"></div>
+            </section>
           </main>
           <script>
+            const initialURL = "\(scriptDefaultURL)";
             const input = document.getElementById("address");
             const form = document.getElementById("browserForm");
+            const frame = document.getElementById("viewport");
+            const status = document.getElementById("status");
+            const label = document.getElementById("currentLabel");
+            const backButton = document.getElementById("backButton");
+            const forwardButton = document.getElementById("forwardButton");
+            const reloadButton = document.getElementById("reloadButton");
+            const fullPageButton = document.getElementById("fullPageButton");
+            let stack = [];
+            let index = -1;
+            let statusTimer = undefined;
 
             function destination(raw) {
               const value = raw.trim();
-              if (!value) return "\(defaultURLString)";
+              if (!value) return initialURL;
               if (/^(https?|file):\\/\\//i.test(value)) return value;
               if (/^(localhost|127\\.0\\.0\\.1)(:|\\/|$)/i.test(value)) return "http://" + value;
               if (value.includes(".") || value.includes(":")) return "https://" + value;
               return "https://duckduckgo.com/?q=" + encodeURIComponent(value);
             }
 
+            function showStatus(message) {
+              clearTimeout(statusTimer);
+              status.textContent = message;
+              status.classList.add("visible");
+              statusTimer = setTimeout(() => status.classList.remove("visible"), 3600);
+            }
+
+            function updateButtons() {
+              backButton.disabled = index <= 0;
+              forwardButton.disabled = index >= stack.length - 1;
+              label.textContent = input.value;
+            }
+
+            function openInner(raw, push = true) {
+              const url = destination(raw);
+              input.value = url;
+              frame.src = url;
+
+              if (push) {
+                stack = stack.slice(0, index + 1);
+                stack.push(url);
+                index = stack.length - 1;
+              }
+
+              updateButtons();
+              showStatus("Loading inside contained browser");
+            }
+
             form.addEventListener("submit", event => {
               event.preventDefault();
-              window.location.assign(destination(input.value));
+              openInner(input.value);
             });
 
             document.querySelectorAll("[data-url]").forEach(button => {
               button.addEventListener("click", () => {
-                input.value = button.dataset.url;
-                window.location.assign(button.dataset.url);
+                openInner(button.dataset.url);
               });
             });
 
+            backButton.addEventListener("click", () => {
+              if (index <= 0) return;
+              index -= 1;
+              input.value = stack[index];
+              frame.src = stack[index];
+              updateButtons();
+            });
+
+            forwardButton.addEventListener("click", () => {
+              if (index >= stack.length - 1) return;
+              index += 1;
+              input.value = stack[index];
+              frame.src = stack[index];
+              updateButtons();
+            });
+
+            reloadButton.addEventListener("click", () => {
+              if (!input.value) return;
+              frame.src = input.value;
+              showStatus("Reloading");
+            });
+
+            fullPageButton.addEventListener("click", () => {
+              window.location.assign(destination(input.value));
+            });
+
+            frame.addEventListener("load", () => {
+              showStatus("Loaded");
+            });
+
+            openInner(initialURL);
             input.focus();
             input.select();
           </script>
         </body>
         </html>
         """
+    }
+
+    private static func htmlEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    private static func javaScriptEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
     }
 
     private static func startPageHTML() -> String {

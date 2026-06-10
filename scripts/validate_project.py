@@ -363,6 +363,16 @@ def main() -> int:
         "The top search bar preference must persist in the encrypted browser model.",
     )
     require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "BrowserTopSearchBarPlacement",
+        "The pinned search bar must have movable placement options.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Picker(\"Search bar position\"",
+        "Settings must expose the pinned search bar placement picker.",
+    )
+    require_contains(
         "ZenFireBrowser/ContentView.swift",
         "BrowserTopSearchBar",
         "The browser shell must render the optional top search bar.",
@@ -461,6 +471,26 @@ def main() -> int:
         "ZenFireBrowser/ContentView.swift",
         "ContainedBrowserOverlay",
         "Contained tabs must render a nested browser overlay.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        ".ignoresSafeArea()",
+        "Contained tabs must be able to present full screen.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "Contained Web Browser",
+        "Contained tabs must load a custom browser-in-browser website.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "<iframe",
+        "The contained browser website must include an embedded website viewport.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "Open Page",
+        "The contained browser must include a fallback for sites that refuse embedding.",
     )
     require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",

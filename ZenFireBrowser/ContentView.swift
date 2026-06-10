@@ -252,7 +252,7 @@ private struct BrowserShell: View {
     @EnvironmentObject private var security: AppSecurityModel
 
     var body: some View {
-        GeometryReader { proxy in
+        GeometryReader { _ in
             ZStack {
                 BrowserBackground()
 
@@ -292,10 +292,10 @@ private struct BrowserShell: View {
 
                 if model.isTopSearchBarEnabled {
                     BrowserTopSearchBar()
-                        .padding(.top, topSearchBarTopPadding)
+                        .padding(topSearchBarPadding)
                         .padding(.horizontal, 16)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: topSearchBarAlignment)
+                        .transition(topSearchBarTransition)
                 }
 
                 if model.isContainedBrowserPresented {
@@ -406,7 +406,7 @@ private struct BrowserShell: View {
     }
 
     private var pageControlsTopPadding: CGFloat {
-        if model.isTopSearchBarEnabled {
+        if model.isTopSearchBarEnabled && model.topSearchBarPlacement == .top {
             return topSearchBarTopPadding + 62
         }
 
@@ -421,6 +421,46 @@ private struct BrowserShell: View {
             return 112
         }
         return 12
+    }
+
+    private var topSearchBarBottomPadding: CGFloat {
+        if model.chromePlacement == .bottom && model.areSideTabsCollapsed == false {
+            return 112
+        }
+        return 16
+    }
+
+    private var topSearchBarAlignment: Alignment {
+        switch model.topSearchBarPlacement {
+        case .top:
+            return .top
+        case .center:
+            return .center
+        case .bottom:
+            return .bottom
+        }
+    }
+
+    private var topSearchBarPadding: EdgeInsets {
+        switch model.topSearchBarPlacement {
+        case .top:
+            return EdgeInsets(top: topSearchBarTopPadding, leading: 0, bottom: 0, trailing: 0)
+        case .center:
+            return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
+        case .bottom:
+            return EdgeInsets(top: 0, leading: 0, bottom: topSearchBarBottomPadding, trailing: 0)
+        }
+    }
+
+    private var topSearchBarTransition: AnyTransition {
+        switch model.topSearchBarPlacement {
+        case .top:
+            return .move(edge: .top).combined(with: .opacity)
+        case .center:
+            return .scale(scale: 0.96).combined(with: .opacity)
+        case .bottom:
+            return .move(edge: .bottom).combined(with: .opacity)
+        }
     }
 }
 
@@ -471,7 +511,7 @@ private struct LoadingProgress: View {
     @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
-        GeometryReader { proxy in
+        GeometryReader { _ in
             if tab.isLoading {
                 Rectangle()
                     .fill(theme.color(.accent))
@@ -1578,19 +1618,17 @@ private struct ContainedBrowserOverlay: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Color.black.opacity(0.42)
+                theme.color(.canvas)
                     .ignoresSafeArea()
 
                 VStack(spacing: 10) {
                     ContainedBrowserHeader()
 
                     if let tab = model.selectedContainedTab {
-                        ContainedAddressBar(tab: tab)
                         ContainedTabStrip()
 
                         BrowserWebView(tab: tab)
                             .id(tab.id)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .overlay(alignment: .top) {
                                 LoadingProgress(tab: tab)
                             }
@@ -1598,6 +1636,7 @@ private struct ContainedBrowserOverlay: View {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(theme.color(.border).opacity(0.8), lineWidth: 1)
                             }
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     } else {
                         VStack(spacing: 12) {
                             Image(systemName: "rectangle.on.rectangle")
@@ -1614,20 +1653,13 @@ private struct ContainedBrowserOverlay: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .padding(12)
-                .frame(
-                    maxWidth: min(proxy.size.width - 24, 980),
-                    maxHeight: min(proxy.size.height - 36, 760)
-                )
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(theme.color(.accent).opacity(0.46), lineWidth: 1)
-                }
-                .shadow(color: Color.black.opacity(0.48), radius: 32, y: 18)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 18)
+                .padding(.top, 28)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.ultraThinMaterial)
             }
+            .ignoresSafeArea()
             .onAppear {
                 if model.containedTabs.isEmpty {
                     model.openContainedTab()
@@ -3273,6 +3305,14 @@ private struct BrowserSettingsView: View {
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
                     Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
+                    if model.isTopSearchBarEnabled {
+                        Picker("Search bar position", selection: $model.topSearchBarPlacement) {
+                            ForEach(BrowserTopSearchBarPlacement.allCases) { placement in
+                                Label(placement.title, systemImage: placement.symbolName)
+                                    .tag(placement)
+                            }
+                        }
+                    }
                     Picker("Chrome placement", selection: $model.chromePlacement) {
                         ForEach(BrowserChromePlacement.allCases) { placement in
                             Label(placement.title, systemImage: placement.symbolName)

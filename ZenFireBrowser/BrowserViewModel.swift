@@ -220,6 +220,36 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserTopSearchBarPlacement: String, CaseIterable, Identifiable {
+    case top
+    case center
+    case bottom
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .top:
+            return "Top"
+        case .center:
+            return "Center"
+        case .bottom:
+            return "Bottom"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .top:
+            return "rectangle.topthird.inset.filled"
+        case .center:
+            return "rectangle.center.inset.filled"
+        case .bottom:
+            return "rectangle.bottomthird.inset.filled"
+        }
+    }
+}
+
 enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
     case firefox
     case brave
@@ -322,6 +352,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
         }
     }
+    @Published var topSearchBarPlacement: BrowserTopSearchBarPlacement {
+        didSet {
+            vault.save(topSearchBarPlacement.rawValue, forKey: Self.StorageKey.topSearchBarPlacement)
+        }
+    }
     @Published var areSideTabsCollapsed: Bool {
         didSet {
             vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
@@ -397,6 +432,9 @@ final class BrowserViewModel: ObservableObject {
         self.customSearchTemplate = savedCustomSearch
         self.moreMenuActionIDs = savedMoreMenuActionIDs
         self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
+        self.topSearchBarPlacement = BrowserTopSearchBarPlacement(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
+        ) ?? .top
         self.customIconNames = Self.sanitizedIconNames(savedCustomIconNames)
         self.customIconImageDataBySlot = Self.sanitizedIconImageData(savedCustomIconImageData)
         self.history = savedHistory
@@ -829,6 +867,7 @@ final class BrowserViewModel: ObservableObject {
     func advancedConfigJSON(theme: BrowserTheme) -> String {
         let config = BrowserAdvancedConfig(
             topSearchBarEnabled: isTopSearchBarEnabled,
+            topSearchBarPlacement: topSearchBarPlacement.rawValue,
             chromePlacement: chromePlacement.rawValue,
             sideTabsCollapsed: areSideTabsCollapsed,
             searchEngine: searchEngine.rawValue,
@@ -873,6 +912,10 @@ final class BrowserViewModel: ObservableObject {
         }
 
         isTopSearchBarEnabled = config.topSearchBarEnabled
+        if let topSearchBarPlacementValue = config.topSearchBarPlacement,
+           let placement = BrowserTopSearchBarPlacement(rawValue: topSearchBarPlacementValue) {
+            topSearchBarPlacement = placement
+        }
         areSideTabsCollapsed = config.sideTabsCollapsed
         customSearchTemplate = config.customSearchTemplate
         moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
@@ -1097,6 +1140,7 @@ final class BrowserViewModel: ObservableObject {
         chromePlacement = .left
         areSideTabsCollapsed = false
         isTopSearchBarEnabled = false
+        topSearchBarPlacement = .top
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         moreMenuActionIDs = []
@@ -1408,6 +1452,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
+        vault.save(topSearchBarPlacement.rawValue, forKey: Self.StorageKey.topSearchBarPlacement)
         vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
@@ -1504,6 +1549,7 @@ final class BrowserViewModel: ObservableObject {
         static let chromePlacement = "ZenFireBrowser.chromePlacement"
         static let sideTabsCollapsed = "ZenFireBrowser.sideTabsCollapsed"
         static let topSearchBarEnabled = "ZenFireBrowser.topSearchBarEnabled"
+        static let topSearchBarPlacement = "ZenFireBrowser.topSearchBarPlacement"
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
