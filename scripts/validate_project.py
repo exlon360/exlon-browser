@@ -369,8 +369,18 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",
-        "Picker(\"Search bar position\"",
-        "Settings must expose the pinned search bar placement picker.",
+        "Move Top Search Bar",
+        "Settings must expose drag-to-move controls for the pinned search bar.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "topSearchBarPositionX",
+        "The pinned search bar must persist an exact dragged position.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "DragGesture(minimumDistance: 0",
+        "The pinned search bar must be movable by dragging.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",
@@ -491,6 +501,21 @@ def main() -> int:
         "ZenFireBrowser/BrowserTab.swift",
         "Open Page",
         "The contained browser must include a fallback for sites that refuse embedding.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "directDomains",
+        "The contained browser must include direct compatibility mode for heavy websites.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "Audio unlocked",
+        "The contained browser must expose an audio unlock path.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "1.0 - tabBarTransparency",
+        "Tab bar transparency must support the full 100 percent range.",
     )
     require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",
@@ -679,8 +704,8 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",
-        "max(theme.tabBarOpacity, 0.68)",
-        "Floating/bottom chrome must keep a strong opacity floor over custom backgrounds.",
+        "materialOpacity",
+        "Floating/bottom chrome must fade all the way out at 100 percent transparency.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",

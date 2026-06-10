@@ -357,6 +357,29 @@ final class BrowserViewModel: ObservableObject {
             vault.save(topSearchBarPlacement.rawValue, forKey: Self.StorageKey.topSearchBarPlacement)
         }
     }
+    @Published var topSearchBarPositionX: Double {
+        didSet {
+            let clamped = Self.clampedUnit(topSearchBarPositionX)
+            if clamped != topSearchBarPositionX {
+                topSearchBarPositionX = clamped
+                return
+            }
+            vault.save(topSearchBarPositionX, forKey: Self.StorageKey.topSearchBarPositionX)
+        }
+    }
+    @Published var topSearchBarPositionY: Double {
+        didSet {
+            let clamped = Self.clampedUnit(topSearchBarPositionY)
+            if clamped != topSearchBarPositionY {
+                topSearchBarPositionY = clamped
+                return
+            }
+            vault.save(topSearchBarPositionY, forKey: Self.StorageKey.topSearchBarPositionY)
+        }
+    }
+    @Published var isTopSearchBarMoveMode = false
+    @Published var topSearchBarDraftX = 0.5
+    @Published var topSearchBarDraftY = 0.0
     @Published var areSideTabsCollapsed: Bool {
         didSet {
             vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
@@ -425,6 +448,19 @@ final class BrowserViewModel: ObservableObject {
         let savedDownloads = Self.loadDownloads(vault: vault)
         let savedVPNProfile = Self.loadVPNProfile(vault: vault)
         let restoredTabs = Self.loadTabs(vault: vault, isDarkReaderEnabled: darkReaderEnabled, isAdBlockerEnabled: adBlockerEnabled)
+        let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
+        ) ?? .top
+        let savedTopSearchBarPositionX = Self.clampedUnit(
+            vault.load(Double.self, forKey: Self.StorageKey.topSearchBarPositionX, default: 0.5)
+        )
+        let savedTopSearchBarPositionY = Self.clampedUnit(
+            vault.load(
+                Double.self,
+                forKey: Self.StorageKey.topSearchBarPositionY,
+                default: Self.defaultTopSearchBarY(for: savedTopSearchBarPlacement)
+            )
+        )
 
         self.chromePlacement = placement
         self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
@@ -432,9 +468,11 @@ final class BrowserViewModel: ObservableObject {
         self.customSearchTemplate = savedCustomSearch
         self.moreMenuActionIDs = savedMoreMenuActionIDs
         self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
-        self.topSearchBarPlacement = BrowserTopSearchBarPlacement(
-            rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
-        ) ?? .top
+        self.topSearchBarPlacement = savedTopSearchBarPlacement
+        self.topSearchBarPositionX = savedTopSearchBarPositionX
+        self.topSearchBarPositionY = savedTopSearchBarPositionY
+        self.topSearchBarDraftX = savedTopSearchBarPositionX
+        self.topSearchBarDraftY = savedTopSearchBarPositionY
         self.customIconNames = Self.sanitizedIconNames(savedCustomIconNames)
         self.customIconImageDataBySlot = Self.sanitizedIconImageData(savedCustomIconImageData)
         self.history = savedHistory
@@ -868,6 +906,8 @@ final class BrowserViewModel: ObservableObject {
         let config = BrowserAdvancedConfig(
             topSearchBarEnabled: isTopSearchBarEnabled,
             topSearchBarPlacement: topSearchBarPlacement.rawValue,
+            topSearchBarPositionX: topSearchBarPositionX,
+            topSearchBarPositionY: topSearchBarPositionY,
             chromePlacement: chromePlacement.rawValue,
             sideTabsCollapsed: areSideTabsCollapsed,
             searchEngine: searchEngine.rawValue,
@@ -915,6 +955,15 @@ final class BrowserViewModel: ObservableObject {
         if let topSearchBarPlacementValue = config.topSearchBarPlacement,
            let placement = BrowserTopSearchBarPlacement(rawValue: topSearchBarPlacementValue) {
             topSearchBarPlacement = placement
+        }
+        if let topSearchBarPositionX = config.topSearchBarPositionX {
+            self.topSearchBarPositionX = topSearchBarPositionX
+            self.topSearchBarDraftX = Self.clampedUnit(topSearchBarPositionX)
+        }
+        if let topSearchBarPositionY = config.topSearchBarPositionY {
+            self.topSearchBarPositionY = topSearchBarPositionY
+            self.topSearchBarDraftY = Self.clampedUnit(topSearchBarPositionY)
+            self.topSearchBarPlacement = Self.nearestTopSearchBarPlacement(for: topSearchBarPositionY)
         }
         areSideTabsCollapsed = config.sideTabsCollapsed
         customSearchTemplate = config.customSearchTemplate
@@ -1136,11 +1185,54 @@ final class BrowserViewModel: ObservableObject {
         vpnStatusMessage = "Custom VPN disconnect requested."
     }
 
+    func beginTopSearchBarMove() {
+        isTopSearchBarEnabled = true
+        topSearchBarDraftX = topSearchBarPositionX
+        topSearchBarDraftY = topSearchBarPositionY
+        isTopSearchBarMoveMode = true
+    }
+
+    func updateTopSearchBarDraft(x: Double, y: Double) {
+        topSearchBarDraftX = Self.clampedUnit(x)
+        topSearchBarDraftY = Self.clampedUnit(y)
+    }
+
+    func saveTopSearchBarMove() {
+        topSearchBarPositionX = topSearchBarDraftX
+        topSearchBarPositionY = topSearchBarDraftY
+        topSearchBarPlacement = Self.nearestTopSearchBarPlacement(for: topSearchBarDraftY)
+        isTopSearchBarMoveMode = false
+    }
+
+    func cancelTopSearchBarMove() {
+        topSearchBarDraftX = topSearchBarPositionX
+        topSearchBarDraftY = topSearchBarPositionY
+        isTopSearchBarMoveMode = false
+    }
+
+    func resetTopSearchBarPosition() {
+        topSearchBarDraftX = 0.5
+        topSearchBarDraftY = 0.0
+    }
+
+    var displayedTopSearchBarX: Double {
+        isTopSearchBarMoveMode ? topSearchBarDraftX : topSearchBarPositionX
+    }
+
+    var displayedTopSearchBarY: Double {
+        isTopSearchBarMoveMode ? topSearchBarDraftY : topSearchBarPositionY
+    }
+
     func resetToDefaults() {
         chromePlacement = .left
         areSideTabsCollapsed = false
         isTopSearchBarEnabled = false
         topSearchBarPlacement = .top
+        topSearchBarPositionX = 0.5
+        topSearchBarPositionY = 0.0
+        topSearchBarDraftX = topSearchBarPositionX
+        topSearchBarDraftY = topSearchBarPositionY
+        isTopSearchBarMoveMode = false
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         moreMenuActionIDs = []
@@ -1453,6 +1545,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
         vault.save(topSearchBarPlacement.rawValue, forKey: Self.StorageKey.topSearchBarPlacement)
+        vault.save(topSearchBarPositionX, forKey: Self.StorageKey.topSearchBarPositionX)
+        vault.save(topSearchBarPositionY, forKey: Self.StorageKey.topSearchBarPositionY)
         vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
@@ -1544,12 +1638,40 @@ final class BrowserViewModel: ObservableObject {
         return URL(string: "http://\(trimmed)")
     }
 
+    private static func clampedUnit(_ value: Double) -> Double {
+        min(max(value, 0.0), 1.0)
+    }
+
+    private static func defaultTopSearchBarY(for placement: BrowserTopSearchBarPlacement) -> Double {
+        switch placement {
+        case .top:
+            return 0.0
+        case .center:
+            return 0.5
+        case .bottom:
+            return 1.0
+        }
+    }
+
+    private static func nearestTopSearchBarPlacement(for y: Double) -> BrowserTopSearchBarPlacement {
+        let clampedY = clampedUnit(y)
+        if clampedY < 0.25 {
+            return .top
+        }
+        if clampedY > 0.75 {
+            return .bottom
+        }
+        return .center
+    }
+
     private enum StorageKey {
         static let darkReaderEnabled = "ZenFireBrowser.darkReaderEnabled"
         static let chromePlacement = "ZenFireBrowser.chromePlacement"
         static let sideTabsCollapsed = "ZenFireBrowser.sideTabsCollapsed"
         static let topSearchBarEnabled = "ZenFireBrowser.topSearchBarEnabled"
         static let topSearchBarPlacement = "ZenFireBrowser.topSearchBarPlacement"
+        static let topSearchBarPositionX = "ZenFireBrowser.topSearchBarPositionX"
+        static let topSearchBarPositionY = "ZenFireBrowser.topSearchBarPositionY"
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"

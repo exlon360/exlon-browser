@@ -291,11 +291,20 @@ private struct BrowserShell: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 if model.isTopSearchBarEnabled {
-                    BrowserTopSearchBar()
-                        .padding(topSearchBarPadding)
-                        .padding(.horizontal, 16)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: topSearchBarAlignment)
+                    MovableTopSearchBar(
+                        containerSize: proxy.size,
+                        topInset: topSearchBarTopPadding,
+                        bottomInset: topSearchBarBottomPadding
+                    )
                         .transition(topSearchBarTransition)
+                }
+
+                if model.isTopSearchBarMoveMode {
+                    TopSearchBarMoveControls()
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 18)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
                 if model.isContainedBrowserPresented {
@@ -308,6 +317,7 @@ private struct BrowserShell: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                 }
             }
+            .coordinateSpace(name: "browserShell")
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
@@ -811,13 +821,14 @@ private struct ChromeGlassBackground: View {
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.ultraThinMaterial)
+            .opacity(materialOpacity)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(theme.color(.chrome).opacity(chromeOpacity))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 : 0))
+                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 * materialOpacity : 0))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -832,13 +843,16 @@ private struct ChromeGlassBackground: View {
                             endPoint: .bottomTrailing
                         )
                     )
+                    .opacity(materialOpacity)
             }
     }
 
     private var chromeOpacity: Double {
-        theme.isUserBackgroundEnabled && theme.hasUserBackground
-            ? max(theme.tabBarOpacity, 0.62)
-            : theme.tabBarOpacity
+        theme.tabBarOpacity
+    }
+
+    private var materialOpacity: Double {
+        theme.isTabBarTransparencyEnabled ? max(0.0, 1.0 - theme.tabBarTransparency) : 1.0
     }
 }
 
@@ -848,13 +862,14 @@ private struct FloatingChromeBackground: View {
     var body: some View {
         Capsule()
             .fill(.ultraThinMaterial)
+            .opacity(materialOpacity)
             .overlay {
                 Capsule()
                     .fill(theme.color(.chrome).opacity(chromeOpacity))
             }
             .overlay {
                 Capsule()
-                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 : 0))
+                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 * materialOpacity : 0))
             }
             .overlay {
                 Capsule()
@@ -869,13 +884,16 @@ private struct FloatingChromeBackground: View {
                             endPoint: .bottomTrailing
                         )
                     )
+                    .opacity(materialOpacity)
             }
     }
 
     private var chromeOpacity: Double {
-        theme.isUserBackgroundEnabled && theme.hasUserBackground
-            ? max(theme.tabBarOpacity, 0.68)
-            : theme.tabBarOpacity
+        theme.tabBarOpacity
+    }
+
+    private var materialOpacity: Double {
+        theme.isTabBarTransparencyEnabled ? max(0.0, 1.0 - theme.tabBarTransparency) : 1.0
     }
 }
 
@@ -988,7 +1006,7 @@ private struct TabBarStyleControl: View {
 
                 Toggle("Transparent", isOn: $theme.isTabBarTransparencyEnabled)
 
-                Slider(value: $theme.tabBarTransparency, in: 0...0.85)
+                Slider(value: $theme.tabBarTransparency, in: 0...1.0)
                     .disabled(theme.isTabBarTransparencyEnabled == false)
 
                 HStack(spacing: 8) {
@@ -999,7 +1017,7 @@ private struct TabBarStyleControl: View {
 
                     Button("Clear") {
                         theme.isTabBarTransparencyEnabled = true
-                        theme.tabBarTransparency = 0.85
+                        theme.tabBarTransparency = 1.0
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -1365,10 +1383,116 @@ private struct SearchResultsList: View {
     }
 }
 
+private struct MovableTopSearchBar: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    let containerSize: CGSize
+    let topInset: CGFloat
+    let bottomInset: CGFloat
+
+    var body: some View {
+        let metrics = layoutMetrics
+
+        BrowserTopSearchBar(isMoving: model.isTopSearchBarMoveMode)
+            .frame(width: metrics.width, height: metrics.height)
+            .position(
+                x: position(from: model.displayedTopSearchBarX, min: metrics.minX, max: metrics.maxX),
+                y: position(from: model.displayedTopSearchBarY, min: metrics.minY, max: metrics.maxY)
+            )
+            .overlay {
+                if model.isTopSearchBarMoveMode {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.clear)
+                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .gesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .named("browserShell"))
+                                .onChanged { value in
+                                    updateDraftPosition(value.location, metrics: metrics)
+                                }
+                        )
+                }
+            }
+    }
+
+    private var layoutMetrics: (width: CGFloat, height: CGFloat, minX: CGFloat, maxX: CGFloat, minY: CGFloat, maxY: CGFloat) {
+        let margin: CGFloat = 16
+        let height: CGFloat = 50
+        let width = min(760, max(1, containerSize.width - (margin * 2)))
+        let minX = margin + (width / 2)
+        let maxX = max(minX, containerSize.width - margin - (width / 2))
+        let minY = topInset + (height / 2)
+        let maxY = max(minY, containerSize.height - bottomInset - (height / 2))
+        return (width, height, minX, maxX, minY, maxY)
+    }
+
+    private func position(from normalizedValue: Double, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {
+        minimum + CGFloat(min(max(normalizedValue, 0), 1)) * (maximum - minimum)
+    }
+
+    private func normalized(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> Double {
+        guard maximum > minimum else { return 0.5 }
+        return Double(min(max((value - minimum) / (maximum - minimum), 0), 1))
+    }
+
+    private func updateDraftPosition(
+        _ location: CGPoint,
+        metrics: (width: CGFloat, height: CGFloat, minX: CGFloat, maxX: CGFloat, minY: CGFloat, maxY: CGFloat)
+    ) {
+        model.updateTopSearchBarDraft(
+            x: normalized(location.x, min: metrics.minX, max: metrics.maxX),
+            y: normalized(location.y, min: metrics.minY, max: metrics.maxY)
+        )
+    }
+}
+
+private struct TopSearchBarMoveControls: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.cancelTopSearchBarMove()
+            } label: {
+                Label("Cancel", systemImage: "xmark")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
+                model.resetTopSearchBarPosition()
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Reset top search bar position")
+
+            Button {
+                model.saveTopSearchBarMove()
+            } label: {
+                Label("Save", systemImage: "checkmark")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .font(.system(size: 14, weight: .bold))
+        .padding(10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.7), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.3), radius: 16, y: 8)
+    }
+}
+
 private struct BrowserTopSearchBar: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @State private var shouldSelectText = false
+    let isMoving: Bool
+
+    init(isMoving: Bool = false) {
+        self.isMoving = isMoving
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1417,8 +1541,12 @@ private struct BrowserTopSearchBar: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.color(.border).opacity(0.82), lineWidth: 1)
+                .stroke(
+                    isMoving ? theme.color(.createTab).opacity(0.95) : theme.color(.border).opacity(0.82),
+                    lineWidth: isMoving ? 2 : 1
+                )
         }
+        .scaleEffect(isMoving ? 1.02 : 1)
         .shadow(color: Color.black.opacity(0.28), radius: 18, y: 10)
     }
 
@@ -2049,7 +2177,7 @@ private struct TutorialQuickCustomization: View {
 
                 Button {
                     theme.isTabBarTransparencyEnabled = true
-                    theme.tabBarTransparency = 0.85
+                    theme.tabBarTransparency = 1.0
                 } label: {
                     Label("Liquid", systemImage: "drop")
                 }
@@ -3306,11 +3434,12 @@ private struct BrowserSettingsView: View {
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
                     Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
                     if model.isTopSearchBarEnabled {
-                        Picker("Search bar position", selection: $model.topSearchBarPlacement) {
-                            ForEach(BrowserTopSearchBarPlacement.allCases) { placement in
-                                Label(placement.title, systemImage: placement.symbolName)
-                                    .tag(placement)
+                        Button {
+                            presentAfterDismiss {
+                                model.beginTopSearchBarMove()
                             }
+                        } label: {
+                            Label("Move Top Search Bar", systemImage: "hand.draw")
                         }
                     }
                     Picker("Chrome placement", selection: $model.chromePlacement) {
@@ -3431,7 +3560,7 @@ private struct BrowserSettingsView: View {
                             Text("\(Int(theme.tabBarTransparency * 100))%")
                                 .foregroundStyle(theme.color(.mutedText))
                         }
-                        Slider(value: $theme.tabBarTransparency, in: 0...0.85)
+                        Slider(value: $theme.tabBarTransparency, in: 0...1.0)
                             .disabled(theme.isTabBarTransparencyEnabled == false)
                     }
 

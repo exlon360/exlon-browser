@@ -112,7 +112,7 @@ final class BrowserTheme: ObservableObject {
     }
     @Published var tabBarTransparency: Double {
         didSet {
-            let clamped = min(max(tabBarTransparency, 0), 0.85)
+            let clamped = min(max(tabBarTransparency, 0), 1.0)
             if clamped != tabBarTransparency {
                 tabBarTransparency = clamped
                 return
@@ -166,11 +166,11 @@ final class BrowserTheme: ObservableObject {
     }
 
     var tabBarOpacity: Double {
-        isTabBarTransparencyEnabled ? max(0.15, 1.0 - tabBarTransparency) : 1.0
+        isTabBarTransparencyEnabled ? max(0.0, 1.0 - tabBarTransparency) : 1.0
     }
 
     var controlOpacity: Double {
-        isTabBarTransparencyEnabled ? max(0.35, 1.0 - (tabBarTransparency * 0.55)) : 1.0
+        isTabBarTransparencyEnabled ? max(0.18, 1.0 - (tabBarTransparency * 0.65)) : 1.0
     }
 
     var hasUserBackground: Bool {

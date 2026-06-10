@@ -313,6 +313,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               display: flex;
               gap: 6px;
             }
+            .actions {
+              display: flex;
+              gap: 6px;
+            }
             form {
               display: flex;
               gap: 8px;
@@ -406,7 +410,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               .toolbar { grid-template-columns: 1fr; }
               .nav { order: 2; }
               form { order: 1; }
-              .secondary { order: 3; }
+              .actions { order: 3; }
               .chips { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
             }
           </style>
@@ -431,7 +435,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                   <input id="address" value="\(escapedDefaultURL)" autocomplete="url" autocapitalize="none" spellcheck="false" aria-label="Website or search">
                   <button type="submit">Open</button>
                 </form>
-                <button class="secondary" id="fullPageButton" type="button">Open Page</button>
+                <div class="actions">
+                  <button class="secondary" id="audioButton" type="button">Audio</button>
+                  <button class="secondary" id="fullPageButton" type="button">Open Page</button>
+                </div>
               </div>
             <div class="chips">
               <button type="button" data-url="https://youtube.com/">YouTube</button>
@@ -444,8 +451,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               <iframe
                 id="viewport"
                 title="Contained website viewport"
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; clipboard-read; clipboard-write; camera; microphone; geolocation"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; clipboard-read; clipboard-write; camera; microphone; geolocation; gamepad; accelerometer; gyroscope; magnetometer; payment; xr-spatial-tracking"
                 referrerpolicy="no-referrer-when-downgrade"
+                loading="eager"
                 allowfullscreen>
               </iframe>
               <div class="status" id="status"></div>
@@ -461,10 +469,32 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             const backButton = document.getElementById("backButton");
             const forwardButton = document.getElementById("forwardButton");
             const reloadButton = document.getElementById("reloadButton");
+            const audioButton = document.getElementById("audioButton");
             const fullPageButton = document.getElementById("fullPageButton");
+            const directDomains = [
+              "youtube.com",
+              "youtu.be",
+              "open.spotify.com",
+              "spotify.com",
+              "music.apple.com",
+              "soundcloud.com",
+              "netflix.com",
+              "hulu.com",
+              "disneyplus.com",
+              "primevideo.com",
+              "x.com",
+              "twitter.com",
+              "instagram.com",
+              "facebook.com",
+              "reddit.com",
+              "gmail.com",
+              "accounts.google.com",
+              "discord.com"
+            ];
             let stack = [];
             let index = -1;
             let statusTimer = undefined;
+            let audioContext = undefined;
 
             function destination(raw) {
               const value = raw.trim();
@@ -473,6 +503,19 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               if (/^(localhost|127\\.0\\.0\\.1)(:|\\/|$)/i.test(value)) return "http://" + value;
               if (value.includes(".") || value.includes(":")) return "https://" + value;
               return "https://duckduckgo.com/?q=" + encodeURIComponent(value);
+            }
+
+            function hostFor(url) {
+              try {
+                return new URL(url).hostname.replace(/^www\\./, "").toLowerCase();
+              } catch (_) {
+                return "";
+              }
+            }
+
+            function shouldOpenDirect(url) {
+              const host = hostFor(url);
+              return directDomains.some(domain => host === domain || host.endsWith("." + domain));
             }
 
             function showStatus(message) {
@@ -491,6 +534,13 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             function openInner(raw, push = true) {
               const url = destination(raw);
               input.value = url;
+
+              if (shouldOpenDirect(url)) {
+                showStatus("Opening full site for media and compatibility");
+                window.location.assign(url);
+                return;
+              }
+
               frame.src = url;
 
               if (push) {
@@ -534,6 +584,30 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               if (!input.value) return;
               frame.src = input.value;
               showStatus("Reloading");
+            });
+
+            audioButton.addEventListener("click", async () => {
+              try {
+                const AudioContextType = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContextType) {
+                  showStatus("Audio is already handled by the browser");
+                  return;
+                }
+                audioContext = audioContext || new AudioContextType();
+                if (audioContext.state !== "running") {
+                  await audioContext.resume();
+                }
+                const oscillator = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                gain.gain.value = 0.0001;
+                oscillator.connect(gain);
+                gain.connect(audioContext.destination);
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + 0.03);
+                showStatus("Audio unlocked for this contained tab");
+              } catch (_) {
+                showStatus("Use Open Page for sites that require direct audio");
+              }
             });
 
             fullPageButton.addEventListener("click", () => {

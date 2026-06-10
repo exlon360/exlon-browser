@@ -256,6 +256,8 @@ struct BrowserDownloadItem: Identifiable, Codable, Equatable {
 struct BrowserAdvancedConfig: Codable, Equatable {
     var topSearchBarEnabled: Bool
     var topSearchBarPlacement: String?
+    var topSearchBarPositionX: Double?
+    var topSearchBarPositionY: Double?
     var chromePlacement: String
     var sideTabsCollapsed: Bool
     var searchEngine: String
