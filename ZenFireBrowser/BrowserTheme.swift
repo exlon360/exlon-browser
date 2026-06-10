@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -75,6 +76,9 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     var tabBarTransparency: Double
     var isUserBackgroundEnabled: Bool
     var userBackgroundImageData: Data?
+    var userBackgroundVideoData: Data?
+    var userBackgroundVideoContentType: String?
+    var userBackgroundVideoDuration: Double?
     var savedAt: Date
 
     init(
@@ -85,6 +89,9 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         tabBarTransparency: Double,
         isUserBackgroundEnabled: Bool,
         userBackgroundImageData: Data?,
+        userBackgroundVideoData: Data? = nil,
+        userBackgroundVideoContentType: String? = nil,
+        userBackgroundVideoDuration: Double? = nil,
         savedAt: Date = Date()
     ) {
         self.id = id
@@ -94,6 +101,9 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         self.tabBarTransparency = tabBarTransparency
         self.isUserBackgroundEnabled = isUserBackgroundEnabled
         self.userBackgroundImageData = userBackgroundImageData
+        self.userBackgroundVideoData = userBackgroundVideoData
+        self.userBackgroundVideoContentType = userBackgroundVideoContentType
+        self.userBackgroundVideoDuration = userBackgroundVideoDuration
         self.savedAt = savedAt
     }
 }
@@ -126,6 +136,10 @@ final class BrowserTheme: ObservableObject {
         }
     }
     @Published private var userBackgroundImageData: Data?
+    @Published private var userBackgroundVideoData: Data?
+    @Published private var userBackgroundVideoContentType: String?
+    @Published private var userBackgroundVideoDuration: Double?
+    @Published var backgroundImportMessage = ""
     @Published var savedThemes: [SavedBrowserTheme]
 
     private let vault: SecureBrowserVault
@@ -134,6 +148,9 @@ final class BrowserTheme: ObservableObject {
     private static let tabBarTransparencyKey = "\(storagePrefix)tabBarTransparency"
     private static let userBackgroundEnabledKey = "\(storagePrefix)userBackgroundEnabled"
     private static let userBackgroundImageDataKey = "\(storagePrefix)userBackgroundImageData"
+    private static let userBackgroundVideoDataKey = "\(storagePrefix)userBackgroundVideoData"
+    private static let userBackgroundVideoContentTypeKey = "\(storagePrefix)userBackgroundVideoContentType"
+    private static let userBackgroundVideoDurationKey = "\(storagePrefix)userBackgroundVideoDuration"
     private static let savedThemesKey = "\(storagePrefix)savedThemes"
 
     init(vault: SecureBrowserVault) {
@@ -147,6 +164,9 @@ final class BrowserTheme: ObservableObject {
         self.tabBarTransparency = vault.load(Double.self, forKey: Self.tabBarTransparencyKey, default: 0.82)
         self.isUserBackgroundEnabled = vault.load(Bool.self, forKey: Self.userBackgroundEnabledKey, default: false)
         self.userBackgroundImageData = vault.loadOptional(Data.self, forKey: Self.userBackgroundImageDataKey)
+        self.userBackgroundVideoData = vault.loadOptional(Data.self, forKey: Self.userBackgroundVideoDataKey)
+        self.userBackgroundVideoContentType = vault.loadOptional(String.self, forKey: Self.userBackgroundVideoContentTypeKey)
+        self.userBackgroundVideoDuration = vault.loadOptional(Double.self, forKey: Self.userBackgroundVideoDurationKey)
         self.savedThemes = vault.load([SavedBrowserTheme].self, forKey: Self.savedThemesKey, default: [])
         migrateLoadedThemeToEncryptedVault()
     }
@@ -174,12 +194,26 @@ final class BrowserTheme: ObservableObject {
     }
 
     var hasUserBackground: Bool {
-        userBackgroundImageData != nil
+        userBackgroundImageData != nil || userBackgroundVideoData != nil
     }
 
     var userBackgroundImage: UIImage? {
         guard let userBackgroundImageData = userBackgroundImageData else { return nil }
         return UIImage(data: userBackgroundImageData)
+    }
+
+    var hasUserBackgroundVideo: Bool {
+        userBackgroundVideoData != nil
+    }
+
+    var userBackgroundVideo: (data: Data, contentType: String?)? {
+        guard let userBackgroundVideoData = userBackgroundVideoData else { return nil }
+        return (userBackgroundVideoData, userBackgroundVideoContentType)
+    }
+
+    var userBackgroundVideoDurationLabel: String? {
+        guard let userBackgroundVideoDuration = userBackgroundVideoDuration else { return nil }
+        return "\(Int(userBackgroundVideoDuration.rounded()))s video"
     }
 
     func binding(for token: BrowserThemeToken) -> Binding<Color> {
@@ -205,7 +239,10 @@ final class BrowserTheme: ObservableObject {
             isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
             tabBarTransparency: tabBarTransparency,
             isUserBackgroundEnabled: isUserBackgroundEnabled,
-            userBackgroundImageData: userBackgroundImageData
+            userBackgroundImageData: userBackgroundImageData,
+            userBackgroundVideoData: userBackgroundVideoData,
+            userBackgroundVideoContentType: userBackgroundVideoContentType,
+            userBackgroundVideoDuration: userBackgroundVideoDuration
         )
     }
 
@@ -219,7 +256,13 @@ final class BrowserTheme: ObservableObject {
         tabBarTransparency = 0.82
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
+        userBackgroundVideoData = nil
+        userBackgroundVideoContentType = nil
+        userBackgroundVideoDuration = nil
         vault.remove(Self.userBackgroundImageDataKey)
+        vault.remove(Self.userBackgroundVideoDataKey)
+        vault.remove(Self.userBackgroundVideoContentTypeKey)
+        vault.remove(Self.userBackgroundVideoDurationKey)
     }
 
     func applyAdvancedConfig(
@@ -252,24 +295,71 @@ final class BrowserTheme: ObservableObject {
             return
         }
 
-        setUserBackground(fromImageData: rawData)
+        let contentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+        if contentType?.conforms(to: .movie) == true || contentType?.conforms(to: .video) == true {
+            setUserBackground(fromVideoData: rawData, contentTypeIdentifier: contentType?.identifier)
+        } else {
+            setUserBackground(fromImageData: rawData)
+        }
     }
 
     func setUserBackground(fromImageData rawData: Data) {
         guard let image = UIImage(data: rawData),
               let data = image.jpegData(compressionQuality: 0.86) else {
+            backgroundImportMessage = "That image could not be imported."
             return
         }
 
         userBackgroundImageData = data
+        userBackgroundVideoData = nil
+        userBackgroundVideoContentType = nil
+        userBackgroundVideoDuration = nil
         isUserBackgroundEnabled = true
+        backgroundImportMessage = "Image background applied."
         vault.save(data, forKey: Self.userBackgroundImageDataKey)
+        vault.remove(Self.userBackgroundVideoDataKey)
+        vault.remove(Self.userBackgroundVideoContentTypeKey)
+        vault.remove(Self.userBackgroundVideoDurationKey)
+    }
+
+    func setUserBackground(fromVideoData rawData: Data, contentTypeIdentifier: String?) {
+        guard let metadata = Self.videoMetadata(from: rawData, contentTypeIdentifier: contentTypeIdentifier) else {
+            backgroundImportMessage = "That video could not be imported."
+            return
+        }
+
+        guard metadata.duration >= 10, metadata.duration <= 30 else {
+            backgroundImportMessage = "Choose a video between 10 and 30 seconds."
+            return
+        }
+
+        userBackgroundVideoData = rawData
+        userBackgroundVideoContentType = contentTypeIdentifier ?? UTType.mpeg4Movie.identifier
+        userBackgroundVideoDuration = metadata.duration
+        userBackgroundImageData = metadata.posterData
+        isUserBackgroundEnabled = true
+        backgroundImportMessage = "Animated background applied."
+        vault.save(rawData, forKey: Self.userBackgroundVideoDataKey)
+        vault.save(userBackgroundVideoContentType, forKey: Self.userBackgroundVideoContentTypeKey)
+        vault.save(metadata.duration, forKey: Self.userBackgroundVideoDurationKey)
+        if let posterData = metadata.posterData {
+            vault.save(posterData, forKey: Self.userBackgroundImageDataKey)
+        } else {
+            vault.remove(Self.userBackgroundImageDataKey)
+        }
     }
 
     func clearUserBackground() {
         userBackgroundImageData = nil
+        userBackgroundVideoData = nil
+        userBackgroundVideoContentType = nil
+        userBackgroundVideoDuration = nil
         isUserBackgroundEnabled = false
+        backgroundImportMessage = ""
         vault.remove(Self.userBackgroundImageDataKey)
+        vault.remove(Self.userBackgroundVideoDataKey)
+        vault.remove(Self.userBackgroundVideoContentTypeKey)
+        vault.remove(Self.userBackgroundVideoDurationKey)
     }
 
     @discardableResult
@@ -300,12 +390,31 @@ final class BrowserTheme: ObservableObject {
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
         tabBarTransparency = savedTheme.tabBarTransparency
         userBackgroundImageData = savedTheme.userBackgroundImageData
-        isUserBackgroundEnabled = savedTheme.isUserBackgroundEnabled && savedTheme.userBackgroundImageData != nil
+        userBackgroundVideoData = savedTheme.userBackgroundVideoData
+        userBackgroundVideoContentType = savedTheme.userBackgroundVideoContentType
+        userBackgroundVideoDuration = savedTheme.userBackgroundVideoDuration
+        isUserBackgroundEnabled = savedTheme.isUserBackgroundEnabled &&
+            (savedTheme.userBackgroundImageData != nil || savedTheme.userBackgroundVideoData != nil)
 
         if let data = savedTheme.userBackgroundImageData {
             vault.save(data, forKey: Self.userBackgroundImageDataKey)
         } else {
             vault.remove(Self.userBackgroundImageDataKey)
+        }
+        if let data = savedTheme.userBackgroundVideoData {
+            vault.save(data, forKey: Self.userBackgroundVideoDataKey)
+        } else {
+            vault.remove(Self.userBackgroundVideoDataKey)
+        }
+        if let contentType = savedTheme.userBackgroundVideoContentType {
+            vault.save(contentType, forKey: Self.userBackgroundVideoContentTypeKey)
+        } else {
+            vault.remove(Self.userBackgroundVideoContentTypeKey)
+        }
+        if let duration = savedTheme.userBackgroundVideoDuration {
+            vault.save(duration, forKey: Self.userBackgroundVideoDurationKey)
+        } else {
+            vault.remove(Self.userBackgroundVideoDurationKey)
         }
     }
 
@@ -364,7 +473,54 @@ final class BrowserTheme: ObservableObject {
         } else {
             vault.remove(Self.userBackgroundImageDataKey)
         }
+        if let userBackgroundVideoData = userBackgroundVideoData {
+            vault.save(userBackgroundVideoData, forKey: Self.userBackgroundVideoDataKey)
+        } else {
+            vault.remove(Self.userBackgroundVideoDataKey)
+        }
+        if let userBackgroundVideoContentType = userBackgroundVideoContentType {
+            vault.save(userBackgroundVideoContentType, forKey: Self.userBackgroundVideoContentTypeKey)
+        } else {
+            vault.remove(Self.userBackgroundVideoContentTypeKey)
+        }
+        if let userBackgroundVideoDuration = userBackgroundVideoDuration {
+            vault.save(userBackgroundVideoDuration, forKey: Self.userBackgroundVideoDurationKey)
+        } else {
+            vault.remove(Self.userBackgroundVideoDurationKey)
+        }
         vault.save(savedThemes, forKey: Self.savedThemesKey)
+    }
+
+    private static func videoMetadata(from data: Data, contentTypeIdentifier: String?) -> (duration: Double, posterData: Data?)? {
+        let url = temporaryVideoURL(contentTypeIdentifier: contentTypeIdentifier)
+
+        do {
+            try data.write(to: url, options: [.atomic])
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let asset = AVURLAsset(url: url)
+            let duration = CMTimeGetSeconds(asset.duration)
+            guard duration.isFinite, duration > 0 else { return nil }
+
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 900, height: 900)
+            let time = CMTime(seconds: min(max(duration * 0.12, 0.2), 2.0), preferredTimescale: 600)
+            let image = try? generator.copyCGImage(at: time, actualTime: nil)
+            let posterData = image.map { UIImage(cgImage: $0).jpegData(compressionQuality: 0.82) } ?? nil
+            return (duration, posterData)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+    }
+
+    private static func temporaryVideoURL(contentTypeIdentifier: String?) -> URL {
+        let contentType = contentTypeIdentifier.flatMap { UTType($0) } ?? .mpeg4Movie
+        let pathExtension = contentType.preferredFilenameExtension ?? "mp4"
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("GlideBackground-\(UUID().uuidString)")
+            .appendingPathExtension(pathExtension)
     }
 
     private static func storageKey(for token: BrowserThemeToken) -> String {

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import PhotosUI
 import QuickLook
 import UIKit
@@ -1083,12 +1084,28 @@ private struct TabBarStyleControl: View {
 
                 if theme.isUserBackgroundEnabled,
                    let image = theme.userBackgroundImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: 74)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    ZStack(alignment: .bottomLeading) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                        if let duration = theme.userBackgroundVideoDurationLabel {
+                            Label(duration, systemImage: "play.rectangle.fill")
+                                .font(.caption2.weight(.bold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .padding(8)
+                        }
+                    }
+                    .frame(height: 74)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+
+                if theme.backgroundImportMessage.isEmpty == false {
+                    Text(theme.backgroundImportMessage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.chromeSecondaryForegroundColor)
                 }
 
                 HStack(spacing: 8) {
@@ -1114,7 +1131,7 @@ private struct TabBarStyleControl: View {
         }
         .fileImporter(
             isPresented: $isBackgroundImporterPresented,
-            allowedContentTypes: [.image],
+            allowedContentTypes: [.image, .movie, .video],
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result,
@@ -1131,8 +1148,8 @@ private struct BackgroundPhotoPickerButton: View {
     let title: String
 
     var body: some View {
-        PhotosPicker(selection: $selectedPhoto, matching: .images, photoLibrary: .shared()) {
-            Label(title, systemImage: "photo.on.rectangle")
+        PhotosPicker(selection: $selectedPhoto, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
+            Label(title, systemImage: "photo.stack")
         }
         .onChange(of: selectedPhoto) { _, newPhoto in
             importPhoto(newPhoto)
@@ -1145,7 +1162,12 @@ private struct BackgroundPhotoPickerButton: View {
         Task {
             guard let data = try? await item.loadTransferable(type: Data.self) else { return }
             await MainActor.run {
-                theme.setUserBackground(fromImageData: data)
+                let contentType = item.supportedContentTypes.first
+                if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) || $0.conforms(to: .video) }) {
+                    theme.setUserBackground(fromVideoData: data, contentTypeIdentifier: contentType?.identifier)
+                } else {
+                    theme.setUserBackground(fromImageData: data)
+                }
                 selectedPhoto = nil
             }
         }
@@ -3667,6 +3689,13 @@ private struct BrowserBackground: View {
     var body: some View {
         ZStack {
             if theme.isUserBackgroundEnabled,
+               let video = theme.userBackgroundVideo {
+                LoopingBackgroundVideo(data: video.data, contentTypeIdentifier: video.contentType)
+                    .ignoresSafeArea()
+                theme.color(.canvas)
+                    .opacity(0.38)
+                    .ignoresSafeArea()
+            } else if theme.isUserBackgroundEnabled,
                let image = theme.userBackgroundImage {
                 Image(uiImage: image)
                     .resizable()
@@ -3688,6 +3717,126 @@ private struct BrowserBackground: View {
                 .ignoresSafeArea()
             }
         }
+    }
+}
+
+private struct LoopingBackgroundVideo: UIViewRepresentable {
+    let data: Data
+    let contentTypeIdentifier: String?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> BackgroundVideoPlayerView {
+        let view = BackgroundVideoPlayerView()
+        context.coordinator.configure(view: view, data: data, contentTypeIdentifier: contentTypeIdentifier)
+        return view
+    }
+
+    func updateUIView(_ uiView: BackgroundVideoPlayerView, context: Context) {
+        context.coordinator.configure(view: uiView, data: data, contentTypeIdentifier: contentTypeIdentifier)
+    }
+
+    static func dismantleUIView(_ uiView: BackgroundVideoPlayerView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    final class Coordinator {
+        private var signature = ""
+        private var player: AVQueuePlayer?
+        private var looper: AVPlayerLooper?
+        private var loader: BackgroundVideoResourceLoader?
+        private var loaderQueue: DispatchQueue?
+
+        func configure(view: BackgroundVideoPlayerView, data: Data, contentTypeIdentifier: String?) {
+            let newSignature = "\(data.count)-\(Array(data.prefix(32)).hashValue)-\(Array(data.suffix(32)).hashValue)-\(contentTypeIdentifier ?? "video")"
+            guard newSignature != signature else {
+                player?.play()
+                return
+            }
+
+            stop()
+            signature = newSignature
+
+            let contentType = contentTypeIdentifier ?? UTType.mpeg4Movie.identifier
+            let loader = BackgroundVideoResourceLoader(data: data, contentTypeIdentifier: contentType)
+            let loaderQueue = DispatchQueue(label: "com.exlon360.glide.background-video.\(UUID().uuidString)")
+            let asset = AVURLAsset(url: URL(string: "glide-background-video://background/\(UUID().uuidString)")!)
+            asset.resourceLoader.setDelegate(loader, queue: loaderQueue)
+
+            let item = AVPlayerItem(asset: asset)
+            let player = AVQueuePlayer()
+            player.isMuted = true
+            player.actionAtItemEnd = .none
+            player.allowsExternalPlayback = false
+            player.preventsDisplaySleepDuringVideoPlayback = false
+
+            self.loader = loader
+            self.loaderQueue = loaderQueue
+            self.player = player
+            self.looper = AVPlayerLooper(player: player, templateItem: item)
+            view.playerLayer.player = player
+            view.playerLayer.videoGravity = .resizeAspectFill
+            player.play()
+        }
+
+        func stop() {
+            player?.pause()
+            player = nil
+            looper = nil
+            loader = nil
+            loaderQueue = nil
+            signature = ""
+        }
+    }
+}
+
+private final class BackgroundVideoPlayerView: UIView {
+    override static var layerClass: AnyClass {
+        AVPlayerLayer.self
+    }
+
+    var playerLayer: AVPlayerLayer {
+        layer as! AVPlayerLayer
+    }
+}
+
+private final class BackgroundVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
+    private let data: Data
+    private let contentTypeIdentifier: String
+
+    init(data: Data, contentTypeIdentifier: String) {
+        self.data = data
+        self.contentTypeIdentifier = contentTypeIdentifier
+    }
+
+    func resourceLoader(
+        _ resourceLoader: AVAssetResourceLoader,
+        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
+    ) -> Bool {
+        if let informationRequest = loadingRequest.contentInformationRequest {
+            informationRequest.contentType = contentTypeIdentifier
+            informationRequest.contentLength = Int64(data.count)
+            informationRequest.isByteRangeAccessSupported = true
+        }
+
+        if let dataRequest = loadingRequest.dataRequest {
+            let requestedOffset = dataRequest.currentOffset != 0 ? dataRequest.currentOffset : dataRequest.requestedOffset
+            guard requestedOffset >= 0, requestedOffset < Int64(data.count) else {
+                loadingRequest.finishLoading()
+                return true
+            }
+
+            let start = Int(requestedOffset)
+            let end = min(start + dataRequest.requestedLength, data.count)
+            if start < end {
+                dataRequest.respond(with: data.subdata(in: start..<end))
+            }
+        }
+
+        loadingRequest.finishLoading()
+        return true
     }
 }
 
@@ -3847,16 +3996,32 @@ private struct BrowserSettingsView: View {
 
                     if theme.isUserBackgroundEnabled,
                        let image = theme.userBackgroundImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(height: 92)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
+                        ZStack(alignment: .bottomLeading) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                            if let duration = theme.userBackgroundVideoDurationLabel {
+                                Label(duration, systemImage: "play.rectangle.fill")
+                                    .font(.caption.weight(.bold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(.ultraThinMaterial, in: Capsule())
+                                    .padding(10)
                             }
+                        }
+                        .frame(height: 92)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
+                        }
+                    }
+
+                    if theme.backgroundImportMessage.isEmpty == false {
+                        Text(theme.backgroundImportMessage)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
                     }
 
                     HStack(spacing: 10) {
@@ -3984,7 +4149,7 @@ private struct BrowserSettingsView: View {
             }
             .fileImporter(
                 isPresented: $isBackgroundImporterPresented,
-                allowedContentTypes: [.image],
+                allowedContentTypes: [.image, .movie, .video],
                 allowsMultipleSelection: false
             ) { result in
                 if case .success(let urls) = result,
