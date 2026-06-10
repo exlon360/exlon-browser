@@ -14,6 +14,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Floating search results with quick search actions and local history matches while typing.
 - Optional always-on search bar for people who want the address field pinned above the page, with a drag-to-move mode and saved custom position.
 - New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
+- Protected Private Mode from the three-dot menu prompts for the Glide PIN, hides normal tabs/Essentials/history/download controls, keeps the private tab button available, and marks private tab titles with crossed-out text.
 - Tab Finder sheet for searching, selecting, and closing normal, private, and contained tabs from one place.
 - Contained Tabs open full screen and run a custom browser-in-browser website inside a nested `WKWebView`, with an inner address bar, quick sites, back/forward/reload controls, an embedded website viewport, direct compatibility mode for heavy/media sites, audio unlock, an open-page fallback for sites that refuse embedding, audio/video playback, and isolated non-persistent web storage.
 - More polished glass-style tab chrome with a settings toggle and adjustable transparency up to 100%.
@@ -24,6 +25,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - New tabs focus the floating address field and select its current text.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
 - Add-ons Library access for Firefox Add-ons and Brave's Chrome Web Store extension catalog. iOS WebKit can browse these libraries, but desktop Firefox/Brave extensions cannot be installed into a third-party `WKWebView`.
+- Faster warm page loads through a shared WebKit process pool, responsive URL requests, and a larger memory-only URL cache.
 - Normal and private tabs use non-persistent `WKWebsiteDataStore` instances so WebKit does not keep an app-controlled persistent disk cache.
 - Private tabs do not write browsing history or show local history suggestions in private search.
 - Normal tabs are restored after relaunch; private tabs are not persisted.

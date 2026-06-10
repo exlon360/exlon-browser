@@ -334,8 +334,53 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/SecureBrowserVault.swift",
-        "URLCache(memoryCapacity: 8 * 1024 * 1024, diskCapacity: 0",
+        "URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 0",
         "Shared URL loading must disable unencrypted disk cache.",
+    )
+    require_contains(
+        "ZenFireBrowser/SecureBrowserVault.swift",
+        "static func verify(pin: String)",
+        "Private Mode PIN prompts must verify the Glide PIN without unlocking a second vault.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "private static let sharedProcessPool = WKProcessPool()",
+        "Tabs should share a process pool for faster warm navigations.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTab.swift",
+        "request.networkServiceType = .responsiveData",
+        "Page loads should request responsive networking where iOS supports it.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "@Published var isPrivateModeEnabled",
+        "Browser state must include the protected Private Mode switch.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "func requestPrivateModeToggle()",
+        "The three-dot menu must route Private Mode through PIN authentication.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "PrivateModeAuthView",
+        "Private Mode must prompt for the Glide PIN before entry or protected exit.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "PrivateModeBadge",
+        "The chrome must clearly say Private Mode while active.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        ".strikethrough(tab.isPrivate",
+        "Private tab titles must be crossed out in tab lists.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "model.requestPrivateModeToggle()",
+        "The three-dot menu must expose Private Mode.",
     )
     require_contains(
         "ZenFireBrowser/SecureBrowserVault.swift",

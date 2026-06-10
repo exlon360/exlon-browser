@@ -34,6 +34,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private var observations: [NSKeyValueObservation] = []
     private var activeDownloads: [ObjectIdentifier: BrowserDownloadItem] = [:]
+    private static let sharedProcessPool = WKProcessPool()
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -54,10 +55,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         Self.configureAudioPlayback()
 
         let configuration = WKWebViewConfiguration()
+        configuration.processPool = Self.sharedProcessPool
         configuration.userContentController = WKUserContentController()
         configuration.allowsInlineMediaPlayback = true
         configuration.allowsAirPlayForMediaPlayback = true
         configuration.allowsPictureInPictureMediaPlayback = true
+        configuration.suppressesIncrementalRendering = false
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -69,6 +72,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
+        webView.allowsLinkPreview = false
         webView.scrollView.keyboardDismissMode = .interactive
         bindWebViewState()
         installGestureControls()
@@ -95,7 +99,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             return
         }
 
-        webView.load(URLRequest(url: url))
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 25)
+        if #available(iOS 12.0, *) {
+            request.networkServiceType = .responsiveData
+        }
+        webView.load(request)
     }
 
     func submitAddress(searchEngine: BrowserSearchEngine, customSearchTemplate: String) {

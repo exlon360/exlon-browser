@@ -70,7 +70,7 @@ final class SecureBrowserVault {
     }
 
     static func prepareLaunchPrivacy() {
-        URLCache.shared = URLCache(memoryCapacity: 8 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
+        URLCache.shared = URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
         purgePersistentWebKitData()
         removeUnencryptedCacheFiles()
     }
@@ -115,6 +115,19 @@ final class SecureBrowserVault {
         storeBiometricKeyIfPossible(keyData)
         prepareLaunchPrivacy()
         return vault
+    }
+
+    static func verify(pin: String) throws {
+        let defaults = UserDefaults.standard
+        guard let salt = defaults.data(forKey: saltKey),
+              let verifierData = defaults.data(forKey: verifierKey) else {
+            throw SecureBrowserVaultError.setupMissing
+        }
+
+        let keyData = try deriveKeyData(pin: pin.trimmingCharacters(in: .whitespacesAndNewlines), salt: salt)
+        let vault = SecureBrowserVault(key: SymmetricKey(data: keyData), salt: salt)
+        let verifier = try vault.decrypt(VaultVerifier.self, from: verifierData)
+        guard verifier.marker == "GlideSecureVault" else { throw SecureBrowserVaultError.invalidPIN }
     }
 
     static func unlockWithBiometrics() throws -> SecureBrowserVault {
@@ -395,6 +408,17 @@ final class AppSecurityModel: ObservableObject {
             message = error.localizedDescription
         }
         refreshBiometricAvailability()
+    }
+
+    func verifyPIN(_ pin: String) -> Bool {
+        do {
+            try SecureBrowserVault.verify(pin: pin)
+            message = ""
+            return true
+        } catch {
+            message = error.localizedDescription
+            return false
+        }
     }
 
     func unlockWithBiometrics() {

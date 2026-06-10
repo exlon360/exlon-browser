@@ -250,6 +250,38 @@ enum BrowserTopSearchBarPlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserPrivateModeAuthAction: Equatable {
+    case enter
+    case exit
+
+    var title: String {
+        switch self {
+        case .enter:
+            return "Unlock Private Mode"
+        case .exit:
+            return "Close Private Mode"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .enter:
+            return "Enter your Glide PIN to hide normal tabs and open Private Mode."
+        case .exit:
+            return "Private tabs are still open. Enter your Glide PIN to leave Private Mode."
+        }
+    }
+
+    var buttonTitle: String {
+        switch self {
+        case .enter:
+            return "Enter Private Mode"
+        case .exit:
+            return "Leave Private Mode"
+        }
+    }
+}
+
 enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
     case firefox
     case brave
@@ -341,6 +373,10 @@ final class BrowserViewModel: ObservableObject {
     @Published var isAddOnsPresented = false
     @Published var isAdvancedConfigPresented = false
     @Published var isCustomIconsPresented = false
+    @Published var isPrivateModeEnabled = false
+    @Published var isPrivateModeAuthPresented = false
+    @Published var privateModeAuthAction: BrowserPrivateModeAuthAction = .enter
+    @Published var privateModeAuthMessage = ""
     @Published var isWebFileImporterPresented = false
     @Published var allowsMultipleWebFileImport = false
     @Published var isLocalAIImporterPresented = false
@@ -512,7 +548,28 @@ final class BrowserViewModel: ObservableObject {
         tabs.filter { $0.isPrivate }
     }
 
+    var chromeTabs: [BrowserTab] {
+        isPrivateModeEnabled ? privateTabs : tabs
+    }
+
+    var visibleNormalTabs: [BrowserTab] {
+        isPrivateModeEnabled ? [] : normalTabs
+    }
+
+    var visiblePrivateTabs: [BrowserTab] {
+        privateTabs
+    }
+
+    var visibleEssentials: [BrowserEssentialItem] {
+        isPrivateModeEnabled ? [] : essentials
+    }
+
+    var visibleContainedTabs: [BrowserTab] {
+        isPrivateModeEnabled ? [] : containedTabs
+    }
+
     func select(_ tab: BrowserTab) {
+        guard isPrivateModeEnabled == false || tab.isPrivate else { return }
         selectedTabID = tab.id
         if isFloatingSearchPresented {
             floatingSearchText = tab.addressText
@@ -522,6 +579,7 @@ final class BrowserViewModel: ObservableObject {
 
     func selectFromFinder(_ tab: BrowserTab) {
         if containedTabs.contains(where: { $0.id == tab.id }) {
+            guard isPrivateModeEnabled == false else { return }
             selectedContainedTabID = tab.id
             isContainedBrowserPresented = true
         } else {
@@ -532,9 +590,10 @@ final class BrowserViewModel: ObservableObject {
 
     @discardableResult
     func openTab(startURL: URL = BrowserDefaults.homeURL, private isPrivate: Bool = false) -> BrowserTab {
+        let shouldOpenPrivate = isPrivate || isPrivateModeEnabled
         let tab = BrowserTab(
             startURL: startURL,
-            isPrivate: isPrivate,
+            isPrivate: shouldOpenPrivate,
             usesPersistentStorage: false,
             isDarkReaderEnabled: isDarkReaderEnabled,
             isAdBlockerEnabled: isAdBlockerEnabled
@@ -547,7 +606,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func openNewTabAndSearch(private isPrivate: Bool = false) {
-        let tab = openTab(private: isPrivate)
+        let tab = openTab(private: isPrivate || isPrivateModeEnabled)
         floatingSearchText = tab.addressText
         shouldSelectFloatingSearchText = true
         isFloatingSearchPresented = true
@@ -616,6 +675,13 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func close(_ tab: BrowserTab) {
+        if isPrivateModeEnabled, tab.isPrivate, privateTabs.count <= 1 {
+            tab.load(BrowserTab.homeURL)
+            selectedTabID = tab.id
+            persistOpenTabs()
+            return
+        }
+
         guard tabs.count > 1 else {
             tab.load(BrowserTab.homeURL)
             persistOpenTabs()
@@ -626,7 +692,11 @@ final class BrowserViewModel: ObservableObject {
         tabs.removeAll { $0.id == tab.id }
 
         if wasSelected {
-            selectedTabID = tabs.last?.id
+            selectedTabID = isPrivateModeEnabled ? privateTabs.last?.id : tabs.last?.id
+        }
+
+        if isPrivateModeEnabled, privateTabs.isEmpty {
+            openTab(private: true)
         }
 
         persistOpenTabs()
@@ -1183,6 +1253,61 @@ final class BrowserViewModel: ObservableObject {
     func disconnectVPNProfile() {
         CustomVPNController.disconnect()
         vpnStatusMessage = "Custom VPN disconnect requested."
+    }
+
+    func requestPrivateModeToggle() {
+        privateModeAuthMessage = ""
+        privateModeAuthAction = isPrivateModeEnabled ? .exit : .enter
+
+        if isPrivateModeEnabled, privateTabs.isEmpty {
+            leavePrivateMode()
+            return
+        }
+
+        isPrivateModeAuthPresented = true
+    }
+
+    func completePrivateModeAuthentication() {
+        switch privateModeAuthAction {
+        case .enter:
+            enterPrivateMode()
+        case .exit:
+            leavePrivateMode()
+        }
+        privateModeAuthMessage = ""
+        isPrivateModeAuthPresented = false
+    }
+
+    func enterPrivateMode() {
+        isPrivateModeEnabled = true
+        isHistoryPresented = false
+        isContainedBrowserPresented = false
+        isTabFinderPresented = false
+
+        if privateTabs.isEmpty {
+            openTab(private: true)
+        } else if selectedTab?.isPrivate != true {
+            selectedTabID = privateTabs.last?.id
+        }
+
+        floatingSearchText = selectedTab?.addressText ?? ""
+        shouldSelectFloatingSearchText = false
+    }
+
+    func leavePrivateMode() {
+        isPrivateModeEnabled = false
+        isFloatingSearchPresented = false
+        isTabFinderPresented = false
+
+        if selectedTab?.isPrivate == true {
+            if let normalTab = normalTabs.last {
+                selectedTabID = normalTab.id
+            } else {
+                selectedTabID = openTab().id
+            }
+        }
+
+        floatingSearchText = selectedTab?.addressText ?? ""
     }
 
     func beginTopSearchBarMove() {

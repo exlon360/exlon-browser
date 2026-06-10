@@ -290,6 +290,13 @@ private struct BrowserShell: View {
                     .padding(.top, pageControlsTopPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
+                if model.isPrivateModeEnabled {
+                    PrivateModeBadge()
+                        .padding(.top, privateModeBadgeTopPadding)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 if model.isTopSearchBarEnabled {
                     MovableTopSearchBar(
                         containerSize: proxy.size,
@@ -377,6 +384,13 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $model.isPrivateModeAuthPresented) {
+                PrivateModeAuthView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .environmentObject(security)
+                    .preferredColorScheme(.dark)
+            }
             .sheet(isPresented: $model.isLocalAIImporterPresented) {
                 LocalAIImportView()
                     .environmentObject(model)
@@ -424,6 +438,13 @@ private struct BrowserShell: View {
             return 118
         }
         return 14
+    }
+
+    private var privateModeBadgeTopPadding: CGFloat {
+        if model.chromePlacement == .top && model.areSideTabsCollapsed == false {
+            return 118
+        }
+        return 18
     }
 
     private var topSearchBarTopPadding: CGFloat {
@@ -579,14 +600,18 @@ private struct SideChrome: View {
 
             TabBarStyleControl(compact: false)
 
-            if model.essentials.isEmpty == false {
+            if model.visibleEssentials.isEmpty == false {
                 EssentialsSection()
             }
 
-            TabSection(title: "Tabs", tabs: model.normalTabs)
+            if model.isPrivateModeEnabled {
+                TabSection(title: "Private Mode", tabs: model.visiblePrivateTabs)
+            } else {
+                TabSection(title: "Tabs", tabs: model.visibleNormalTabs)
 
-            if model.privateTabs.isEmpty == false {
-                TabSection(title: "Private", tabs: model.privateTabs)
+                if model.visiblePrivateTabs.isEmpty == false {
+                    TabSection(title: "Private", tabs: model.visiblePrivateTabs)
+                }
             }
 
             Spacer(minLength: 8)
@@ -625,11 +650,11 @@ private struct HorizontalChrome: View {
                 HStack(spacing: 8) {
                     NewTabActions(layout: .strip)
 
-                    ForEach(model.essentials) { item in
+                    ForEach(model.visibleEssentials) { item in
                         EssentialPill(item: item, layout: .horizontal)
                     }
 
-                    ForEach(model.tabs) { tab in
+                    ForEach(model.chromeTabs) { tab in
                         TabPill(tab: tab, layout: .horizontal)
                     }
                 }
@@ -678,7 +703,7 @@ private struct FloatingChrome: View {
                         }
                     }
 
-                    if model.isInMoreMenu(.containedTabs) == false {
+                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.containedTabs) == false {
                         ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                             model.showContainedTabs()
                         }
@@ -690,19 +715,19 @@ private struct FloatingChrome: View {
                         }
                     }
 
-                    if model.isInMoreMenu(.downloadCurrent) == false {
+                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloadCurrent) == false {
                         ChromeButton(slot: .downloadCurrent, symbol: "arrow.down.doc", label: "Download Current Page") {
                             model.downloadSelectedTab()
                         }
                     }
 
-                    if model.isInMoreMenu(.history) == false {
+                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.history) == false {
                         ChromeButton(slot: .history, symbol: "clock.arrow.circlepath", label: "History") {
                             model.isHistoryPresented = true
                         }
                     }
 
-                    if model.isInMoreMenu(.downloads) == false {
+                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloads) == false {
                         ChromeButton(slot: .downloads, symbol: "arrow.down.circle", label: "Downloads") {
                             model.isDownloadsPresented = true
                         }
@@ -740,10 +765,19 @@ private struct ChromeHeader: View {
             BrandMark()
 
             if compact == false {
-                Text("Glide")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(theme.chromeForegroundColor)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Glide")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(theme.chromeForegroundColor)
+                        .lineLimit(1)
+
+                    if model.isPrivateModeEnabled {
+                        Text("Private Mode")
+                            .font(.caption2.weight(.black))
+                            .foregroundStyle(theme.color(.privateAccent))
+                            .lineLimit(1)
+                    }
+                }
             }
 
             Spacer(minLength: 0)
@@ -770,7 +804,7 @@ private struct ChromeFooter: View {
                     }
                 }
 
-                if model.isInMoreMenu(.history) == false {
+                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.history) == false {
                     ChromeButton(slot: .history, symbol: "clock.arrow.circlepath", label: "History") {
                         model.isHistoryPresented = true
                     }
@@ -782,19 +816,19 @@ private struct ChromeFooter: View {
                     }
                 }
 
-                if model.isInMoreMenu(.downloadCurrent) == false {
+                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloadCurrent) == false {
                     ChromeButton(slot: .downloadCurrent, symbol: "arrow.down.doc", label: "Download Current Page") {
                         model.downloadSelectedTab()
                     }
                 }
 
-                if model.isInMoreMenu(.downloads) == false {
+                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloads) == false {
                     ChromeButton(slot: .downloads, symbol: "arrow.down.circle", label: "Downloads") {
                         model.isDownloadsPresented = true
                     }
                 }
 
-                if model.isInMoreMenu(.containedTabs) == false {
+                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.containedTabs) == false {
                     ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                         model.showContainedTabs()
                     }
@@ -1126,10 +1160,11 @@ private struct SearchTrigger: View {
                     Text(displayTitle)
                         .font(.system(size: style == .sidebar ? 13 : 15, weight: .semibold))
                         .foregroundStyle(theme.chromeForegroundColor)
+                        .strikethrough(model.selectedTab?.isPrivate == true, color: theme.color(.privateAccent))
                         .lineLimit(1)
 
                     if style == .sidebar {
-                        Text("Search or enter address")
+                        Text(searchSubtitle)
                             .font(.caption2)
                             .foregroundStyle(theme.chromeSecondaryForegroundColor)
                             .lineLimit(1)
@@ -1155,6 +1190,10 @@ private struct SearchTrigger: View {
         }
 
         return model.selectedTab?.url?.host ?? "Search \(model.searchEngine.title)"
+    }
+
+    private var searchSubtitle: String {
+        model.isPrivateModeEnabled ? "Private Mode" : "Search or enter address"
     }
 }
 
@@ -1203,7 +1242,7 @@ private struct AddressField: View {
             .accessibilityLabel("Go")
 
             if model.selectedTab?.isPrivate == true {
-                Text("Private")
+                Text(model.isPrivateModeEnabled ? "Private Mode" : "Private")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(theme.color(.text))
                     .padding(.horizontal, 7)
@@ -1334,9 +1373,11 @@ private struct FloatingSearchOverlay: View {
                     HStack(spacing: 8) {
                         Image(systemName: tab.isPrivate ? "theatermasks" : "globe")
                         Text(tab.title)
+                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                             .lineLimit(1)
                         Spacer()
-                        Text(BrowserTab.isStartPageURL(tab.url) ? "Start Page" : (tab.url?.host ?? model.searchEngine.title))
+                        Text(model.isPrivateModeEnabled ? "Private Mode" : (BrowserTab.isStartPageURL(tab.url) ? "Start Page" : (tab.url?.host ?? model.searchEngine.title)))
+                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                             .lineLimit(1)
                     }
                     .font(.caption.weight(.semibold))
@@ -1527,6 +1568,16 @@ private struct BrowserTopSearchBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Go")
+
+            if model.isPrivateModeEnabled {
+                Text("Private Mode")
+                    .font(.caption2.weight(.black))
+                    .foregroundStyle(theme.color(.text))
+                    .lineLimit(1)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(theme.color(.privateAccent).opacity(0.72), in: Capsule())
+            }
         }
         .padding(.horizontal, 14)
         .frame(height: 50)
@@ -1614,12 +1665,141 @@ private struct BrowserPageControls: View {
     }
 }
 
+private struct PrivateModeBadge: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Label("Private Mode", systemImage: "lock.shield")
+            .font(.system(size: 13, weight: .black))
+            .foregroundStyle(theme.color(.text))
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(theme.color(.privateAccent).opacity(0.72), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(0.26), radius: 14, y: 7)
+            .accessibilityLabel("Private Mode")
+    }
+}
+
+private struct PrivateModeAuthView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var security: AppSecurityModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var pin = ""
+    @FocusState private var isPINFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                Spacer(minLength: 16)
+
+                Image(systemName: model.privateModeAuthAction == .enter ? "lock.shield.fill" : "lock.open.trianglebadge.exclamationmark")
+                    .font(.system(size: 38, weight: .black))
+                    .foregroundStyle(theme.color(.privateAccent))
+                    .frame(width: 76, height: 76)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(theme.color(.privateAccent).opacity(0.5), lineWidth: 1)
+                    }
+
+                VStack(spacing: 7) {
+                    Text(model.privateModeAuthAction.title)
+                        .font(.system(size: 26, weight: .black))
+                        .foregroundStyle(theme.color(.text))
+                    Text(model.privateModeAuthAction.prompt)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                        .multilineTextAlignment(.center)
+                }
+
+                SecurePINField(title: "Glide PIN", text: $pin)
+                    .focused($isPINFocused)
+                    .onSubmit(submit)
+                    .frame(maxWidth: 420)
+
+                if authMessage.isEmpty == false {
+                    Text(authMessage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.64, blue: 0.64))
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                }
+
+                Button(action: submit) {
+                    Label(model.privateModeAuthAction.buttonTitle, systemImage: "checkmark.shield")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(maxWidth: 420)
+                        .frame(height: 52)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(pin.count < 4)
+
+                Spacer(minLength: 16)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(theme.color(.canvas))
+            .navigationTitle("Private Mode")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Cancel") {
+                        model.privateModeAuthMessage = ""
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear {
+            pin = ""
+            model.privateModeAuthMessage = ""
+            isPINFocused = true
+        }
+        .onChange(of: pin) { _, value in
+            let cleaned = String(value.filter { $0.isNumber }.prefix(12))
+            if cleaned != value {
+                pin = cleaned
+            }
+        }
+    }
+
+    private var authMessage: String {
+        model.privateModeAuthMessage.isEmpty ? security.message : model.privateModeAuthMessage
+    }
+
+    private func submit() {
+        guard pin.count >= 4 else { return }
+
+        if security.verifyPIN(pin) {
+            model.completePrivateModeAuthentication()
+            dismiss()
+        } else {
+            model.privateModeAuthMessage = security.message
+            pin = ""
+            isPINFocused = true
+        }
+    }
+}
+
 private struct MoreTabButton: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         Menu {
+            Button {
+                model.requestPrivateModeToggle()
+            } label: {
+                Label(model.isPrivateModeEnabled ? "Close Private Mode" : "Private Mode", systemImage: "lock.shield")
+            }
+
+            Divider()
+
             let actions = movedActions
             if actions.isEmpty {
                 Button {} label: {
@@ -1639,6 +1819,7 @@ private struct MoreTabButton: View {
             } label: {
                 Label("Add-ons Library", systemImage: "puzzlepiece")
             }
+            .disabled(model.isPrivateModeEnabled)
 
             Button {
                 model.isSettingsPresented = true
@@ -1659,7 +1840,12 @@ private struct MoreTabButton: View {
     }
 
     private var movedActions: [BrowserToolbarAction] {
-        BrowserToolbarAction.allCases.filter { model.isInMoreMenu($0) }
+        BrowserToolbarAction.allCases
+            .filter { model.isInMoreMenu($0) }
+            .filter { action in
+                guard model.isPrivateModeEnabled else { return true }
+                return [.containedTabs, .downloadCurrent, .history, .downloads].contains(action) == false
+            }
     }
 
     @ViewBuilder
@@ -2260,23 +2446,27 @@ private struct BrowserTabFinderView: View {
                     .background(theme.color(.canvas))
                 } else {
                     List {
-                        tabSection("Normal", tabs: filtered(model.normalTabs), isContained: false)
-                        tabSection("Private", tabs: filtered(model.privateTabs), isContained: false)
-                        tabSection("Contained", tabs: filtered(model.containedTabs), isContained: true)
+                        if model.isPrivateModeEnabled {
+                            tabSection("Private Mode", tabs: filtered(model.visiblePrivateTabs), isContained: false)
+                        } else {
+                            tabSection("Normal", tabs: filtered(model.normalTabs), isContained: false)
+                            tabSection("Private", tabs: filtered(model.privateTabs), isContained: false)
+                            tabSection("Contained", tabs: filtered(model.containedTabs), isContained: true)
+                        }
                     }
                     .scrollContentBackground(.hidden)
                     .background(theme.color(.canvas))
                 }
             }
-            .navigationTitle("Tab Finder")
+            .navigationTitle(model.isPrivateModeEnabled ? "Private Mode" : "Tab Finder")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find tabs")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        model.openNewTabAndSearch()
+                        model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
                         dismiss()
                     } label: {
-                        Label("New Tab", systemImage: "plus")
+                        Label(model.isPrivateModeEnabled ? "New Private Tab" : "New Tab", systemImage: model.isPrivateModeEnabled ? "theatermasks" : "plus")
                     }
                 }
 
@@ -2321,6 +2511,10 @@ private struct BrowserTabFinderView: View {
     }
 
     private var visibleTabCount: Int {
+        if model.isPrivateModeEnabled {
+            return filtered(model.visiblePrivateTabs).count
+        }
+
         filtered(model.normalTabs).count + filtered(model.privateTabs).count + filtered(model.containedTabs).count
     }
 
@@ -2368,6 +2562,7 @@ private struct TabFinderRow: View {
                             Text(tab.title)
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(theme.color(.text))
+                                .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                                 .lineLimit(1)
 
                             if isSelected {
@@ -2383,6 +2578,7 @@ private struct TabFinderRow: View {
                         Text(subtitle)
                             .font(.caption)
                             .foregroundStyle(theme.color(.mutedText))
+                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                             .lineLimit(1)
                     }
 
@@ -3010,58 +3206,72 @@ private struct NewTabActions: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button {
-                model.openNewTabAndSearch()
-            } label: {
-                HStack(spacing: 8) {
-                    BrowserIcon(slot: .newTab, systemName: "plus.circle.fill", size: layout == .sidebar ? 22 : 20, weight: .bold)
-                        .frame(width: 24, height: 24)
-                    Text("New Tab")
-                        .font(.system(size: 14, weight: .bold))
-                        .lineLimit(1)
+            if model.isPrivateModeEnabled == false {
+                Button {
+                    model.openNewTabAndSearch()
+                } label: {
+                    HStack(spacing: 8) {
+                        BrowserIcon(slot: .newTab, systemName: "plus.circle.fill", size: layout == .sidebar ? 22 : 20, weight: .bold)
+                            .frame(width: 24, height: 24)
+                        Text("New Tab")
+                            .font(.system(size: 14, weight: .bold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(theme.color(.canvas))
+                    .padding(.horizontal, 12)
+                    .frame(width: layout == .strip ? 136 : nil, height: 44)
+                    .frame(maxWidth: layout == .sidebar ? .infinity : nil)
+                    .background(theme.color(.createTab).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.9) : theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
+                    }
                 }
-                .foregroundStyle(theme.color(.canvas))
-                .padding(.horizontal, 12)
-                .frame(width: layout == .strip ? 136 : nil, height: 44)
-                .frame(maxWidth: layout == .sidebar ? .infinity : nil)
-                .background(theme.color(.createTab).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.9) : theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Tab")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("New Tab")
 
             Button {
                 model.openNewTabAndSearch(private: true)
             } label: {
-                BrowserIcon(slot: .privateTab, systemName: "theatermasks", size: 15, weight: .semibold)
-                    .frame(width: 44, height: 44)
-                    .foregroundStyle(theme.chromeForegroundColor)
-                    .background(ControlGlassBackground(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(theme.color(.privateAccent).opacity(0.55), lineWidth: 1)
+                HStack(spacing: 8) {
+                    BrowserIcon(slot: .privateTab, systemName: "theatermasks", size: 15, weight: .semibold)
+                        .frame(width: 24, height: 24)
+                    if model.isPrivateModeEnabled {
+                        Text("New Private Tab")
+                            .font(.system(size: 14, weight: .bold))
+                            .lineLimit(1)
                     }
+                }
+                .padding(.horizontal, model.isPrivateModeEnabled ? 12 : 0)
+                .frame(width: model.isPrivateModeEnabled ? (layout == .strip ? 176 : nil) : 44, height: 44)
+                .frame(maxWidth: model.isPrivateModeEnabled && layout == .sidebar ? .infinity : nil)
+                .foregroundStyle(theme.chromeForegroundColor)
+                .background(ControlGlassBackground(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.privateAccent).opacity(0.55), lineWidth: 1)
+                }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New Private Tab")
 
-            Button {
-                model.openContainedTab()
-            } label: {
-                BrowserIcon(slot: .containedTabs, systemName: "rectangle.on.rectangle", size: 15, weight: .semibold)
-                    .frame(width: 44, height: 44)
-                    .foregroundStyle(theme.chromeForegroundColor)
-                    .background(ControlGlassBackground(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(theme.color(.accent).opacity(0.55), lineWidth: 1)
-                    }
+            if model.isPrivateModeEnabled == false {
+                Button {
+                    model.openContainedTab()
+                } label: {
+                    BrowserIcon(slot: .containedTabs, systemName: "rectangle.on.rectangle", size: 15, weight: .semibold)
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(theme.chromeForegroundColor)
+                        .background(ControlGlassBackground(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(theme.color(.accent).opacity(0.55), lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Contained Tab")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("New Contained Tab")
         }
     }
 }
@@ -3201,12 +3411,14 @@ private struct TabPill: View {
                         Text(tab.title)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(theme.color(.text))
+                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                             .lineLimit(1)
 
                         if layout == .vertical {
                             Text(subtitle)
                                 .font(.caption2)
                                 .foregroundStyle(theme.color(.mutedText))
+                                .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                                 .lineLimit(1)
                         }
                     }
@@ -3267,25 +3479,37 @@ private struct FloatingTabSwitcher: View {
 
     var body: some View {
         Menu {
-            Button {
-                model.openNewTabAndSearch()
-            } label: {
-                Label("New Tab", systemImage: "plus")
-            }
+            if model.isPrivateModeEnabled {
+                Button {
+                    model.openPrivateTab()
+                } label: {
+                    Label("New Private Tab", systemImage: "theatermasks")
+                }
+            } else {
+                Button {
+                    model.openNewTabAndSearch()
+                } label: {
+                    Label("New Tab", systemImage: "plus")
+                }
 
-            Button {
-                model.openPrivateTab()
-            } label: {
-                Label("New Private Tab", systemImage: "theatermasks")
+                Button {
+                    model.openPrivateTab()
+                } label: {
+                    Label("New Private Tab", systemImage: "theatermasks")
+                }
             }
 
             Divider()
 
-            ForEach(model.tabs) { tab in
+            ForEach(model.chromeTabs) { tab in
                 Button {
                     model.select(tab)
                 } label: {
-                    Label(tab.title, systemImage: tab.isPrivate ? "lock.shield" : "globe")
+                    HStack {
+                        Image(systemName: tab.isPrivate ? "lock.shield" : "globe")
+                        Text(tab.title)
+                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
+                    }
                 }
             }
 
@@ -3301,7 +3525,7 @@ private struct FloatingTabSwitcher: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "square.on.square")
-                Text("\(model.tabs.count)")
+                Text("\(model.chromeTabs.count)")
                     .font(.system(size: 14, weight: .bold))
             }
             .frame(height: 36)
