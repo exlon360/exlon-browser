@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import Foundation
 
@@ -160,6 +161,8 @@ struct EmuSession: Identifiable, Codable, Equatable {
     var startedAt: Date
     var state: EmuSessionState
     var logLines: [String]
+    var isAudioEnabled: Bool
+    var audioSampleRate: Double
 
     init(
         id: UUID = UUID(),
@@ -168,7 +171,9 @@ struct EmuSession: Identifiable, Codable, Equatable {
         packageKind: EmuPackageKind,
         startedAt: Date = Date(),
         state: EmuSessionState,
-        logLines: [String]
+        logLines: [String],
+        isAudioEnabled: Bool = false,
+        audioSampleRate: Double = 48_000
     ) {
         self.id = id
         self.packageID = packageID
@@ -177,6 +182,8 @@ struct EmuSession: Identifiable, Codable, Equatable {
         self.startedAt = startedAt
         self.state = state
         self.logLines = logLines
+        self.isAudioEnabled = isAudioEnabled
+        self.audioSampleRate = audioSampleRate
     }
 }
 
@@ -218,6 +225,7 @@ final class EmuLibrary: ObservableObject {
     @Published var activeSession: EmuSession?
     @Published var isEmulatorPresented = false
     @Published var statusMessage = ""
+    private let audioOutput = EmulatorAudioOutput()
 
     init() {
         let savedPackages = Self.loadPackages()
@@ -254,19 +262,27 @@ final class EmuLibrary: ObservableObject {
     func run(_ package: EmuPackage) {
         selectedPackageID = package.id
         let state: EmuSessionState = package.kind == .unknown ? .failed : .engineMissing
-        let lines = [
+        let audioStarted = startAudioOutput()
+        var lines = [
             Self.logLine("Loaded \(package.filename)."),
             Self.logLine("Detected \(package.kind.longTitle)."),
             Self.logLine("Selected \(package.kind.runtimeName)."),
             Self.logLine(package.kind.runtimeNote),
             Self.logLine("Using the bundled engine slot for this file type.")
         ]
+        lines.append(
+            audioStarted
+                ? Self.logLine("Audio output ready at \(Int(audioOutput.sampleRate)) Hz.")
+                : Self.logLine("Audio output could not start on this device.")
+        )
         activeSession = EmuSession(
             packageID: package.id,
             packageName: package.filename,
             packageKind: package.kind,
             state: state,
-            logLines: lines
+            logLines: lines,
+            isAudioEnabled: audioStarted,
+            audioSampleRate: audioOutput.sampleRate
         )
         isEmulatorPresented = true
         statusMessage = "Local engine session opened for \(package.filename)."
@@ -308,6 +324,16 @@ final class EmuLibrary: ObservableObject {
     func clearSession() {
         activeSession = nil
         isEmulatorPresented = false
+        audioOutput.stop()
+    }
+
+    private func startAudioOutput() -> Bool {
+        do {
+            try audioOutput.start()
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func importURLs(_ urls: [URL]) {
@@ -419,4 +445,64 @@ final class EmuLibrary: ObservableObject {
     }
 
     private static let storageKey = "GlideEmu.packages"
+}
+
+final class EmulatorAudioOutput {
+    private let engine = AVAudioEngine()
+    private let player = AVAudioPlayerNode()
+    private let format: AVAudioFormat
+    private var isConfigured = false
+
+    init() {
+        self.format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false)!
+    }
+
+    var sampleRate: Double {
+        format.sampleRate
+    }
+
+    func start() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .allowBluetoothA2DP, .defaultToSpeaker])
+        try session.setPreferredSampleRate(format.sampleRate)
+        try session.setPreferredIOBufferDuration(0.01)
+        try session.setActive(true)
+
+        if isConfigured == false {
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            isConfigured = true
+        }
+
+        if engine.isRunning == false {
+            try engine.start()
+        }
+
+        if player.isPlaying == false {
+            player.play()
+        }
+    }
+
+    func stop() {
+        player.stop()
+        engine.stop()
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    func enqueueStereoFloat32(_ samples: [Float]) {
+        let frameCount = AVAudioFrameCount(samples.count / 2)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+              let left = buffer.floatChannelData?[0],
+              let right = buffer.floatChannelData?[1] else {
+            return
+        }
+
+        buffer.frameLength = frameCount
+        for frame in 0..<Int(frameCount) {
+            left[frame] = samples[frame * 2]
+            right[frame] = samples[frame * 2 + 1]
+        }
+        player.scheduleBuffer(buffer)
+    }
 }

@@ -550,6 +550,10 @@ private struct EmulatorOverlay: View {
                 }
 
                 Spacer(minLength: 0)
+
+                Image(systemName: session.isAudioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(session.isAudioEnabled ? Color(red: 0.57, green: 0.86, blue: 0.74) : .yellow)
             }
             .padding(10)
             .background(Color.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))

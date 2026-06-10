@@ -88,6 +88,7 @@ def main() -> int:
         "GlideEmu.xcodeproj/xcshareddata/xcschemes/GlideEmu.xcscheme",
         "GlideEmu/Assets.xcassets/Contents.json",
         "GlideEmu/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "GlideEmu/Assets.xcassets/AppIcon.appiconset/Icon-Source-GlideEmu.png",
         "GlideEmu/ContentView.swift",
         "GlideEmu/EmuModels.swift",
         "GlideEmu/GlideEmuApp.swift",
@@ -917,6 +918,11 @@ def main() -> int:
         "Glide Emu must open packages into a full-screen emulator surface.",
     )
     require_contains(
+        "GlideEmu/ContentView.swift",
+        "speaker.wave.2.fill",
+        "Glide Emu must show audio status while running a package.",
+    )
+    require_contains(
         "GlideEmu/EmuModels.swift",
         "func run(_ package: EmuPackage)",
         "Glide Emu must include a run-session entry point.",
@@ -925,6 +931,26 @@ def main() -> int:
         "GlideEmu/EmuModels.swift",
         "isEmulatorPresented = true",
         "Glide Emu must present the emulator screen when Run is pressed.",
+    )
+    require_contains(
+        "GlideEmu/EmuModels.swift",
+        "AVAudioSession.sharedInstance()",
+        "Glide Emu must configure an iOS audio session for emulator sound.",
+    )
+    require_contains(
+        "GlideEmu/EmuModels.swift",
+        "AVAudioEngine",
+        "Glide Emu must provide an audio engine output path.",
+    )
+    require_contains(
+        "GlideEmu/Info.plist",
+        "UIBackgroundModes",
+        "Glide Emu must declare audio background mode for emulator sound.",
+    )
+    require_contains(
+        "GlideEmu.xcodeproj/project.pbxproj",
+        "AVFoundation.framework in Frameworks",
+        "Glide Emu must link AVFoundation for emulator audio.",
     )
     require_contains(
         "GlideEmu/EmuModels.swift",

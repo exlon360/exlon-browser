@@ -11,6 +11,7 @@
 		B10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* ContentView.swift */; };
 		B10000000000000000000003 /* EmuModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* EmuModels.swift */; };
 		B10000000000000000000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000015 /* Assets.xcassets */; };
+		B10000000000000000000005 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10000000000000000000016 /* AVFoundation.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +21,7 @@
 		B10000000000000000000013 /* EmuModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmuModels.swift; sourceTree = "<group>"; };
 		B10000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B10000000000000000000016 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -27,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B10000000000000000000005 /* AVFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -37,6 +40,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000031 /* GlideEmu */,
+				B10000000000000000000033 /* Frameworks */,
 				B10000000000000000000032 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -59,6 +63,14 @@
 				B10000000000000000000010 /* GlideEmu.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B10000000000000000000033 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000016 /* AVFoundation.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
