@@ -33,7 +33,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Downloads panel backed by WebKit downloads and a manual "Download Current Tab" action; downloaded file bytes are encrypted at rest in Glide's vault storage, with preview/share only after an export warning creates a temporary decrypted copy.
 - Local crash log detection for dirty foreground exits, with a crash logs menu that appears after unlock when a crash-like relaunch is detected.
 - Web page file-upload fields open a native file picker for sending local files.
-- Native WebKit content-rule ad/tracker blocking is enabled by default with 100-plus blocker domains and cosmetic hiding rules.
+- Native WebKit content-rule ad/tracker blocking is enabled by default with 200-plus blocker domains, aggressive ad URL-pattern rules, cosmetic hiding, and anti-adblock nag cleanup.
 - Gesture controls: two-finger swipe left hides the tab bar, two-finger swipe right reveals it, and three-finger horizontal swipes go back or forward.
 - Collapsible side tabs without a visible side hider handle.
 - Custom VPN profile setup using iOS Personal VPN APIs for a user-supplied country/server.

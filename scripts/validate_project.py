@@ -148,6 +148,31 @@ def main() -> int:
     )
     require_minimum_blocked_domains(100)
     require_contains(
+        "ZenFireBrowser/BrowserContentBlocker.swift",
+        "blockedURLPatterns",
+        "The ad blocker must include aggressive URL-pattern blocking.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserContentBlocker.swift",
+        "antiAdBlockScript",
+        "The ad blocker must include anti-adblock cleanup script injection.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserContentBlocker.swift",
+        "MutationObserver",
+        "The anti-adblock cleanup must handle dynamically injected nags.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserContentBlocker.swift",
+        "addUserScript",
+        "The ad blocker must install a WebKit user script when enabled.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserContentBlocker.swift",
+        "removeAllUserScripts",
+        "Turning the ad blocker off must remove injected blocker scripts.",
+    )
+    require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",
         "vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)",
         "The ad blocker must be enabled by default for fresh installs.",
