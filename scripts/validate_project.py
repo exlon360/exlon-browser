@@ -907,9 +907,29 @@ def main() -> int:
         "Glide Emu must expose a native Files importer.",
     )
     require_contains(
+        "GlideEmu/ContentView.swift",
+        "LocalTouchSurfaceView",
+        "Glide Emu must expose touch controls for local engines.",
+    )
+    require_contains(
         "GlideEmu/EmuModels.swift",
         "func run(_ package: EmuPackage)",
         "Glide Emu must include a run-session entry point.",
+    )
+    require_contains(
+        "GlideEmu/EmuModels.swift",
+        "engineMissing",
+        "Glide Emu must clearly report when a local engine is missing.",
+    )
+    require_absent(
+        "GlideEmu/ContentView.swift",
+        "VM Bridge",
+        "Glide Emu must not expose VM Bridge UI.",
+    )
+    require_absent(
+        "GlideEmu/EmuModels.swift",
+        "POST /api/sessions",
+        "Glide Emu must not depend on a remote VM bridge API.",
     )
     require_contains(
         ".github/workflows/build-glide-emu-ipa.yml",

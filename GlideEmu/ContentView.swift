@@ -44,9 +44,11 @@ struct ContentView: View {
                             deleteAction: library.delete
                         )
 
-                        SessionConsoleView(session: library.activeSession) {
-                            library.clearSession()
-                        }
+                        SessionConsoleView(
+                            session: library.activeSession,
+                            touchAction: library.recordTouch,
+                            clearAction: library.clearSession
+                        )
 
                         if library.statusMessage.isEmpty == false {
                             Text(library.statusMessage)
@@ -158,7 +160,7 @@ private struct HeroHeader: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text("Import packages, stage runtime sessions, and keep your IPA build ready.")
+                    Text("Import packages and run them through bundled local engines.")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.66))
                         .fixedSize(horizontal: false, vertical: true)
@@ -193,7 +195,7 @@ private struct HeroHeader: View {
 private struct RuntimeMatrixView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Runtime Slots")
+            Text("Local Engines")
                 .font(.headline.weight(.black))
                 .foregroundStyle(.white)
 
@@ -263,7 +265,7 @@ private struct PackageLibraryView: View {
                             Button {
                                 runAction(package)
                             } label: {
-                                Label("Run", systemImage: "play.fill")
+                                Label("Run Locally", systemImage: "play.fill")
                             }
 
                             Button(role: .destructive) {
@@ -377,7 +379,7 @@ private struct PackageDetailView: View {
                         Button {
                             runAction(package)
                         } label: {
-                            Label("Run", systemImage: "play.fill")
+                            Label("Run Locally", systemImage: "play.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
@@ -417,12 +419,13 @@ private struct PackageDetailView: View {
 
 private struct SessionConsoleView: View {
     let session: EmuSession?
+    let touchAction: (EmuTouchEvent) -> Void
     let clearAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Run Session")
+                Text("Local Engine Session")
                     .font(.headline.weight(.black))
                     .foregroundStyle(.white)
 
@@ -451,11 +454,27 @@ private struct SessionConsoleView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
+                    LocalTouchSurfaceView(sendEvent: touchAction)
+                        .frame(height: 128)
+                        .padding(.top, 4)
+
+                    HStack(spacing: 8) {
+                        TouchCommandButton(title: "Back", symbolName: "chevron.left") {
+                            touchAction(.key("back"))
+                        }
+                        TouchCommandButton(title: "Home", symbolName: "house") {
+                            touchAction(.key("home"))
+                        }
+                        TouchCommandButton(title: "Menu", symbolName: "line.3.horizontal") {
+                            touchAction(.key("menu"))
+                        }
+                    }
+
                     Button("Clear Session", action: clearAction)
                         .buttonStyle(.bordered)
                         .padding(.top, 4)
                 } else {
-                    Text("No session yet. Choose a package and press Run.")
+                    Text("No session yet. Choose a package and press Run Locally.")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -468,6 +487,74 @@ private struct SessionConsoleView: View {
                     .stroke(Color.white.opacity(0.08), lineWidth: 1)
             }
         }
+    }
+}
+
+private struct LocalTouchSurfaceView: View {
+    let sendEvent: (EmuTouchEvent) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.055))
+
+                VStack(spacing: 6) {
+                    Image(systemName: "hand.tap")
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(Color(red: 0.57, green: 0.86, blue: 0.74))
+
+                    Text("Touch Surface")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.white)
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onEnded { value in
+                        let point = normalizedPoint(value.location, size: proxy.size)
+                        let dx = Double(value.translation.width / max(proxy.size.width, 1))
+                        let dy = Double(value.translation.height / max(proxy.size.height, 1))
+
+                        if abs(value.translation.width) < 8 && abs(value.translation.height) < 8 {
+                            sendEvent(.tap(x: point.x, y: point.y))
+                        } else {
+                            sendEvent(.drag(x: point.x, y: point.y, dx: dx, dy: dy))
+                        }
+                    }
+            )
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .onEnded { scale in
+                        sendEvent(.pinch(scale: Double(scale)))
+                    }
+            )
+        }
+    }
+
+    private func normalizedPoint(_ point: CGPoint, size: CGSize) -> (x: Double, y: Double) {
+        let width = max(size.width, 1)
+        let height = max(size.height, 1)
+        let x = min(max(point.x / width, 0), 1)
+        let y = min(max(point.y / height, 0), 1)
+        return (Double(x), Double(y))
+    }
+}
+
+private struct TouchCommandButton: View {
+    let title: String
+    let symbolName: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbolName)
+                .font(.caption.weight(.black))
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+        }
+        .buttonStyle(.bordered)
     }
 }
 

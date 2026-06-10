@@ -105,7 +105,7 @@ Then run the `Build Signed IPA` workflow manually.
 
 ## Separate Glide Emu App
 
-`GlideEmu.xcodeproj` is a separate SwiftUI iOS app from the Glide browser. It registers `.dmg`, `.apk`, `.exe`, and `.deb` document imports, copies selected packages into app storage, keeps a local package library, and opens a run-session console for the selected runtime slot.
+`GlideEmu.xcodeproj` is a separate SwiftUI iOS app from the Glide browser. It registers `.dmg`, `.apk`, `.exe`, and `.deb` document imports, copies selected packages into app storage, keeps a local package library, and opens a local-engine touch session for the selected package type.
 
 Build it from GitHub Actions with the `Build Glide Emu IPA` workflow. For release assets, push an `emu-v*` tag, such as:
 
@@ -114,4 +114,4 @@ git tag emu-v0.1.0
 git push origin emu-v0.1.0
 ```
 
-The first version stages imports and runtime sessions. Real execution still requires bundling the matching VM, interpreter, or compatibility core into the IPA; iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.
+This no-remote design requires bundled local engines inside the IPA for real execution. iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.

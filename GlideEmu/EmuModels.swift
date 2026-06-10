@@ -75,28 +75,28 @@ enum EmuPackageKind: String, Codable, CaseIterable, Identifiable {
     var runtimeName: String {
         switch self {
         case .dmg:
-            return "Darwin image runtime"
+            return "Local Darwin engine"
         case .apk:
-            return "Android userspace runtime"
+            return "Local Android engine"
         case .exe:
-            return "Windows compatibility runtime"
+            return "Local Windows engine"
         case .deb:
-            return "Linux package runtime"
+            return "Local Linux engine"
         case .unknown:
-            return "Generic runtime"
+            return "Generic local engine"
         }
     }
 
     var runtimeNote: String {
         switch self {
         case .dmg:
-            return "DMG files can be imported and inspected. Booting macOS apps requires a bundled virtualization/runtime core that is not included yet."
+            return "DMG files need a bundled local Darwin-compatible engine before they can run."
         case .apk:
-            return "APK files can be imported. Running Android apps on iOS requires a bundled Android runtime or emulator core."
+            return "APK files need a bundled local Android runtime before they can run."
         case .exe:
-            return "EXE files can be imported. Running Windows binaries on iOS requires a bundled compatibility layer or CPU emulator."
+            return "EXE files need a bundled local Windows compatibility engine before they can run."
         case .deb:
-            return "DEB files can be imported. Installing package contents requires a Linux userspace container/runtime."
+            return "DEB files need a bundled local Linux userspace engine before they can run."
         case .unknown:
             return "This file type is not mapped to a runtime slot."
         }
@@ -105,15 +105,15 @@ enum EmuPackageKind: String, Codable, CaseIterable, Identifiable {
 
 enum EmuSessionState: String, Codable {
     case ready
-    case runtimeNeeded
+    case engineMissing
     case failed
 
     var title: String {
         switch self {
         case .ready:
             return "Ready"
-        case .runtimeNeeded:
-            return "Runtime Needed"
+        case .engineMissing:
+            return "Engine Missing"
         case .failed:
             return "Failed"
         }
@@ -180,6 +180,33 @@ struct EmuSession: Identifiable, Codable, Equatable {
     }
 }
 
+struct EmuTouchEvent: Codable, Equatable {
+    var type: String
+    var x: Double?
+    var y: Double?
+    var dx: Double?
+    var dy: Double?
+    var scale: Double?
+    var key: String?
+    var timestamp: TimeInterval
+
+    static func tap(x: Double, y: Double) -> EmuTouchEvent {
+        EmuTouchEvent(type: "tap", x: x, y: y, dx: nil, dy: nil, scale: nil, key: nil, timestamp: Date().timeIntervalSince1970)
+    }
+
+    static func drag(x: Double, y: Double, dx: Double, dy: Double) -> EmuTouchEvent {
+        EmuTouchEvent(type: "drag", x: x, y: y, dx: dx, dy: dy, scale: nil, key: nil, timestamp: Date().timeIntervalSince1970)
+    }
+
+    static func pinch(scale: Double) -> EmuTouchEvent {
+        EmuTouchEvent(type: "pinch", x: nil, y: nil, dx: nil, dy: nil, scale: scale, key: nil, timestamp: Date().timeIntervalSince1970)
+    }
+
+    static func key(_ key: String) -> EmuTouchEvent {
+        EmuTouchEvent(type: "key", x: nil, y: nil, dx: nil, dy: nil, scale: nil, key: key, timestamp: Date().timeIntervalSince1970)
+    }
+}
+
 @MainActor
 final class EmuLibrary: ObservableObject {
     @Published var packages: [EmuPackage] {
@@ -225,13 +252,13 @@ final class EmuLibrary: ObservableObject {
 
     func run(_ package: EmuPackage) {
         selectedPackageID = package.id
-        let state: EmuSessionState = package.kind == .unknown ? .failed : .runtimeNeeded
+        let state: EmuSessionState = package.kind == .unknown ? .failed : .engineMissing
         let lines = [
             Self.logLine("Loaded \(package.filename)."),
             Self.logLine("Detected \(package.kind.longTitle)."),
             Self.logLine("Selected \(package.kind.runtimeName)."),
             Self.logLine(package.kind.runtimeNote),
-            Self.logLine("Next step: bundle the matching VM, interpreter, or compatibility core into the IPA.")
+            Self.logLine("No remote service is used. Add a bundled local engine for this file type.")
         ]
         activeSession = EmuSession(
             packageID: package.id,
@@ -240,7 +267,28 @@ final class EmuLibrary: ObservableObject {
             state: state,
             logLines: lines
         )
-        statusMessage = "Run session opened for \(package.filename)."
+        statusMessage = "Local engine session opened for \(package.filename)."
+    }
+
+    func recordTouch(_ event: EmuTouchEvent) {
+        guard var session = activeSession else { return }
+
+        switch event.type {
+        case "tap":
+            let x = Int((event.x ?? 0) * 100)
+            let y = Int((event.y ?? 0) * 100)
+            session.logLines.append(Self.logLine("Touch tap \(x)% \(y)% captured for local engine."))
+        case "drag":
+            session.logLines.append(Self.logLine("Touch drag captured for local engine."))
+        case "pinch":
+            session.logLines.append(Self.logLine("Touch pinch \(String(format: "%.2f", event.scale ?? 1)) captured for local engine."))
+        case "key":
+            session.logLines.append(Self.logLine("Touch key \(event.key ?? "unknown") captured for local engine."))
+        default:
+            session.logLines.append(Self.logLine("Touch event captured for local engine."))
+        }
+
+        activeSession = session
     }
 
     func delete(_ package: EmuPackage) {
