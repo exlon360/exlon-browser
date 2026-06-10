@@ -1997,6 +1997,7 @@ private struct ContainedBrowserOverlay: View {
 
                     if let tab = model.selectedContainedTab {
                         ContainedTabStrip()
+                        ContainedAddressBar(tab: tab)
 
                         BrowserWebView(tab: tab)
                             .id(tab.id)

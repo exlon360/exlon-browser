@@ -64,11 +64,15 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        if #available(iOS 14.0, *) {
+            configuration.limitsNavigationsToAppBoundDomains = false
+        }
         configuration.websiteDataStore = (isPrivate || usesPersistentStorage == false) ? .nonPersistent() : .default()
 
         self.webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
 
+        webView.customUserAgent = Self.safariCompatibleUserAgent()
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -99,11 +103,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             return
         }
 
-        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 25)
-        if #available(iOS 12.0, *) {
-            request.networkServiceType = .responsiveData
-        }
-        webView.load(request)
+        webView.load(Self.websiteRequest(for: url))
     }
 
     func submitAddress(searchEngine: BrowserSearchEngine, customSearchTemplate: String) {
@@ -228,6 +228,182 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         } catch {
             // Web audio still works without the session; this only improves iOS routing behavior.
         }
+    }
+
+    private static let containedCompatibilityDomains: Set<String> = [
+        "youtube.com",
+        "youtu.be",
+        "googlevideo.com",
+        "ytimg.com",
+        "open.spotify.com",
+        "spotify.com",
+        "music.apple.com",
+        "soundcloud.com",
+        "bandcamp.com",
+        "netflix.com",
+        "hulu.com",
+        "disneyplus.com",
+        "primevideo.com",
+        "max.com",
+        "hbomax.com",
+        "peacocktv.com",
+        "paramountplus.com",
+        "tv.apple.com",
+        "appletv.apple.com",
+        "crunchyroll.com",
+        "twitch.tv",
+        "kick.com",
+        "rumble.com",
+        "vimeo.com",
+        "dailymotion.com",
+        "tiktok.com",
+        "x.com",
+        "twitter.com",
+        "instagram.com",
+        "facebook.com",
+        "reddit.com",
+        "gmail.com",
+        "accounts.google.com",
+        "google.com",
+        "github.com",
+        "gitlab.com",
+        "stackoverflow.com",
+        "stackexchange.com",
+        "notion.so",
+        "figma.com",
+        "discord.com",
+        "chatgpt.com",
+        "claude.ai",
+        "gemini.google.com",
+        "grok.com",
+        "perplexity.ai",
+        "login.microsoftonline.com",
+        "appleid.apple.com",
+        "amazon.com",
+        "ebay.com",
+        "walmart.com",
+        "target.com",
+        "bestbuy.com",
+        "linkedin.com",
+        "pinterest.com",
+        "medium.com",
+        "nytimes.com",
+        "cnn.com",
+        "bbc.com",
+        "microsoft.com",
+        "office.com",
+        "live.com",
+        "icloud.com",
+        "dropbox.com"
+    ]
+
+    private static let containedCompatibilityPathHints = [
+        "/login",
+        "/signin",
+        "/sign-in",
+        "/auth",
+        "/oauth",
+        "/authorize",
+        "/checkout",
+        "/payment",
+        "/watch",
+        "/embed",
+        "/player",
+        "/stream",
+        "/video",
+        "/videos",
+        "/live"
+    ]
+
+    private static let containedShellHosts: Set<String> = [
+        "browser.local",
+        "duckduckgo.com",
+        "lite.duckduckgo.com",
+        "html.duckduckgo.com",
+        "www.duckduckgo.com"
+    ]
+
+    private static func websiteRequest(for url: URL) -> URLRequest {
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30)
+        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        if #available(iOS 12.0, *) {
+            request.networkServiceType = .responsiveData
+        }
+        return request
+    }
+
+    private static func safariCompatibleUserAgent() -> String {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+        }
+
+        return "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    }
+
+    private static func normalizedHost(for url: URL?) -> String {
+        url?.host?.lowercased().replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) ?? ""
+    }
+
+    private static func domain(_ host: String, matches domains: Set<String>) -> Bool {
+        domains.contains(host) || domains.contains(where: { host.hasSuffix("." + $0) })
+    }
+
+    private static func isContainedCompatibilityURL(_ url: URL) -> Bool {
+        let host = normalizedHost(for: url)
+        let path = url.path.lowercased()
+        return domain(host, matches: containedCompatibilityDomains) ||
+            containedCompatibilityPathHints.contains { hint in
+                path == hint || path.hasPrefix(hint + "/") || path.contains(hint + "/")
+            }
+    }
+
+    private static func redirectedDestinationURL(from url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let host = normalizedHost(for: url)
+        let searchRedirectHosts: Set<String> = [
+            "duckduckgo.com",
+            "lite.duckduckgo.com",
+            "html.duckduckgo.com",
+            "google.com",
+            "bing.com"
+        ]
+        guard domain(host, matches: searchRedirectHosts) else { return nil }
+
+        let redirectKeys = ["uddg", "q", "url", "u"]
+        for key in redirectKeys {
+            guard let value = components.queryItems?.first(where: { $0.name.lowercased() == key })?.value,
+                  let decodedURL = URL(string: value),
+                  decodedURL.scheme?.hasPrefix("http") == true else {
+                continue
+            }
+            return decodedURL
+        }
+
+        return nil
+    }
+
+    private static func promotedContainedURL(from navigationAction: WKNavigationAction) -> URL? {
+        guard navigationAction.targetFrame?.isMainFrame == false,
+              let requestURL = navigationAction.request.url else {
+            return nil
+        }
+
+        let mainHost = normalizedHost(for: navigationAction.request.mainDocumentURL)
+        let sourceHost = normalizedHost(for: navigationAction.sourceFrame.request.url)
+        guard domain(mainHost, matches: containedShellHosts) || domain(sourceHost, matches: containedShellHosts) else {
+            return nil
+        }
+
+        if isContainedCompatibilityURL(requestURL) {
+            return requestURL
+        }
+
+        if let redirectedURL = redirectedDestinationURL(from: requestURL),
+           isContainedCompatibilityURL(redirectedURL) {
+            return redirectedURL
+        }
+
+        return nil
     }
 
     private static func containedBrowserHTML(defaultURLString: String) -> String {
@@ -488,10 +664,24 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               "spotify.com",
               "music.apple.com",
               "soundcloud.com",
+              "bandcamp.com",
               "netflix.com",
               "hulu.com",
               "disneyplus.com",
               "primevideo.com",
+              "max.com",
+              "hbomax.com",
+              "peacocktv.com",
+              "paramountplus.com",
+              "tv.apple.com",
+              "appletv.apple.com",
+              "crunchyroll.com",
+              "twitch.tv",
+              "kick.com",
+              "rumble.com",
+              "vimeo.com",
+              "dailymotion.com",
+              "tiktok.com",
               "x.com",
               "twitter.com",
               "instagram.com",
@@ -507,17 +697,29 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               "notion.so",
               "figma.com",
               "discord.com",
-              "twitch.tv",
-              "vimeo.com",
-              "dailymotion.com",
-              "tiktok.com",
               "chatgpt.com",
               "claude.ai",
               "gemini.google.com",
               "grok.com",
               "perplexity.ai",
               "login.microsoftonline.com",
-              "appleid.apple.com"
+              "appleid.apple.com",
+              "amazon.com",
+              "ebay.com",
+              "walmart.com",
+              "target.com",
+              "bestbuy.com",
+              "linkedin.com",
+              "pinterest.com",
+              "medium.com",
+              "nytimes.com",
+              "cnn.com",
+              "bbc.com",
+              "microsoft.com",
+              "office.com",
+              "live.com",
+              "icloud.com",
+              "dropbox.com"
             ];
             const directPathHints = [
               "/login",
@@ -531,7 +733,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               "/watch",
               "/embed",
               "/player",
-              "/stream"
+              "/stream",
+              "/video",
+              "/videos",
+              "/live"
             ];
             let stack = [];
             let index = -1;
@@ -545,7 +750,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               if (/^(https?|file):\\/\\//i.test(value)) return value;
               if (/^(localhost|127\\.0\\.0\\.1)(:|\\/|$)/i.test(value)) return "http://" + value;
               if (value.includes(".") || value.includes(":")) return "https://" + value;
-              return "https://duckduckgo.com/?q=" + encodeURIComponent(value);
+              return "https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(value);
             }
 
             function hostFor(url) {
@@ -948,7 +1153,10 @@ extension BrowserTab: WKNavigationDelegate {
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         preferences.allowsContentJavaScript = true
-        if navigationAction.shouldPerformDownload {
+        if let promotedURL = Self.promotedContainedURL(from: navigationAction) {
+            decisionHandler(.cancel, preferences)
+            webView.load(Self.websiteRequest(for: promotedURL))
+        } else if navigationAction.shouldPerformDownload {
             decisionHandler(.download, preferences)
         } else {
             decisionHandler(.allow, preferences)

@@ -496,7 +496,6 @@ enum BrowserContentBlocker {
         "style-sheet",
         "script",
         "font",
-        "media",
         "svg-document"
     ]
 
@@ -510,10 +509,84 @@ enum BrowserContentBlocker {
         "raw"
     ]
 
+    private static let compatibilityDomains = [
+        "youtube.com",
+        "youtu.be",
+        "googlevideo.com",
+        "ytimg.com",
+        "spotify.com",
+        "music.apple.com",
+        "soundcloud.com",
+        "bandcamp.com",
+        "netflix.com",
+        "hulu.com",
+        "disneyplus.com",
+        "primevideo.com",
+        "max.com",
+        "hbomax.com",
+        "peacocktv.com",
+        "paramountplus.com",
+        "tv.apple.com",
+        "appletv.apple.com",
+        "crunchyroll.com",
+        "twitch.tv",
+        "kick.com",
+        "rumble.com",
+        "vimeo.com",
+        "dailymotion.com",
+        "tiktok.com",
+        "x.com",
+        "twitter.com",
+        "instagram.com",
+        "facebook.com",
+        "reddit.com",
+        "gmail.com",
+        "accounts.google.com",
+        "google.com",
+        "github.com",
+        "gitlab.com",
+        "stackoverflow.com",
+        "stackexchange.com",
+        "notion.so",
+        "figma.com",
+        "discord.com",
+        "chatgpt.com",
+        "claude.ai",
+        "gemini.google.com",
+        "grok.com",
+        "perplexity.ai",
+        "login.microsoftonline.com",
+        "appleid.apple.com",
+        "amazon.com",
+        "ebay.com",
+        "walmart.com",
+        "target.com",
+        "bestbuy.com",
+        "linkedin.com",
+        "pinterest.com",
+        "medium.com",
+        "nytimes.com",
+        "cnn.com",
+        "bbc.com",
+        "microsoft.com",
+        "office.com",
+        "live.com",
+        "icloud.com",
+        "dropbox.com"
+    ]
+
+    private static let compatibilityRuleDomains = compatibilityDomains.map { "*\($0)" }
+
     private static let antiAdBlockScript = """
     (() => {
       if (window.__glideAggressiveAdBlockerInstalled) { return; }
       window.__glideAggressiveAdBlockerInstalled = true;
+
+      const compatibilityHosts = \(Self.javascriptArrayLiteral(from: compatibilityDomains));
+      const currentHost = location.hostname.replace(/^www\\./, "").toLowerCase();
+      if (compatibilityHosts.some((domain) => currentHost === domain || currentHost.endsWith("." + domain))) {
+        return;
+      }
 
       const textPattern = /(ad\\s*block|adblock|ad-block|disable\\s+(your\\s+)?ad|turn\\s+off\\s+(your\\s+)?ad|whitelist\\s+(us|this)|allow\\s+ads|support\\s+us\\s+by\\s+allowing\\s+ads|we\\s+noticed\\s+.*ad|detected\\s+.*ad|disable\\s+.*blocker|blocker\\s+detected)/i;
       const selectorList = \(Self.javascriptArrayLiteral(from: cosmeticSelectors.components(separatedBy: ", ")));
@@ -686,7 +759,8 @@ enum BrowserContentBlocker {
                 "trigger": [
                     "url-filter": ".*(\(domainPattern)).*",
                     "resource-type": targetedBlockedResourceTypes,
-                    "load-type": ["third-party"]
+                    "load-type": ["third-party"],
+                    "unless-domain": compatibilityRuleDomains
                 ],
                 "action": [
                     "type": "block"
@@ -694,7 +768,8 @@ enum BrowserContentBlocker {
             ],
             [
                 "trigger": [
-                    "url-filter": ".*"
+                    "url-filter": ".*",
+                    "unless-domain": compatibilityRuleDomains
                 ],
                 "action": [
                     "type": "css-display-none",
@@ -707,7 +782,8 @@ enum BrowserContentBlocker {
             [
                 "trigger": [
                     "url-filter": pattern,
-                    "resource-type": targetedBlockedResourceTypes
+                    "resource-type": targetedBlockedResourceTypes,
+                    "unless-domain": compatibilityRuleDomains
                 ],
                 "action": [
                     "type": "block"
@@ -720,7 +796,8 @@ enum BrowserContentBlocker {
                 "trigger": [
                     "url-filter": pattern,
                     "resource-type": broadBlockedResourceTypes,
-                    "load-type": ["third-party"]
+                    "load-type": ["third-party"],
+                    "unless-domain": compatibilityRuleDomains
                 ],
                 "action": [
                     "type": "block"
