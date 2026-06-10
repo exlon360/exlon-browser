@@ -252,7 +252,7 @@ private struct BrowserShell: View {
     @EnvironmentObject private var security: AppSecurityModel
 
     var body: some View {
-        GeometryReader { _ in
+        GeometryReader { proxy in
             ZStack {
                 BrowserBackground()
 

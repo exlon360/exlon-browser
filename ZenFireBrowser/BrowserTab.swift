@@ -226,7 +226,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         let escapedDefaultURL = htmlEscaped(defaultURLString)
         let scriptDefaultURL = javaScriptEscaped(defaultURLString)
 
-        """
+        return """
         <!doctype html>
         <html lang="en">
         <head>
