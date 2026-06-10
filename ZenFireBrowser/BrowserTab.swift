@@ -230,7 +230,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         }
     }
 
-    private static let containedCompatibilityDomains: Set<String> = [
+    private nonisolated static let containedCompatibilityDomains: Set<String> = [
         "youtube.com",
         "youtu.be",
         "googlevideo.com",
@@ -297,7 +297,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         "dropbox.com"
     ]
 
-    private static let containedCompatibilityPathHints = [
+    private nonisolated static let containedCompatibilityPathHints = [
         "/login",
         "/signin",
         "/sign-in",
@@ -315,7 +315,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         "/live"
     ]
 
-    private static let containedShellHosts: Set<String> = [
+    private nonisolated static let containedShellHosts: Set<String> = [
         "browser.local",
         "duckduckgo.com",
         "lite.duckduckgo.com",
@@ -323,7 +323,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         "www.duckduckgo.com"
     ]
 
-    private static func websiteRequest(for url: URL) -> URLRequest {
+    private nonisolated static func websiteRequest(for url: URL) -> URLRequest {
         var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30)
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
         if #available(iOS 12.0, *) {
@@ -340,15 +340,15 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         return "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
     }
 
-    private static func normalizedHost(for url: URL?) -> String {
+    private nonisolated static func normalizedHost(for url: URL?) -> String {
         url?.host?.lowercased().replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) ?? ""
     }
 
-    private static func domain(_ host: String, matches domains: Set<String>) -> Bool {
+    private nonisolated static func domain(_ host: String, matches domains: Set<String>) -> Bool {
         domains.contains(host) || domains.contains(where: { host.hasSuffix("." + $0) })
     }
 
-    private static func isContainedCompatibilityURL(_ url: URL) -> Bool {
+    private nonisolated static func isContainedCompatibilityURL(_ url: URL) -> Bool {
         let host = normalizedHost(for: url)
         let path = url.path.lowercased()
         return domain(host, matches: containedCompatibilityDomains) ||
@@ -357,7 +357,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             }
     }
 
-    private static func redirectedDestinationURL(from url: URL) -> URL? {
+    private nonisolated static func redirectedDestinationURL(from url: URL) -> URL? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         let host = normalizedHost(for: url)
         let searchRedirectHosts: Set<String> = [
@@ -382,7 +382,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         return nil
     }
 
-    private static func promotedContainedURL(from navigationAction: WKNavigationAction) -> URL? {
+    private nonisolated static func promotedContainedURL(from navigationAction: WKNavigationAction) -> URL? {
         guard navigationAction.targetFrame?.isMainFrame == false,
               let requestURL = navigationAction.request.url else {
             return nil
