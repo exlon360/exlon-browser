@@ -290,6 +290,14 @@ private struct BrowserShell: View {
                     .padding(.top, pageControlsTopPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
+                if model.isTopSearchBarEnabled {
+                    BrowserTopSearchBar()
+                        .padding(.top, topSearchBarTopPadding)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 if model.isContainedBrowserPresented {
                     ContainedBrowserOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
@@ -341,6 +349,18 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $model.isAdvancedConfigPresented) {
+                AdvancedConfigView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $model.isCustomIconsPresented) {
+                CustomIconsView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
             .sheet(isPresented: $model.isLocalAIImporterPresented) {
                 LocalAIImportView()
                     .environmentObject(model)
@@ -380,10 +400,21 @@ private struct BrowserShell: View {
     }
 
     private var pageControlsTopPadding: CGFloat {
+        if model.isTopSearchBarEnabled {
+            return topSearchBarTopPadding + 62
+        }
+
         if model.chromePlacement == .top && model.areSideTabsCollapsed == false {
             return 118
         }
         return 14
+    }
+
+    private var topSearchBarTopPadding: CGFloat {
+        if model.chromePlacement == .top && model.areSideTabsCollapsed == false {
+            return 112
+        }
+        return 12
     }
 }
 
@@ -572,12 +603,12 @@ private struct FloatingChrome: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ChromeButton(symbol: "magnifyingglass", label: "Search") {
+                    ChromeButton(slot: .search, symbol: "magnifyingglass", label: "Search") {
                         model.openFloatingSearch()
                     }
 
                     if model.isInMoreMenu(.forward) == false {
-                        ChromeButton(symbol: "chevron.right", label: "Forward") {
+                        ChromeButton(slot: .forward, symbol: "chevron.right", label: "Forward") {
                             model.goForward()
                         }
                         .disabled(model.selectedTab?.canGoForward != true)
@@ -586,37 +617,37 @@ private struct FloatingChrome: View {
                     FloatingTabSwitcher()
 
                     if model.isInMoreMenu(.tabFinder) == false {
-                        ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
+                        ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
                             model.isTabFinderPresented = true
                         }
                     }
 
                     if model.isInMoreMenu(.containedTabs) == false {
-                        ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
+                        ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                             model.showContainedTabs()
                         }
                     }
 
                     if model.isInMoreMenu(.reload) == false {
-                        ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
+                        ChromeButton(slot: model.selectedTab?.isLoading == true ? nil : .reload, symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                             model.reloadOrStop()
                         }
                     }
 
                     if model.isInMoreMenu(.downloadCurrent) == false {
-                        ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
+                        ChromeButton(slot: .downloadCurrent, symbol: "arrow.down.doc", label: "Download Current Page") {
                             model.downloadSelectedTab()
                         }
                     }
 
                     if model.isInMoreMenu(.history) == false {
-                        ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
+                        ChromeButton(slot: .history, symbol: "clock.arrow.circlepath", label: "History") {
                             model.isHistoryPresented = true
                         }
                     }
 
                     if model.isInMoreMenu(.downloads) == false {
-                        ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
+                        ChromeButton(slot: .downloads, symbol: "arrow.down.circle", label: "Downloads") {
                             model.isDownloadsPresented = true
                         }
                     }
@@ -624,7 +655,7 @@ private struct FloatingChrome: View {
                     TabBarStyleControl(compact: true)
 
                     if model.isInMoreMenu(.settings) == false {
-                        ChromeButton(symbol: "gearshape", label: "Settings") {
+                        ChromeButton(slot: .settings, symbol: "gearshape", label: "Settings") {
                             model.isSettingsPresented = true
                         }
                     }
@@ -671,44 +702,44 @@ private struct ChromeFooter: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 if model.isInMoreMenu(.forward) == false {
-                    ChromeButton(symbol: "chevron.right", label: "Forward") {
+                    ChromeButton(slot: .forward, symbol: "chevron.right", label: "Forward") {
                         model.goForward()
                     }
                     .disabled(model.selectedTab?.canGoForward != true)
                 }
 
                 if model.isInMoreMenu(.reload) == false {
-                    ChromeButton(symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
+                    ChromeButton(slot: model.selectedTab?.isLoading == true ? nil : .reload, symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                         model.reloadOrStop()
                     }
                 }
 
                 if model.isInMoreMenu(.history) == false {
-                    ChromeButton(symbol: "clock.arrow.circlepath", label: "History") {
+                    ChromeButton(slot: .history, symbol: "clock.arrow.circlepath", label: "History") {
                         model.isHistoryPresented = true
                     }
                 }
 
                 if model.isInMoreMenu(.tabFinder) == false {
-                    ChromeButton(symbol: "square.grid.2x2", label: "Tab Finder") {
+                    ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
                         model.isTabFinderPresented = true
                     }
                 }
 
                 if model.isInMoreMenu(.downloadCurrent) == false {
-                    ChromeButton(symbol: "arrow.down.doc", label: "Download Current Page") {
+                    ChromeButton(slot: .downloadCurrent, symbol: "arrow.down.doc", label: "Download Current Page") {
                         model.downloadSelectedTab()
                     }
                 }
 
                 if model.isInMoreMenu(.downloads) == false {
-                    ChromeButton(symbol: "arrow.down.circle", label: "Downloads") {
+                    ChromeButton(slot: .downloads, symbol: "arrow.down.circle", label: "Downloads") {
                         model.isDownloadsPresented = true
                     }
                 }
 
                 if model.isInMoreMenu(.containedTabs) == false {
-                    ChromeButton(symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
+                    ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                         model.showContainedTabs()
                     }
                 }
@@ -718,7 +749,7 @@ private struct ChromeFooter: View {
                 }
 
                 if model.isInMoreMenu(.settings) == false {
-                    ChromeButton(symbol: "gearshape", label: "Settings") {
+                    ChromeButton(slot: .settings, symbol: "gearshape", label: "Settings") {
                         model.isSettingsPresented = true
                     }
                 }
@@ -822,6 +853,27 @@ private struct ControlGlassBackground: View {
     }
 }
 
+private struct BrowserIcon: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    let slot: BrowserCustomIconSlot?
+    let systemName: String
+    let size: CGFloat
+    let weight: Font.Weight
+
+    var body: some View {
+        Group {
+            if let image = model.customIconImage(for: slot) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(systemName: model.customIconName(for: slot, fallback: systemName))
+                    .font(.system(size: size, weight: weight))
+            }
+        }
+    }
+}
+
 private struct PlacementMenu: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -836,8 +888,7 @@ private struct PlacementMenu: View {
                 }
             }
         } label: {
-            Image(systemName: model.chromePlacement.symbolName)
-                .font(.system(size: 15, weight: .semibold))
+            BrowserIcon(slot: .placement, systemName: model.chromePlacement.symbolName, size: 15, weight: .semibold)
                 .frame(width: 36, height: 36)
                 .foregroundStyle(theme.chromeForegroundColor)
                 .background(ControlGlassBackground(cornerRadius: 8))
@@ -998,8 +1049,13 @@ private struct SearchTrigger: View {
             model.openFloatingSearch()
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass")
-                    .font(.system(size: 15, weight: .semibold))
+                BrowserIcon(
+                    slot: model.selectedTab?.isPrivate == true ? .privateTab : .search,
+                    systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass",
+                    size: 15,
+                    weight: .semibold
+                )
+                    .frame(width: 20, height: 20)
                     .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1050,8 +1106,13 @@ private struct AddressField: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass")
-                .font(.system(size: 17, weight: .semibold))
+            BrowserIcon(
+                slot: model.selectedTab?.isPrivate == true ? .privateTab : .search,
+                systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass",
+                size: 17,
+                weight: .semibold
+            )
+                .frame(width: 24, height: 24)
                 .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
             SelectableAddressTextField(
@@ -1070,8 +1131,8 @@ private struct AddressField: View {
             Button {
                 model.submitAddress()
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 25, weight: .semibold))
+                BrowserIcon(slot: .go, systemName: "arrow.up.circle.fill", size: 25, weight: .semibold)
+                    .frame(width: 30, height: 30)
                     .foregroundStyle(theme.color(.createTab))
             }
             .buttonStyle(.plain)
@@ -1258,6 +1319,71 @@ private struct SearchResultsList: View {
     }
 }
 
+private struct BrowserTopSearchBar: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var shouldSelectText = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            BrowserIcon(
+                slot: model.selectedTab?.isPrivate == true ? .privateTab : .search,
+                systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass",
+                size: 16,
+                weight: .semibold
+            )
+            .frame(width: 22, height: 22)
+            .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
+
+            SelectableAddressTextField(
+                text: addressBinding,
+                placeholder: "Search \(model.searchEngine.title) or enter address",
+                textColor: UIColor(theme.color(.text)),
+                placeholderColor: UIColor(theme.color(.mutedText)),
+                tintColor: UIColor(theme.color(.createTab)),
+                shouldFocus: false,
+                shouldSelectText: $shouldSelectText
+            ) {
+                model.submitAddress()
+            }
+            .frame(height: 32)
+
+            Button {
+                model.submitAddress()
+            } label: {
+                BrowserIcon(slot: .go, systemName: "arrow.up.circle.fill", size: 24, weight: .semibold)
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(theme.color(.createTab))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Go")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 50)
+        .frame(maxWidth: 760)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.color(.field).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.88) : theme.controlOpacity))
+                }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.82), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.28), radius: 18, y: 10)
+    }
+
+    private var addressBinding: Binding<String> {
+        Binding(
+            get: { model.selectedTab?.addressText ?? "" },
+            set: { model.selectedTab?.addressText = $0 }
+        )
+    }
+}
+
 private struct SearchResultRow: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -1340,8 +1466,7 @@ private struct MoreTabButton: View {
                 Label("Customize More Menu", systemImage: "slider.horizontal.3")
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: .black))
+            BrowserIcon(slot: .more, systemName: "ellipsis", size: 18, weight: .black)
                 .frame(width: 38, height: 38)
                 .foregroundStyle(theme.color(.text))
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -1386,7 +1511,7 @@ private struct MoreTabButton: View {
         if action == .reload {
             return model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise"
         }
-        return action.symbolName
+        return model.customIconName(for: action.customIconSlot, fallback: action.symbolName)
     }
 }
 
@@ -1420,8 +1545,7 @@ private struct AITabButton: View {
                 Label("Import Local AI", systemImage: "square.and.arrow.down")
             }
         } label: {
-            Image(systemName: "sparkles")
-                .font(.system(size: 15, weight: .bold))
+            BrowserIcon(slot: .ai, systemName: "sparkles", size: 15, weight: .bold)
                 .frame(width: 38, height: 38)
                 .foregroundStyle(theme.color(.text))
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -1507,8 +1631,7 @@ private struct ContainedBrowserHeader: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "rectangle.on.rectangle")
-                .font(.system(size: 15, weight: .bold))
+            BrowserIcon(slot: .containedTabs, systemName: "rectangle.on.rectangle", size: 15, weight: .bold)
                 .frame(width: 34, height: 34)
                 .foregroundStyle(theme.color(.createTab))
                 .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -1527,8 +1650,7 @@ private struct ContainedBrowserHeader: View {
             Button {
                 model.openContainedTab()
             } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 15, weight: .bold))
+                BrowserIcon(slot: .newTab, systemName: "plus", size: 15, weight: .bold)
                     .frame(width: 34, height: 34)
                     .foregroundStyle(theme.color(.canvas))
                     .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -1576,8 +1698,8 @@ private struct ContainedAddressBar: View {
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .semibold))
+                BrowserIcon(slot: .search, systemName: "magnifyingglass", size: 14, weight: .semibold)
+                    .frame(width: 20, height: 20)
                     .foregroundStyle(theme.color(.accent))
 
                 SelectableAddressTextField(
@@ -1599,8 +1721,8 @@ private struct ContainedAddressBar: View {
                 Button {
                     model.submitContainedAddress()
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 23, weight: .semibold))
+                    BrowserIcon(slot: .go, systemName: "arrow.up.circle.fill", size: 23, weight: .semibold)
+                        .frame(width: 28, height: 28)
                         .foregroundStyle(theme.color(.createTab))
                 }
                 .buttonStyle(.plain)
@@ -1633,8 +1755,7 @@ private struct ContainedControlButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .bold))
+            BrowserIcon(slot: symbol == "arrow.clockwise" ? .reload : nil, systemName: symbol, size: 14, weight: .bold)
                 .frame(width: 38, height: 42)
                 .foregroundStyle(theme.color(.text))
                 .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -1660,8 +1781,7 @@ private struct ContainedTabStrip: View {
                 Button {
                     model.openContainedTab()
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 20, weight: .bold))
+                    BrowserIcon(slot: .newTab, systemName: "plus.circle.fill", size: 20, weight: .bold)
                         .frame(width: 42, height: 38)
                         .foregroundStyle(theme.color(.createTab))
                         .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -2722,8 +2842,8 @@ private struct NewTabActions: View {
                 model.openNewTabAndSearch()
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: layout == .sidebar ? 22 : 20, weight: .bold))
+                    BrowserIcon(slot: .newTab, systemName: "plus.circle.fill", size: layout == .sidebar ? 22 : 20, weight: .bold)
+                        .frame(width: 24, height: 24)
                     Text("New Tab")
                         .font(.system(size: 14, weight: .bold))
                         .lineLimit(1)
@@ -2744,8 +2864,7 @@ private struct NewTabActions: View {
             Button {
                 model.openNewTabAndSearch(private: true)
             } label: {
-                Image(systemName: "theatermasks")
-                    .font(.system(size: 15, weight: .semibold))
+                BrowserIcon(slot: .privateTab, systemName: "theatermasks", size: 15, weight: .semibold)
                     .frame(width: 44, height: 44)
                     .foregroundStyle(theme.chromeForegroundColor)
                     .background(ControlGlassBackground(cornerRadius: 8))
@@ -2760,8 +2879,7 @@ private struct NewTabActions: View {
             Button {
                 model.openContainedTab()
             } label: {
-                Image(systemName: "rectangle.on.rectangle")
-                    .font(.system(size: 15, weight: .semibold))
+                BrowserIcon(slot: .containedTabs, systemName: "rectangle.on.rectangle", size: 15, weight: .semibold)
                     .frame(width: 44, height: 44)
                     .foregroundStyle(theme.chromeForegroundColor)
                     .background(ControlGlassBackground(cornerRadius: 8))
@@ -2783,8 +2901,8 @@ private struct EssentialsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "sparkle")
-                    .font(.caption.weight(.black))
+                BrowserIcon(slot: .essentials, systemName: "sparkle", size: 12, weight: .black)
+                    .frame(width: 16, height: 16)
                 Text("ESSENTIALS")
                     .font(.caption2.weight(.bold))
                 Spacer(minLength: 0)
@@ -2815,8 +2933,7 @@ private struct EssentialPill: View {
             model.openEssential(item)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 12, weight: .bold))
+                BrowserIcon(slot: .essentials, systemName: "sparkle", size: 12, weight: .bold)
                     .frame(width: 28, height: 28)
                     .foregroundStyle(theme.color(.canvas))
                     .background(theme.color(.createTab).opacity(0.9), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -2902,8 +3019,8 @@ private struct TabPill: View {
                     ZStack {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(tab.isPrivate ? theme.color(.privateAccent).opacity(0.82) : theme.color(.accent).opacity(0.24))
-                        Image(systemName: tab.isPrivate ? "theatermasks" : "globe")
-                            .font(.system(size: 12, weight: .bold))
+                        BrowserIcon(slot: tab.isPrivate ? .privateTab : .normalTab, systemName: tab.isPrivate ? "theatermasks" : "globe", size: 12, weight: .bold)
+                            .frame(width: 18, height: 18)
                             .foregroundStyle(theme.color(.text))
                     }
                     .frame(width: 28, height: 28)
@@ -3050,14 +3167,14 @@ private struct PlacementMenuContent: View {
 
 private struct ChromeButton: View {
     @EnvironmentObject private var theme: BrowserTheme
+    var slot: BrowserCustomIconSlot? = nil
     let symbol: String
     let label: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
+            BrowserIcon(slot: slot, systemName: symbol, size: 15, weight: .semibold)
                 .frame(width: 36, height: 36)
                 .foregroundStyle(theme.chromeForegroundColor)
                 .background(ControlGlassBackground(cornerRadius: 8))
@@ -3087,8 +3204,8 @@ private struct BrandMark: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.accent).opacity(0.8), lineWidth: 1)
                 }
-            Image(systemName: "globe")
-                .font(.system(size: 15, weight: .black))
+            BrowserIcon(slot: .brand, systemName: "globe", size: 15, weight: .black)
+                .frame(width: 22, height: 22)
                 .foregroundStyle(theme.isUserBackgroundEnabled && theme.hasUserBackground ? Color.white : theme.color(.accent))
         }
         .frame(width: 36, height: 36)
@@ -3140,6 +3257,7 @@ private struct BrowserSettingsView: View {
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
+                    Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
                     Picker("Chrome placement", selection: $model.chromePlacement) {
                         ForEach(BrowserChromePlacement.allCases) { placement in
                             Label(placement.title, systemImage: placement.symbolName)
@@ -3176,6 +3294,24 @@ private struct BrowserSettingsView: View {
                         presentAfterDismiss {
                             model.isVPNPresented = true
                         }
+                    }
+                }
+
+                Section("Advanced") {
+                    Button {
+                        presentAfterDismiss {
+                            model.isAdvancedConfigPresented = true
+                        }
+                    } label: {
+                        Label("Config Editor", systemImage: "curlybraces")
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            model.isCustomIconsPresented = true
+                        }
+                    } label: {
+                        Label("Custom Icons", systemImage: "app.badge")
                     }
                 }
 
@@ -3386,6 +3522,215 @@ private struct BrowserSettingsView: View {
     private func presentAfterDismiss(_ action: @escaping () -> Void) {
         dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: action)
+    }
+}
+
+private struct AdvancedConfigView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var configText = ""
+    @State private var statusMessage = ""
+    @State private var hasLoaded = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 12) {
+                TextEditor(text: $configText)
+                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(theme.color(.surface), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(theme.color(.border).opacity(0.72), lineWidth: 1)
+                    }
+
+                if statusMessage.isEmpty == false {
+                    Label(statusMessage, systemImage: statusMessage.hasPrefix("Applied") ? "checkmark.circle" : "exclamationmark.triangle")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(statusMessage.hasPrefix("Applied") ? theme.color(.accent) : .red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                HStack(spacing: 10) {
+                    Button("Discard") {
+                        reloadConfig()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+
+                    Button("Apply") {
+                        applyConfig(shouldDismiss: false)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Save") {
+                        applyConfig(shouldDismiss: true)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(16)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Advanced Config")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                if hasLoaded == false {
+                    reloadConfig()
+                    hasLoaded = true
+                }
+            }
+        }
+    }
+
+    private func reloadConfig() {
+        configText = model.advancedConfigJSON(theme: theme)
+        statusMessage = ""
+    }
+
+    private func applyConfig(shouldDismiss: Bool) {
+        do {
+            try model.applyAdvancedConfigJSON(configText, theme: theme)
+            configText = model.advancedConfigJSON(theme: theme)
+            statusMessage = "Applied config."
+            if shouldDismiss {
+                dismiss()
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct CustomIconsView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var importingSlot: BrowserCustomIconSlot?
+    @State private var isIconImporterPresented = false
+    @State private var importStatusMessage = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Icon Slots") {
+                    ForEach(BrowserCustomIconSlot.allCases) { slot in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                BrowserIcon(slot: slot, systemName: slot.defaultSymbol, size: 17, weight: .semibold)
+                                    .frame(width: 34, height: 34)
+                                    .foregroundStyle(theme.color(.accent))
+                                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .stroke(theme.color(.border).opacity(0.52), lineWidth: 1)
+                                    }
+
+                                Text(slot.title)
+                                    .font(.body.weight(.semibold))
+
+                                Spacer(minLength: 0)
+
+                                if model.hasCustomIconImage(for: slot) {
+                                    Label("Image", systemImage: "checkmark.circle.fill")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(theme.color(.accent))
+                                }
+                            }
+
+                            TextField(slot.defaultSymbol, text: iconNameBinding(for: slot))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.system(.footnote, design: .monospaced))
+
+                            HStack(spacing: 8) {
+                                Button("Import") {
+                                    importingSlot = slot
+                                    isIconImporterPresented = true
+                                }
+                                .buttonStyle(.bordered)
+
+                                Button("Clear Image") {
+                                    model.clearCustomIconImage(for: slot)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(model.hasCustomIconImage(for: slot) == false)
+
+                                Button("Default") {
+                                    model.setCustomIconName("", for: slot)
+                                    model.clearCustomIconImage(for: slot)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                if importStatusMessage.isEmpty == false {
+                    Section {
+                        Label(importStatusMessage, systemImage: "info.circle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+                }
+
+                Section("Reset") {
+                    Button(role: .destructive) {
+                        model.resetCustomIcons()
+                    } label: {
+                        Label("Reset all icons", systemImage: "arrow.counterclockwise")
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Custom Icons")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .fileImporter(
+                isPresented: $isIconImporterPresented,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: false
+            ) { result in
+                guard let slot = importingSlot else { return }
+                importingSlot = nil
+
+                switch result {
+                case .success(let urls):
+                    if let url = urls.first {
+                        model.setCustomIconImage(from: url, for: slot)
+                        importStatusMessage = "Imported \(slot.title)."
+                    }
+                case .failure(let error):
+                    importStatusMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func iconNameBinding(for slot: BrowserCustomIconSlot) -> Binding<String> {
+        Binding(
+            get: { model.customIconNames[slot.rawValue] ?? "" },
+            set: { model.setCustomIconName($0, for: slot) }
+        )
     }
 }
 

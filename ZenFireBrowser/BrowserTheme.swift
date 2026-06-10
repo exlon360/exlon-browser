@@ -150,6 +150,16 @@ final class BrowserTheme: ObservableObject {
         Color(hex: colorHexByToken[token] ?? token.defaultHex)
     }
 
+    func hex(for token: BrowserThemeToken) -> String {
+        colorHexByToken[token] ?? token.defaultHex
+    }
+
+    var colorConfig: [String: String] {
+        Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
+            (token.rawValue, hex(for: token))
+        })
+    }
+
     var tabBarOpacity: Double {
         isTabBarTransparencyEnabled ? max(0.15, 1.0 - tabBarTransparency) : 1.0
     }
@@ -191,6 +201,24 @@ final class BrowserTheme: ObservableObject {
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
         vault.remove(Self.userBackgroundImageDataKey)
+    }
+
+    func applyAdvancedConfig(
+        colors: [String: String],
+        tabBarTransparencyEnabled: Bool,
+        tabBarTransparency: Double,
+        userBackgroundEnabled: Bool
+    ) {
+        for token in BrowserThemeToken.allCases {
+            guard let hex = colors[token.rawValue],
+                  Color.isValidHex(hex) else { continue }
+            colorHexByToken[token] = hex
+            vault.save(hex, forKey: Self.storageKey(for: token))
+        }
+
+        isTabBarTransparencyEnabled = tabBarTransparencyEnabled
+        self.tabBarTransparency = tabBarTransparency
+        isUserBackgroundEnabled = userBackgroundEnabled && hasUserBackground
     }
 
     func setUserBackground(from url: URL) {
@@ -295,6 +323,14 @@ final class BrowserTheme: ObservableObject {
 }
 
 extension Color {
+    static func isValidHex(_ hex: String) -> Bool {
+        let sanitized = hex
+            .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            .uppercased()
+        guard [3, 6, 8].contains(sanitized.count) else { return false }
+        return sanitized.allSatisfy { $0.isHexDigit }
+    }
+
     init(hex: String) {
         let sanitized = hex
             .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

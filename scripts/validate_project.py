@@ -358,6 +358,51 @@ def main() -> int:
         "Reset to default must turn the ad blocker back on.",
     )
     require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "topSearchBarEnabled",
+        "The top search bar preference must persist in the encrypted browser model.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "BrowserTopSearchBar",
+        "The browser shell must render the optional top search bar.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "AdvancedConfigView",
+        "Settings must expose the advanced config editor.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Button(\"Apply\")",
+        "The advanced config editor must include an Apply action.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Button(\"Discard\")",
+        "The advanced config editor must include a Discard action.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Button(\"Save\")",
+        "The advanced config editor must include a Save action.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "BrowserCustomIconSlot",
+        "Custom browser icon slots must be modeled.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "CustomIconsView",
+        "Settings must expose custom icon controls.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "BrowserIcon",
+        "The chrome must render configurable custom icons.",
+    )
+    require_contains(
         "ZenFireBrowser/ContentView.swift",
         "FirstRunTutorialView",
         "Fresh installs must show a first-run tutorial.",

@@ -12,6 +12,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Blank transparent start page for new tabs so the app wallpaper/background is the first thing you see; search still opens through the floating address bar and DuckDuckGo by default.
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.
+- Optional always-on top search bar for people who want the address field pinned above the page.
 - New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
 - Tab Finder sheet for searching, selecting, and closing normal, private, and contained tabs from one place.
 - Contained Tabs open a neutral browser-in-browser website inside a nested `WKWebView`, with its own address bar, tab strip, navigation controls, top-level website loading, popup/new-window handling, audio/video playback, and isolated non-persistent web storage.
@@ -34,6 +35,8 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Collapsible side tabs without a visible side hider handle.
 - Custom VPN profile setup using iOS Personal VPN APIs for a user-supplied country/server.
 - Left-side page controls with AI shortcuts for ChatGPT, Gemini, Claude, Grok, an importable local AI endpoint, plus a configurable three-dot menu; moving a toolbar action into the menu hides it from the main chrome bar.
+- Advanced config editor with JSON code plus Save, Apply, and Discard actions for fast preference editing.
+- Custom chrome icons using SF Symbol names or user-imported image files.
 - Back navigation is gesture-first; the visible chrome keeps forward, reload/stop, close tab, new tab, and new private tab controls.
 - Dark mode enforced in SwiftUI and `Info.plist`.
 

@@ -2,6 +2,7 @@ import Combine
 import CoreGraphics
 import Foundation
 import SwiftUI
+import UIKit
 
 enum BrowserChromePlacement: String, CaseIterable, Identifiable {
     case top
@@ -114,6 +115,136 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
+    case brand
+    case search
+    case go
+    case newTab
+    case normalTab
+    case privateTab
+    case containedTabs
+    case essentials
+    case ai
+    case more
+    case forward
+    case reload
+    case tabFinder
+    case downloadCurrent
+    case downloads
+    case history
+    case placement
+    case settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .brand:
+            return "Brand"
+        case .search:
+            return "Search"
+        case .go:
+            return "Go"
+        case .newTab:
+            return "New Tab"
+        case .normalTab:
+            return "Normal Tab"
+        case .privateTab:
+            return "Private Tab"
+        case .containedTabs:
+            return "Contained Tabs"
+        case .essentials:
+            return "Essentials"
+        case .ai:
+            return "AI"
+        case .more:
+            return "More"
+        case .forward:
+            return "Forward"
+        case .reload:
+            return "Reload"
+        case .tabFinder:
+            return "Tab Finder"
+        case .downloadCurrent:
+            return "Download Current"
+        case .downloads:
+            return "Downloads"
+        case .history:
+            return "History"
+        case .placement:
+            return "Placement"
+        case .settings:
+            return "Settings"
+        }
+    }
+
+    var defaultSymbol: String {
+        switch self {
+        case .brand:
+            return "globe"
+        case .search:
+            return "magnifyingglass"
+        case .go:
+            return "arrow.up.circle.fill"
+        case .newTab:
+            return "plus.circle.fill"
+        case .normalTab:
+            return "globe"
+        case .privateTab:
+            return "theatermasks"
+        case .containedTabs:
+            return "rectangle.on.rectangle"
+        case .essentials:
+            return "sparkle"
+        case .ai:
+            return "sparkles"
+        case .more:
+            return "ellipsis"
+        case .forward:
+            return "chevron.right"
+        case .reload:
+            return "arrow.clockwise"
+        case .tabFinder:
+            return "square.grid.2x2"
+        case .downloadCurrent:
+            return "arrow.down.doc"
+        case .downloads:
+            return "arrow.down.circle"
+        case .history:
+            return "clock.arrow.circlepath"
+        case .placement:
+            return "rectangle.split.2x1"
+        case .settings:
+            return "gearshape"
+        }
+    }
+}
+
+extension BrowserToolbarAction {
+    var customIconSlot: BrowserCustomIconSlot {
+        switch self {
+        case .forward:
+            return .forward
+        case .reload:
+            return .reload
+        case .tabFinder:
+            return .tabFinder
+        case .containedTabs:
+            return .containedTabs
+        case .downloadCurrent:
+            return .downloadCurrent
+        case .history:
+            return .history
+        case .downloads:
+            return .downloads
+        case .placement:
+            return .placement
+        case .settings:
+            return .settings
+        }
+    }
+}
+
 @MainActor
 final class BrowserViewModel: ObservableObject {
     @Published var tabs: [BrowserTab]
@@ -134,12 +265,19 @@ final class BrowserViewModel: ObservableObject {
     @Published var isHistoryPresented = false
     @Published var isDownloadsPresented = false
     @Published var isVPNPresented = false
+    @Published var isAdvancedConfigPresented = false
+    @Published var isCustomIconsPresented = false
     @Published var isWebFileImporterPresented = false
     @Published var allowsMultipleWebFileImport = false
     @Published var isLocalAIImporterPresented = false
     @Published var isTutorialPresented: Bool
     @Published var isDarkReaderEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
+    @Published var isTopSearchBarEnabled: Bool {
+        didSet {
+            vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
+        }
+    }
     @Published var areSideTabsCollapsed: Bool {
         didSet {
             vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
@@ -158,6 +296,11 @@ final class BrowserViewModel: ObservableObject {
     @Published var moreMenuActionIDs: Set<String> {
         didSet {
             vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
+        }
+    }
+    @Published var customIconNames: [String: String] {
+        didSet {
+            vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
         }
     }
     @Published var history: [BrowserHistoryItem]
@@ -180,6 +323,11 @@ final class BrowserViewModel: ObservableObject {
     }
     @Published var vpnStatusMessage = "Custom VPN profile not configured."
     @Published var downloadStatusMessage = ""
+    @Published private var customIconImageDataBySlot: [String: Data] {
+        didSet {
+            vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
+        }
+    }
     private let vault: SecureBrowserVault
     private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
 
@@ -191,6 +339,8 @@ final class BrowserViewModel: ObservableObject {
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
         let savedMoreMenuActionIDs = vault.load(Set<String>.self, forKey: Self.StorageKey.moreMenuActionIDs, default: [])
+        let savedCustomIconNames = vault.load([String: String].self, forKey: Self.StorageKey.customIconNames, default: [:])
+        let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
         let savedHistory = Self.loadHistory(vault: vault)
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedDownloads = Self.loadDownloads(vault: vault)
@@ -202,6 +352,9 @@ final class BrowserViewModel: ObservableObject {
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.moreMenuActionIDs = savedMoreMenuActionIDs
+        self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
+        self.customIconNames = Self.sanitizedIconNames(savedCustomIconNames)
+        self.customIconImageDataBySlot = Self.sanitizedIconImageData(savedCustomIconImageData)
         self.history = savedHistory
         self.essentials = savedEssentials
         self.downloads = savedDownloads
@@ -573,6 +726,125 @@ final class BrowserViewModel: ObservableObject {
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
     }
 
+    func customIconName(for slot: BrowserCustomIconSlot) -> String {
+        let value = customIconNames[slot.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? slot.defaultSymbol : value
+    }
+
+    func customIconName(for slot: BrowserCustomIconSlot?, fallback: String) -> String {
+        guard let slot else { return fallback }
+        let value = customIconNames[slot.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? fallback : value
+    }
+
+    func setCustomIconName(_ name: String, for slot: BrowserCustomIconSlot) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty || trimmedName == slot.defaultSymbol {
+            customIconNames.removeValue(forKey: slot.rawValue)
+        } else {
+            customIconNames[slot.rawValue] = trimmedName
+        }
+    }
+
+    func customIconImage(for slot: BrowserCustomIconSlot?) -> UIImage? {
+        guard let slot,
+              let data = customIconImageDataBySlot[slot.rawValue] else { return nil }
+        return UIImage(data: data)
+    }
+
+    func hasCustomIconImage(for slot: BrowserCustomIconSlot) -> Bool {
+        customIconImageDataBySlot[slot.rawValue] != nil
+    }
+
+    func setCustomIconImage(from url: URL, for slot: BrowserCustomIconSlot) {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard let data = try? Data(contentsOf: url) else { return }
+        setCustomIconImage(fromImageData: data, for: slot)
+    }
+
+    func setCustomIconImage(fromImageData rawData: Data, for slot: BrowserCustomIconSlot) {
+        guard let data = Self.normalizedIconData(from: rawData) else { return }
+        customIconImageDataBySlot[slot.rawValue] = data
+    }
+
+    func clearCustomIconImage(for slot: BrowserCustomIconSlot) {
+        customIconImageDataBySlot.removeValue(forKey: slot.rawValue)
+    }
+
+    func resetCustomIcons() {
+        customIconNames = [:]
+        customIconImageDataBySlot = [:]
+    }
+
+    func advancedConfigJSON(theme: BrowserTheme) -> String {
+        let config = BrowserAdvancedConfig(
+            topSearchBarEnabled: isTopSearchBarEnabled,
+            chromePlacement: chromePlacement.rawValue,
+            sideTabsCollapsed: areSideTabsCollapsed,
+            searchEngine: searchEngine.rawValue,
+            customSearchTemplate: customSearchTemplate,
+            darkReaderEnabled: isDarkReaderEnabled,
+            adBlockerEnabled: isAdBlockerEnabled,
+            moreMenuActions: BrowserToolbarAction.allCases
+                .map(\.rawValue)
+                .filter { moreMenuActionIDs.contains($0) },
+            customIcons: customIconNames,
+            tabBarTransparencyEnabled: theme.isTabBarTransparencyEnabled,
+            tabBarTransparency: theme.tabBarTransparency,
+            userBackgroundEnabled: theme.isUserBackgroundEnabled,
+            colors: theme.colorConfig
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        guard let data = try? encoder.encode(config),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+
+        return text
+    }
+
+    func applyAdvancedConfigJSON(_ text: String, theme: BrowserTheme) throws {
+        guard let data = text.data(using: .utf8) else {
+            throw Self.configError("Config text is not valid UTF-8.")
+        }
+
+        let decoder = JSONDecoder()
+        let config = try decoder.decode(BrowserAdvancedConfig.self, from: data)
+
+        if let placement = BrowserChromePlacement(rawValue: config.chromePlacement) {
+            chromePlacement = placement
+        }
+
+        if let selectedSearchEngine = BrowserSearchEngine(rawValue: config.searchEngine) {
+            searchEngine = selectedSearchEngine
+        }
+
+        isTopSearchBarEnabled = config.topSearchBarEnabled
+        areSideTabsCollapsed = config.sideTabsCollapsed
+        customSearchTemplate = config.customSearchTemplate
+        moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
+            BrowserToolbarAction(rawValue: actionID) != nil
+        })
+        customIconNames = Self.sanitizedIconNames(config.customIcons)
+        setDarkReaderEnabled(config.darkReaderEnabled)
+        setAdBlockerEnabled(config.adBlockerEnabled)
+        theme.applyAdvancedConfig(
+            colors: config.colors,
+            tabBarTransparencyEnabled: config.tabBarTransparencyEnabled,
+            tabBarTransparency: config.tabBarTransparency,
+            userBackgroundEnabled: config.userBackgroundEnabled
+        )
+    }
+
     func performToolbarAction(_ action: BrowserToolbarAction) {
         switch action {
         case .forward:
@@ -775,9 +1047,11 @@ final class BrowserViewModel: ObservableObject {
     func resetToDefaults() {
         chromePlacement = .left
         areSideTabsCollapsed = false
+        isTopSearchBarEnabled = false
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         moreMenuActionIDs = []
+        resetCustomIcons()
         localAIName = "Local AI"
         localAIURLText = ""
         setAdBlockerEnabled(true)
@@ -1025,6 +1299,54 @@ final class BrowserViewModel: ObservableObject {
         NSError(domain: "GlideDownloads", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
+    private static func configError(_ message: String) -> NSError {
+        NSError(domain: "GlideAdvancedConfig", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
+    private static func sanitizedIconNames(_ names: [String: String]) -> [String: String] {
+        var values: [String: String] = [:]
+
+        for slot in BrowserCustomIconSlot.allCases {
+            let value = names[slot.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if value.isEmpty == false, value != slot.defaultSymbol {
+                values[slot.rawValue] = value
+            }
+        }
+
+        return values
+    }
+
+    private static func sanitizedIconImageData(_ imageData: [String: Data]) -> [String: Data] {
+        var values: [String: Data] = [:]
+
+        for slot in BrowserCustomIconSlot.allCases {
+            if let data = imageData[slot.rawValue], UIImage(data: data) != nil {
+                values[slot.rawValue] = data
+            }
+        }
+
+        return values
+    }
+
+    private static func normalizedIconData(from rawData: Data) -> Data? {
+        guard let image = UIImage(data: rawData) else { return nil }
+
+        let maxSide: CGFloat = 256
+        let longestSide = max(image.size.width, image.size.height)
+        let scale = longestSide > maxSide ? maxSide / longestSide : 1
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let normalizedImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+
+        return normalizedImage.pngData()
+    }
+
     private func saveDownloads() {
         vault.save(downloads, forKey: Self.StorageKey.downloads)
     }
@@ -1036,9 +1358,12 @@ final class BrowserViewModel: ObservableObject {
     private func migrateLoadedStateToEncryptedVault() {
         vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
+        vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
         vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
+        vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
+        vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
         vault.save(history, forKey: Self.StorageKey.history)
         vault.save(essentials, forKey: Self.StorageKey.essentials)
         vault.save(downloads, forKey: Self.StorageKey.downloads)
@@ -1129,9 +1454,12 @@ final class BrowserViewModel: ObservableObject {
         static let darkReaderEnabled = "ZenFireBrowser.darkReaderEnabled"
         static let chromePlacement = "ZenFireBrowser.chromePlacement"
         static let sideTabsCollapsed = "ZenFireBrowser.sideTabsCollapsed"
+        static let topSearchBarEnabled = "ZenFireBrowser.topSearchBarEnabled"
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
+        static let customIconNames = "ZenFireBrowser.customIconNames"
+        static let customIconImageDataBySlot = "ZenFireBrowser.customIconImageDataBySlot"
         static let history = "ZenFireBrowser.history"
         static let essentials = "ZenFireBrowser.essentials"
         static let openTabs = "ZenFireBrowser.openTabs"

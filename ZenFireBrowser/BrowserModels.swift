@@ -253,6 +253,22 @@ struct BrowserDownloadItem: Identifiable, Codable, Equatable {
     }
 }
 
+struct BrowserAdvancedConfig: Codable, Equatable {
+    var topSearchBarEnabled: Bool
+    var chromePlacement: String
+    var sideTabsCollapsed: Bool
+    var searchEngine: String
+    var customSearchTemplate: String
+    var darkReaderEnabled: Bool
+    var adBlockerEnabled: Bool
+    var moreMenuActions: [String]
+    var customIcons: [String: String]
+    var tabBarTransparencyEnabled: Bool
+    var tabBarTransparency: Double
+    var userBackgroundEnabled: Bool
+    var colors: [String: String]
+}
+
 struct CustomVPNProfile: Codable, Equatable {
     var countryName: String
     var serverAddress: String
