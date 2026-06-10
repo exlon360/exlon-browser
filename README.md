@@ -105,7 +105,7 @@ Then run the `Build Signed IPA` workflow manually.
 
 ## Separate Glide Emu App
 
-`GlideEmu.xcodeproj` is a separate SwiftUI iOS app from the Glide browser. It registers `.dmg`, `.apk`, `.exe`, and `.deb` document imports, copies selected packages into app storage, keeps a local package library, and opens a run-session console for the selected runtime slot.
+`GlideEmu.xcodeproj` is a separate SwiftUI iOS app from the Glide browser. It registers `.dmg`, `.apk`, `.exe`, and `.deb` document imports, copies selected packages into app storage, keeps a local package library, and opens a touch-first Scrcpy VM Bridge session for the selected runtime slot.
 
 Build it from GitHub Actions with the `Build Glide Emu IPA` workflow. For release assets, push an `emu-v*` tag, such as:
 
@@ -114,4 +114,12 @@ git tag emu-v0.1.0
 git push origin emu-v0.1.0
 ```
 
-The first version stages imports and runtime sessions. Real execution still requires bundling the matching VM, interpreter, or compatibility core into the IPA; iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.
+Glide Emu runs packages through a VM bridge rather than trying to execute foreign binaries directly inside iOS. Set the bridge URL in the app, then press `Run in VM`.
+
+The bridge should expose:
+
+- `POST /api/sessions` as multipart form data with fields `kind`, `route`, `filename`, `touch`, and file field `package`.
+- JSON response with `streamURL` and `touchURL`.
+- `POST touchURL` accepting touch JSON events such as `tap`, `drag`, `pinch`, and `key`.
+
+For APK files, back the bridge with an Android runtime or device using scrcpy/ADB. For EXE, DEB, and DMG files, back it with a compatible VM/container runtime such as Wine/QEMU, a Linux container, or a Darwin/macOS VM where legally available. iOS itself still does not natively execute imported macOS, Android, Windows, or Linux package files.
