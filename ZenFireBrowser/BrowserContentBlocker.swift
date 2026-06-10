@@ -170,7 +170,6 @@ enum BrowserContentBlocker {
         "zemanta.com",
         "connect.facebook.net",
         "facebook.net",
-        "facebook.com/tr",
         "ads.facebook.com",
         "an.facebook.com",
         "graph.facebook.com",
@@ -186,9 +185,6 @@ enum BrowserContentBlocker {
         "ads.tiktok.com",
         "analytics-sg.tiktok.com",
         "ads.youtube.com",
-        "youtube.com/pagead",
-        "youtube.com/api/stats/ads",
-        "googlevideo.com/videoplayback?*&oad",
         "imasdk.googleapis.com",
         "pubads.g.doubleclick.net",
         "securepubads.g.doubleclick.net",
@@ -205,8 +201,6 @@ enum BrowserContentBlocker {
         "googletagservices.com",
         "fundingchoicesmessages.google.com",
         "googleoptimize.com",
-        "googletagmanager.com/gtag/js",
-        "analytics.google.com/g/collect",
         "stats.g.doubleclick.net",
         "2mdn.net",
         "adclick.g.doubleclick.net",
@@ -481,9 +475,39 @@ enum BrowserContentBlocker {
     ].joined(separator: ", ")
 
     private static let blockedURLPatterns = [
-        ".*(/|%2F)(ad|ads|adv|advert|advertise|advertising|adserver|adservice|admanager|adunit|adslot|adzone|banner|banners|sponsor|sponsored|promoted|promotion|prebid|bidder|bid-request|bid_request|header-bid|headerbid|gampad|pagead|pubads|securepubads|vast|vpaid|ima|ima3|outstream|interstitial|popunder|popup|native-ad|native_ad|affiliate)(/|\\\\.|-|_|\\\\?|=|&|%2F).*",
+        ".*(/|%2F)(ad|ads|adv|advert|advertise|advertising|adserver|adservice|admanager|adunit|adslot|adzone|banner|banners|sponsor|sponsored|promoted|promotion|prebid|bidder|bid-request|bid_request|header-bid|headerbid|gampad|pagead|pubads|securepubads|vast|vpaid|ima|ima3|outstream|interstitial|popunder|popup|native-ad|native_ad|affiliate)(/|\\.|-|_|\\?|=|&|%2F).*",
         ".*[?&](ad|ads|adid|ad_id|adunit|ad_unit|adslot|ad_slot|adzone|ad_zone|adserver|ad_server|adtype|ad_type|adsize|ad_size|adpos|ad_pos|iu|sz|cust_params|correlator|output)=.*",
-        ".*(doubleclick|googlesyndication|googleadservices|google-analytics|googletagmanager|googletagservices|adnxs|adsrvr|rubicon|pubmatic|openx|criteo|taboola|outbrain|revcontent|mgid|prebid|amazon-adsystem|facebook\\\\.com/tr|bat\\\\.bing|clarity\\\\.ms).*"
+        ".*(doubleclick|googlesyndication|googleadservices|google-analytics|googletagmanager|googletagservices|adnxs|adsrvr|rubicon|pubmatic|openx|criteo|taboola|outbrain|revcontent|mgid|prebid|amazon-adsystem|facebook\\.com/tr|bat\\.bing|clarity\\.ms).*"
+    ]
+
+    private static let targetedBlockedURLPatterns = [
+        "^https?://([^/]+\\.)?facebook\\.com/tr.*",
+        "^https?://([^/]+\\.)?youtube\\.com/(pagead|api/stats/ads).*",
+        "^https?://([^/]+\\.)?googlevideo\\.com/videoplayback.*[?&]oad=.*",
+        "^https?://www\\.googletagmanager\\.com/gtag/js.*",
+        "^https?://analytics\\.google\\.com/g/collect.*",
+        "^https?://stats\\.g\\.doubleclick\\.net/.*",
+        "^https?://bat\\.bing\\.com/.*",
+        "^https?://([^/]+\\.)?clarity\\.ms/.*"
+    ]
+
+    private static let broadBlockedResourceTypes = [
+        "image",
+        "style-sheet",
+        "script",
+        "font",
+        "media",
+        "svg-document"
+    ]
+
+    private static let targetedBlockedResourceTypes = [
+        "image",
+        "style-sheet",
+        "script",
+        "font",
+        "media",
+        "svg-document",
+        "raw"
     ]
 
     private static let antiAdBlockScript = """
@@ -518,9 +542,6 @@ enum BrowserContentBlocker {
         visibility: hidden !important;
         opacity: 0 !important;
         pointer-events: none !important;
-      }
-      html, body {
-        overflow: auto !important;
       }`;
 
       const appendStyle = () => {
@@ -591,22 +612,10 @@ enum BrowserContentBlocker {
       const removeElement = (element) => {
         if (!element || element === document.documentElement || element === document.body) { return; }
         element.remove();
+        return true;
       };
 
-      const clean = () => {
-        appendStyle();
-        selectorList.concat(extraSelectors).forEach((selector) => {
-          try {
-            document.querySelectorAll(selector).forEach(removeElement);
-          } catch (_) {}
-        });
-
-        try {
-          document.querySelectorAll("[role='dialog'], [aria-modal='true'], .modal, .overlay, .popup, [class*='adblock'], [id*='adblock'], [class*='anti-ad'], [id*='anti-ad']").forEach((element) => {
-            if (isNagContainer(element)) { removeElement(element); }
-          });
-        } catch (_) {}
-
+      const unlockPage = () => {
         try {
           [document.documentElement, document.body].forEach((element) => {
             if (!element) { return; }
@@ -616,13 +625,48 @@ enum BrowserContentBlocker {
         } catch (_) {}
       };
 
+      const clean = () => {
+        appendStyle();
+        let removedNag = false;
+
+        try {
+          extraSelectors.forEach((selector) => {
+            try {
+              document.querySelectorAll(selector).forEach((element) => {
+                if (isNagContainer(element) && removeElement(element)) {
+                  removedNag = true;
+                }
+              });
+            } catch (_) {}
+          });
+        } catch (_) {}
+
+        try {
+          document.querySelectorAll("[role='dialog'], [aria-modal='true'], .modal, .overlay, .popup, [class*='adblock'], [id*='adblock'], [class*='anti-ad'], [id*='anti-ad']").forEach((element) => {
+            if (isNagContainer(element) && removeElement(element)) {
+              removedNag = true;
+            }
+          });
+        } catch (_) {}
+
+        if (removedNag) {
+          unlockPage();
+        }
+      };
+
+      let cleanTimer = undefined;
+      const scheduleClean = () => {
+        clearTimeout(cleanTimer);
+        cleanTimer = setTimeout(clean, 120);
+      };
+
       clean();
-      window.addEventListener("DOMContentLoaded", clean, { once: false });
-      window.addEventListener("load", clean, { once: false });
-      setInterval(clean, 1500);
+      window.addEventListener("DOMContentLoaded", scheduleClean, { once: false });
+      window.addEventListener("load", scheduleClean, { once: false });
+      setInterval(scheduleClean, 3000);
 
       try {
-        new MutationObserver(() => clean()).observe(document.documentElement, {
+        new MutationObserver(scheduleClean).observe(document.documentElement, {
           childList: true,
           subtree: true,
           attributes: true,
@@ -640,7 +684,9 @@ enum BrowserContentBlocker {
         var nativeRules: [[String: Any]] = [
             [
                 "trigger": [
-                    "url-filter": ".*(\(domainPattern)).*"
+                    "url-filter": ".*(\(domainPattern)).*",
+                    "resource-type": targetedBlockedResourceTypes,
+                    "load-type": ["third-party"]
                 ],
                 "action": [
                     "type": "block"
@@ -657,11 +703,24 @@ enum BrowserContentBlocker {
             ]
         ]
 
+        nativeRules.append(contentsOf: targetedBlockedURLPatterns.map { pattern in
+            [
+                "trigger": [
+                    "url-filter": pattern,
+                    "resource-type": targetedBlockedResourceTypes
+                ],
+                "action": [
+                    "type": "block"
+                ]
+            ]
+        })
+
         nativeRules.append(contentsOf: blockedURLPatterns.map { pattern in
             [
                 "trigger": [
                     "url-filter": pattern,
-                    "resource-type": ["image", "style-sheet", "script", "font", "media", "svg-document", "raw"]
+                    "resource-type": broadBlockedResourceTypes,
+                    "load-type": ["third-party"]
                 ],
                 "action": [
                     "type": "block"
@@ -690,12 +749,10 @@ enum BrowserContentBlocker {
             return
         }
 
-        userContentController.addUserScript(
-            WKUserScript(
-                source: antiAdBlockScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
+        let blockerScript = WKUserScript(
+            source: antiAdBlockScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
         )
 
         WKContentRuleListStore.default().compileContentRuleList(
@@ -705,6 +762,7 @@ enum BrowserContentBlocker {
             DispatchQueue.main.async {
                 if let ruleList = ruleList {
                     userContentController.add(ruleList)
+                    userContentController.addUserScript(blockerScript)
                 }
                 completion?(error)
             }

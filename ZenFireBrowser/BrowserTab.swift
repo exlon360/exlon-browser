@@ -6,7 +6,7 @@ import WebKit
 
 enum BrowserDefaults {
     static let homeURL = URL(string: "https://glide.local/start")!
-    static let containedBrowserStartURL = URL(string: "https://duckduckgo.com/")!
+    static let containedBrowserStartURL = URL(string: "https://lite.duckduckgo.com/lite/")!
 }
 
 @MainActor
@@ -240,6 +240,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+          <link rel="preconnect" href="https://lite.duckduckgo.com">
+          <link rel="dns-prefetch" href="//lite.duckduckgo.com">
           <title>Contained Web Browser</title>
           <style>
             :root {
@@ -452,7 +454,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               <button type="button" data-url="https://youtube.com/">YouTube</button>
               <button type="button" data-url="https://open.spotify.com/">Spotify</button>
               <button type="button" data-url="https://wikipedia.org/">Wikipedia</button>
-              <button type="button" data-url="https://duckduckgo.com/">Search</button>
+              <button type="button" data-url="https://lite.duckduckgo.com/lite/">Search</button>
             </div>
             </header>
             <section class="viewport">
@@ -497,11 +499,44 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               "reddit.com",
               "gmail.com",
               "accounts.google.com",
-              "discord.com"
+              "google.com",
+              "github.com",
+              "gitlab.com",
+              "stackoverflow.com",
+              "stackexchange.com",
+              "notion.so",
+              "figma.com",
+              "discord.com",
+              "twitch.tv",
+              "vimeo.com",
+              "dailymotion.com",
+              "tiktok.com",
+              "chatgpt.com",
+              "claude.ai",
+              "gemini.google.com",
+              "grok.com",
+              "perplexity.ai",
+              "login.microsoftonline.com",
+              "appleid.apple.com"
+            ];
+            const directPathHints = [
+              "/login",
+              "/signin",
+              "/sign-in",
+              "/auth",
+              "/oauth",
+              "/authorize",
+              "/checkout",
+              "/payment",
+              "/watch",
+              "/embed",
+              "/player",
+              "/stream"
             ];
             let stack = [];
             let index = -1;
             let statusTimer = undefined;
+            let frameStatusTimer = undefined;
             let audioContext = undefined;
 
             function destination(raw) {
@@ -522,8 +557,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             }
 
             function shouldOpenDirect(url) {
-              const host = hostFor(url);
-              return directDomains.some(domain => host === domain || host.endsWith("." + domain));
+              try {
+                const parsed = new URL(url);
+                const host = parsed.hostname.replace(/^www\\./, "").toLowerCase();
+                const path = parsed.pathname.toLowerCase();
+                return directDomains.some(domain => host === domain || host.endsWith("." + domain)) ||
+                  directPathHints.some(hint => path === hint || path.startsWith(hint + "/") || path.includes(hint + "/"));
+              } catch (_) {
+                const host = hostFor(url);
+                return directDomains.some(domain => host === domain || host.endsWith("." + domain));
+              }
             }
 
             function showStatus(message) {
@@ -549,7 +592,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                 return;
               }
 
+              clearTimeout(frameStatusTimer);
+              frame.dataset.target = url;
               frame.src = url;
+              frameStatusTimer = setTimeout(() => {
+                if (frame.dataset.target === url) {
+                  showStatus("Still loading. Open Page is fastest for protected sites");
+                }
+              }, 2200);
 
               if (push) {
                 stack = stack.slice(0, index + 1);
@@ -623,6 +673,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             });
 
             frame.addEventListener("load", () => {
+              clearTimeout(frameStatusTimer);
               showStatus("Loaded");
             });
 
