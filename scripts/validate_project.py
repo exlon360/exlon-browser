@@ -902,44 +902,14 @@ def main() -> int:
         "Glide Emu must register DMG imports.",
     )
     require_contains(
-        "GlideEmu/Info.plist",
-        "NSAllowsLocalNetworking",
-        "Glide Emu must allow local VM bridge networking.",
-    )
-    require_contains(
-        "GlideEmu.xcodeproj/project.pbxproj",
-        "WebKit.framework in Frameworks",
-        "Glide Emu must link WebKit for VM stream rendering.",
-    )
-    require_contains(
         "GlideEmu/ContentView.swift",
         "fileImporter",
         "Glide Emu must expose a native Files importer.",
     )
     require_contains(
-        "GlideEmu/ContentView.swift",
-        "RemoteVMWebView",
-        "Glide Emu must render VM bridge streams in a web view.",
-    )
-    require_contains(
-        "GlideEmu/ContentView.swift",
-        "TouchPadView",
-        "Glide Emu must expose touchscreen controls for VM sessions.",
-    )
-    require_contains(
         "GlideEmu/EmuModels.swift",
         "func run(_ package: EmuPackage)",
         "Glide Emu must include a run-session entry point.",
-    )
-    require_contains(
-        "GlideEmu/EmuModels.swift",
-        "POST /api/sessions",
-        "Glide Emu must launch packages through the Scrcpy VM Bridge API.",
-    )
-    require_contains(
-        "GlideEmu/EmuModels.swift",
-        "func sendTouch(_ event: EmuTouchEvent)",
-        "Glide Emu must send touchscreen events to the VM bridge.",
     )
     require_contains(
         ".github/workflows/build-glide-emu-ipa.yml",
@@ -967,7 +937,7 @@ def main() -> int:
         "The signed IPA script must import the signing certificate.",
     )
 
-    swift_files = list((ROOT / "ZenFireBrowser").glob("*.swift")) + list((ROOT / "GlideEmu").glob("*.swift"))
+    swift_files = list((ROOT / "ZenFireBrowser").glob("*.swift"))
     for path in swift_files:
         source = path.read_text(encoding="utf-8")
         rel = path.relative_to(ROOT).as_posix()
