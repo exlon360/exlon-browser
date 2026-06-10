@@ -268,7 +268,7 @@ enum BrowserPrivateModeAuthAction: Equatable {
         case .enter:
             return "Enter your Glide PIN to hide normal tabs and open Private Mode."
         case .exit:
-            return "Private tabs are still open. Enter your Glide PIN to leave Private Mode."
+            return "Close Private Mode and hide private tabs until Private Mode is unlocked again."
         }
     }
 
@@ -277,7 +277,7 @@ enum BrowserPrivateModeAuthAction: Equatable {
         case .enter:
             return "Enter Private Mode"
         case .exit:
-            return "Leave Private Mode"
+            return "Close Private Mode"
         }
     }
 }
@@ -383,6 +383,11 @@ final class BrowserViewModel: ObservableObject {
     @Published var isTutorialPresented: Bool
     @Published var isDarkReaderEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
+    @Published var newTabOpensSearch: Bool {
+        didSet {
+            vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
+        }
+    }
     @Published var isTopSearchBarEnabled: Bool {
         didSet {
             vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
@@ -517,6 +522,7 @@ final class BrowserViewModel: ObservableObject {
         self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
         self.isAdBlockerEnabled = adBlockerEnabled
+        self.newTabOpensSearch = vault.load(Bool.self, forKey: Self.StorageKey.newTabOpensSearch, default: true)
         self.localAIName = vault.load(String.self, forKey: Self.StorageKey.localAIName, default: "Local AI")
         self.localAIURLText = vault.load(String.self, forKey: Self.StorageKey.localAIURLText, default: "")
         self.vpnProfile = savedVPNProfile
@@ -531,8 +537,9 @@ final class BrowserViewModel: ObservableObject {
     }
 
     var selectedTab: BrowserTab? {
-        guard let selectedTabID = selectedTabID else { return tabs.first }
-        return tabs.first { $0.id == selectedTabID } ?? tabs.first
+        let visibleTabs = isPrivateModeEnabled ? privateTabs : normalTabs
+        guard let selectedTabID = selectedTabID else { return visibleTabs.first }
+        return visibleTabs.first { $0.id == selectedTabID } ?? visibleTabs.first
     }
 
     var selectedContainedTab: BrowserTab? {
@@ -549,7 +556,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     var chromeTabs: [BrowserTab] {
-        isPrivateModeEnabled ? privateTabs : tabs
+        isPrivateModeEnabled ? privateTabs : normalTabs
     }
 
     var visibleNormalTabs: [BrowserTab] {
@@ -557,7 +564,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     var visiblePrivateTabs: [BrowserTab] {
-        privateTabs
+        isPrivateModeEnabled ? privateTabs : []
     }
 
     var visibleEssentials: [BrowserEssentialItem] {
@@ -569,7 +576,12 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func select(_ tab: BrowserTab) {
-        guard isPrivateModeEnabled == false || tab.isPrivate else { return }
+        if isPrivateModeEnabled {
+            guard tab.isPrivate else { return }
+        } else {
+            guard tab.isPrivate == false else { return }
+        }
+
         selectedTabID = tab.id
         if isFloatingSearchPresented {
             floatingSearchText = tab.addressText
@@ -609,10 +621,15 @@ final class BrowserViewModel: ObservableObject {
         let tab = openTab(private: isPrivate || isPrivateModeEnabled)
         floatingSearchText = tab.addressText
         shouldSelectFloatingSearchText = true
-        isFloatingSearchPresented = true
+        isFloatingSearchPresented = newTabOpensSearch
     }
 
     func openPrivateTab() {
+        guard isPrivateModeEnabled else {
+            requestPrivateModeToggle()
+            return
+        }
+
         openNewTabAndSearch(private: true)
     }
 
@@ -692,7 +709,13 @@ final class BrowserViewModel: ObservableObject {
         tabs.removeAll { $0.id == tab.id }
 
         if wasSelected {
-            selectedTabID = isPrivateModeEnabled ? privateTabs.last?.id : tabs.last?.id
+            if isPrivateModeEnabled {
+                selectedTabID = privateTabs.last?.id
+            } else if let normalTab = normalTabs.last {
+                selectedTabID = normalTab.id
+            } else {
+                selectedTabID = openTab().id
+            }
         }
 
         if isPrivateModeEnabled, privateTabs.isEmpty {
@@ -982,6 +1005,7 @@ final class BrowserViewModel: ObservableObject {
             sideTabsCollapsed: areSideTabsCollapsed,
             searchEngine: searchEngine.rawValue,
             customSearchTemplate: customSearchTemplate,
+            newTabOpensSearch: newTabOpensSearch,
             darkReaderEnabled: isDarkReaderEnabled,
             adBlockerEnabled: isAdBlockerEnabled,
             moreMenuActions: BrowserToolbarAction.allCases
@@ -1037,6 +1061,7 @@ final class BrowserViewModel: ObservableObject {
         }
         areSideTabsCollapsed = config.sideTabsCollapsed
         customSearchTemplate = config.customSearchTemplate
+        newTabOpensSearch = config.newTabOpensSearch ?? true
         moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
             BrowserToolbarAction(rawValue: actionID) != nil
         })
@@ -1257,13 +1282,13 @@ final class BrowserViewModel: ObservableObject {
 
     func requestPrivateModeToggle() {
         privateModeAuthMessage = ""
-        privateModeAuthAction = isPrivateModeEnabled ? .exit : .enter
 
-        if isPrivateModeEnabled, privateTabs.isEmpty {
+        if isPrivateModeEnabled {
             leavePrivateMode()
             return
         }
 
+        privateModeAuthAction = .enter
         isPrivateModeAuthPresented = true
     }
 
@@ -1283,15 +1308,21 @@ final class BrowserViewModel: ObservableObject {
         isHistoryPresented = false
         isContainedBrowserPresented = false
         isTabFinderPresented = false
+        let shouldOpenSearchAfterEntry: Bool
 
         if privateTabs.isEmpty {
             openTab(private: true)
+            shouldOpenSearchAfterEntry = newTabOpensSearch
         } else if selectedTab?.isPrivate != true {
             selectedTabID = privateTabs.last?.id
+            shouldOpenSearchAfterEntry = false
+        } else {
+            shouldOpenSearchAfterEntry = false
         }
 
         floatingSearchText = selectedTab?.addressText ?? ""
-        shouldSelectFloatingSearchText = false
+        shouldSelectFloatingSearchText = shouldOpenSearchAfterEntry
+        isFloatingSearchPresented = shouldOpenSearchAfterEntry
     }
 
     func leavePrivateMode() {
@@ -1360,6 +1391,7 @@ final class BrowserViewModel: ObservableObject {
         isTopSearchBarMoveMode = false
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
+        newTabOpensSearch = true
         moreMenuActionIDs = []
         resetCustomIcons()
         localAIName = "Local AI"
@@ -1684,6 +1716,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
         vault.save(isAdBlockerEnabled, forKey: Self.StorageKey.adBlockerEnabled)
         vault.save(isDarkReaderEnabled, forKey: Self.StorageKey.darkReaderEnabled)
+        vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
         vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
         vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
         persistOpenTabs()
@@ -1808,6 +1841,7 @@ final class BrowserViewModel: ObservableObject {
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
         static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
+        static let newTabOpensSearch = "ZenFireBrowser.newTabOpensSearch"
         static let hasCompletedTutorial = "ZenFireBrowser.hasCompletedTutorial"
         static let downloads = "ZenFireBrowser.downloads"
         static let vpnProfile = "ZenFireBrowser.vpnProfile"

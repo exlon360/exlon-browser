@@ -13,8 +13,8 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - Search/address entry that navigates to URLs or searches DuckDuckGo.
 - Floating search results with quick search actions and local history matches while typing.
 - Optional always-on search bar for people who want the address field pinned above the page, with a drag-to-move mode and saved custom position.
-- New tab actions open the floating search immediately, with the create-tab button placed before the tab list.
-- Protected Private Mode from the three-dot menu prompts for the Glide PIN, hides normal tabs/Essentials/history/download controls, keeps the private tab button available, and marks private tab titles with crossed-out text.
+- New tab actions can open the floating search immediately, with a setting to turn that auto-open behavior off and the create-tab button placed before the tab list.
+- Protected Private Mode from the three-dot menu prompts for the Glide PIN on entry, exits without a second PIN prompt, keeps private tabs alive only inside Private Mode, hides normal tabs/Essentials/history/download controls, keeps the private tab button available, and blacks out private tab titles.
 - Tab Finder sheet for searching, selecting, and closing normal, private, and contained tabs from one place.
 - Contained Tabs open full screen and run a custom browser-in-browser website inside a nested `WKWebView`, with an inner address bar, quick sites, back/forward/reload controls, an embedded website viewport, direct compatibility mode for heavy/media sites, audio unlock, an open-page fallback for sites that refuse embedding, audio/video playback, and isolated non-persistent web storage.
 - More polished glass-style tab chrome with a settings toggle and adjustable transparency up to 100%.
@@ -22,7 +22,7 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - User-selected image backgrounds with Files and Photos import, enable, remove, plus stronger bottom chrome contrast over bright/noisy wallpapers.
 - Saved themes for colors, wallpaper, and tab transparency, with `.glidetheme` export to Files and import back into Glide.
 - Essentials: long-press a normal tab to add it to a saved launcher strip/section.
-- New tabs focus the floating address field and select its current text.
+- When enabled, new tabs focus the floating address field and select its current text.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
 - Add-ons Library access for Firefox Add-ons and Brave's Chrome Web Store extension catalog. iOS WebKit can browse these libraries, but desktop Firefox/Brave extensions cannot be installed into a third-party `WKWebView`.
 - Faster warm page loads through a shared WebKit process pool, responsive URL requests, and a larger memory-only URL cache.

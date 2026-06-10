@@ -1137,6 +1137,33 @@ private enum SearchTriggerStyle {
     case bar
 }
 
+private struct PrivateRedactedText: View {
+    let text: String
+    let isPrivate: Bool
+    var minWidth: CGFloat = 58
+    var maxWidth: CGFloat = 160
+    var height: CGFloat = 11
+
+    var body: some View {
+        if isPrivate {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Color.black)
+                .frame(width: redactedWidth, height: height)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(Color.black.opacity(0.95), lineWidth: 1)
+                }
+                .accessibilityLabel("Private tab title hidden")
+        } else {
+            Text(text)
+        }
+    }
+
+    private var redactedWidth: CGFloat {
+        min(max(CGFloat(max(text.count, 7)) * 7.0, minWidth), maxWidth)
+    }
+}
+
 private struct SearchTrigger: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -1157,10 +1184,15 @@ private struct SearchTrigger: View {
                     .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(displayTitle)
+                    PrivateRedactedText(
+                        text: displayTitle,
+                        isPrivate: model.selectedTab?.isPrivate == true,
+                        minWidth: 74,
+                        maxWidth: style == .sidebar ? 150 : 230,
+                        height: 12
+                    )
                         .font(.system(size: style == .sidebar ? 13 : 15, weight: .semibold))
                         .foregroundStyle(theme.chromeForegroundColor)
-                        .strikethrough(model.selectedTab?.isPrivate == true, color: theme.color(.privateAccent))
                         .lineLimit(1)
 
                     if style == .sidebar {
@@ -1372,12 +1404,10 @@ private struct FloatingSearchOverlay: View {
                 if let tab = model.selectedTab {
                     HStack(spacing: 8) {
                         Image(systemName: tab.isPrivate ? "theatermasks" : "globe")
-                        Text(tab.title)
-                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
+                        PrivateRedactedText(text: tab.title, isPrivate: tab.isPrivate, minWidth: 78, maxWidth: 220, height: 10)
                             .lineLimit(1)
                         Spacer()
                         Text(model.isPrivateModeEnabled ? "Private Mode" : (BrowserTab.isStartPageURL(tab.url) ? "Start Page" : (tab.url?.host ?? model.searchEngine.title)))
-                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                             .lineLimit(1)
                     }
                     .font(.caption.weight(.semibold))
@@ -2450,7 +2480,7 @@ private struct BrowserTabFinderView: View {
                             tabSection("Private Mode", tabs: filtered(model.visiblePrivateTabs), isContained: false)
                         } else {
                             tabSection("Normal", tabs: filtered(model.normalTabs), isContained: false)
-                            tabSection("Private", tabs: filtered(model.privateTabs), isContained: false)
+                            tabSection("Private", tabs: filtered(model.visiblePrivateTabs), isContained: false)
                             tabSection("Contained", tabs: filtered(model.containedTabs), isContained: true)
                         }
                     }
@@ -2515,7 +2545,7 @@ private struct BrowserTabFinderView: View {
             return filtered(model.visiblePrivateTabs).count
         }
 
-        return filtered(model.normalTabs).count + filtered(model.privateTabs).count + filtered(model.containedTabs).count
+        return filtered(model.normalTabs).count + filtered(model.visiblePrivateTabs).count + filtered(model.containedTabs).count
     }
 
     private func filtered(_ tabs: [BrowserTab]) -> [BrowserTab] {
@@ -2559,10 +2589,9 @@ private struct TabFinderRow: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Text(tab.title)
+                            PrivateRedactedText(text: tab.title, isPrivate: tab.isPrivate, minWidth: 84, maxWidth: 210, height: 11)
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(theme.color(.text))
-                                .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                                 .lineLimit(1)
 
                             if isSelected {
@@ -2575,10 +2604,9 @@ private struct TabFinderRow: View {
                             }
                         }
 
-                        Text(subtitle)
+                        PrivateRedactedText(text: subtitle, isPrivate: tab.isPrivate, minWidth: 72, maxWidth: 190, height: 9)
                             .font(.caption)
                             .foregroundStyle(theme.color(.mutedText))
-                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                             .lineLimit(1)
                     }
 
@@ -3232,7 +3260,7 @@ private struct NewTabActions: View {
             }
 
             Button {
-                model.openNewTabAndSearch(private: true)
+                model.openPrivateTab()
             } label: {
                 HStack(spacing: 8) {
                     BrowserIcon(slot: .privateTab, systemName: "theatermasks", size: 15, weight: .semibold)
@@ -3408,17 +3436,15 @@ private struct TabPill: View {
                     .frame(width: 28, height: 28)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(tab.title)
+                        PrivateRedactedText(text: tab.title, isPrivate: tab.isPrivate, minWidth: 78, maxWidth: layout == .horizontal ? 130 : 150, height: 10)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(theme.color(.text))
-                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                             .lineLimit(1)
 
                         if layout == .vertical {
-                            Text(subtitle)
+                            PrivateRedactedText(text: subtitle, isPrivate: tab.isPrivate, minWidth: 64, maxWidth: 130, height: 8)
                                 .font(.caption2)
                                 .foregroundStyle(theme.color(.mutedText))
-                                .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
                                 .lineLimit(1)
                         }
                     }
@@ -3507,8 +3533,7 @@ private struct FloatingTabSwitcher: View {
                 } label: {
                     HStack {
                         Image(systemName: tab.isPrivate ? "lock.shield" : "globe")
-                        Text(tab.title)
-                            .strikethrough(tab.isPrivate, color: theme.color(.privateAccent))
+                        PrivateRedactedText(text: tab.title, isPrivate: tab.isPrivate, minWidth: 78, maxWidth: 180, height: 10)
                     }
                 }
             }
@@ -3656,6 +3681,7 @@ private struct BrowserSettingsView: View {
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
+                    Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
                     Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
                     if model.isTopSearchBarEnabled {
                         Button {

@@ -365,7 +365,7 @@ def main() -> int:
     require_contains(
         "ZenFireBrowser/ContentView.swift",
         "PrivateModeAuthView",
-        "Private Mode must prompt for the Glide PIN before entry or protected exit.",
+        "Private Mode must prompt for the Glide PIN before entry.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",
@@ -374,13 +374,43 @@ def main() -> int:
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",
-        ".strikethrough(tab.isPrivate",
-        "Private tab titles must be crossed out in tab lists.",
+        "PrivateRedactedText",
+        "Private tab titles must be visually blacked out in tab lists.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        ".fill(Color.black)",
+        "Private tab title redaction must use a black privacy block.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",
         "model.requestPrivateModeToggle()",
         "The three-dot menu must expose Private Mode.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "isPrivateModeEnabled ? privateTabs : normalTabs",
+        "Private tabs must stay hidden from regular chrome outside Private Mode.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "isPrivateModeEnabled ? privateTabs : []",
+        "Private tab sections must only show while Private Mode is active.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "leavePrivateMode()",
+        "Leaving Private Mode must be available without a second PIN prompt.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "@Published var newTabOpensSearch",
+        "Settings must support disabling search auto-open for new tabs.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Toggle(\"Open search on new tab\"",
+        "Settings must expose the search auto-open toggle.",
     )
     require_contains(
         "ZenFireBrowser/SecureBrowserVault.swift",

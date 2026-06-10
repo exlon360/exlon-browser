@@ -262,6 +262,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var sideTabsCollapsed: Bool
     var searchEngine: String
     var customSearchTemplate: String
+    var newTabOpensSearch: Bool?
     var darkReaderEnabled: Bool
     var adBlockerEnabled: Bool
     var moreMenuActions: [String]
