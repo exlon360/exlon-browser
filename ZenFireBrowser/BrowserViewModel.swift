@@ -48,6 +48,7 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     case forward
     case reload
     case tabFinder
+    case closeAllTabs
     case containedTabs
     case downloadCurrent
     case history
@@ -65,6 +66,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "Reload / Stop"
         case .tabFinder:
             return "Tab Finder"
+        case .closeAllTabs:
+            return "Close All Tabs"
         case .containedTabs:
             return "Contained Tabs"
         case .downloadCurrent:
@@ -99,6 +102,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "arrow.clockwise"
         case .tabFinder:
             return "square.grid.2x2"
+        case .closeAllTabs:
+            return "xmark.square"
         case .containedTabs:
             return "rectangle.on.rectangle"
         case .downloadCurrent:
@@ -129,6 +134,7 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case forward
     case reload
     case tabFinder
+    case closeAllTabs
     case downloadCurrent
     case downloads
     case history
@@ -165,6 +171,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "Reload"
         case .tabFinder:
             return "Tab Finder"
+        case .closeAllTabs:
+            return "Close All Tabs"
         case .downloadCurrent:
             return "Download Current"
         case .downloads:
@@ -206,6 +214,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "arrow.clockwise"
         case .tabFinder:
             return "square.grid.2x2"
+        case .closeAllTabs:
+            return "xmark.square"
         case .downloadCurrent:
             return "arrow.down.doc"
         case .downloads:
@@ -334,6 +344,8 @@ extension BrowserToolbarAction {
             return .reload
         case .tabFinder:
             return .tabFinder
+        case .closeAllTabs:
+            return .closeAllTabs
         case .containedTabs:
             return .containedTabs
         case .downloadCurrent:
@@ -375,6 +387,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isCustomIconsPresented = false
     @Published var isPrivateModeEnabled = false
     @Published var isPrivateModeAuthPresented = false
+    @Published var isCloseAllTabsWarningPresented = false
     @Published var privateModeAuthAction: BrowserPrivateModeAuthAction = .enter
     @Published var privateModeAuthMessage = ""
     @Published var isWebFileImporterPresented = false
@@ -575,6 +588,16 @@ final class BrowserViewModel: ObservableObject {
         isPrivateModeEnabled ? [] : containedTabs
     }
 
+    var closeAllTabsWarningMessage: String {
+        let summary = [
+            Self.countLabel(normalTabs.count, singular: "normal tab"),
+            Self.countLabel(privateTabs.count, singular: "private tab"),
+            Self.countLabel(containedTabs.count, singular: "contained tab")
+        ].joined(separator: ", ")
+        let replacementKind = isPrivateModeEnabled ? "private" : "normal"
+        return "This will close \(summary). History, downloads, saved themes, and settings will stay. A fresh \(replacementKind) tab will open."
+    }
+
     func select(_ tab: BrowserTab) {
         if isPrivateModeEnabled {
             guard tab.isPrivate else { return }
@@ -722,6 +745,26 @@ final class BrowserViewModel: ObservableObject {
             openTab(private: true)
         }
 
+        persistOpenTabs()
+    }
+
+    func requestCloseAllTabs() {
+        isCloseAllTabsWarningPresented = true
+    }
+
+    func closeAllTabs() {
+        isCloseAllTabsWarningPresented = false
+        isFloatingSearchPresented = false
+        isContainedBrowserPresented = false
+        isTabFinderPresented = false
+        selectedContainedTabID = nil
+        containedTabs.removeAll()
+        tabs.removeAll()
+        selectedTabID = nil
+
+        let replacement = openTab(private: isPrivateModeEnabled)
+        floatingSearchText = replacement.addressText
+        shouldSelectFloatingSearchText = false
         persistOpenTabs()
     }
 
@@ -1084,6 +1127,8 @@ final class BrowserViewModel: ObservableObject {
             reloadOrStop()
         case .tabFinder:
             isTabFinderPresented = true
+        case .closeAllTabs:
+            requestCloseAllTabs()
         case .containedTabs:
             showContainedTabs()
         case .downloadCurrent:
@@ -1798,6 +1843,10 @@ final class BrowserViewModel: ObservableObject {
 
     private static func clampedUnit(_ value: Double) -> Double {
         min(max(value, 0.0), 1.0)
+    }
+
+    private static func countLabel(_ count: Int, singular: String) -> String {
+        count == 1 ? "1 \(singular)" : "\(count) \(singular)s"
     }
 
     private static func defaultTopSearchBarY(for placement: BrowserTopSearchBarPlacement) -> Double {

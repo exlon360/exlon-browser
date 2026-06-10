@@ -411,6 +411,14 @@ private struct BrowserShell: View {
             ) { result in
                 model.completeWebFileImport(result)
             }
+            .alert("Close all tabs?", isPresented: $model.isCloseAllTabsWarningPresented) {
+                Button("Cancel", role: .cancel) {}
+                Button("Close All Tabs", role: .destructive) {
+                    model.closeAllTabs()
+                }
+            } message: {
+                Text(model.closeAllTabsWarningMessage)
+            }
             .onAppear {
                 security.presentCrashLogsIfNeeded()
             }
@@ -703,6 +711,12 @@ private struct FloatingChrome: View {
                         }
                     }
 
+                    if model.isInMoreMenu(.closeAllTabs) == false {
+                        ChromeButton(slot: .closeAllTabs, symbol: "xmark.square", label: "Close All Tabs") {
+                            model.requestCloseAllTabs()
+                        }
+                    }
+
                     if model.isPrivateModeEnabled == false && model.isInMoreMenu(.containedTabs) == false {
                         ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                             model.showContainedTabs()
@@ -813,6 +827,12 @@ private struct ChromeFooter: View {
                 if model.isInMoreMenu(.tabFinder) == false {
                     ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
                         model.isTabFinderPresented = true
+                    }
+                }
+
+                if model.isInMoreMenu(.closeAllTabs) == false {
+                    ChromeButton(slot: .closeAllTabs, symbol: "xmark.square", label: "Close All Tabs") {
+                        model.requestCloseAllTabs()
                     }
                 }
 
@@ -1828,6 +1848,12 @@ private struct MoreTabButton: View {
                 Label(model.isPrivateModeEnabled ? "Close Private Mode" : "Private Mode", systemImage: "lock.shield")
             }
 
+            Button(role: .destructive) {
+                model.requestCloseAllTabs()
+            } label: {
+                Label("Close All Tabs", systemImage: "xmark.square")
+            }
+
             Divider()
 
             let actions = movedActions
@@ -1872,6 +1898,7 @@ private struct MoreTabButton: View {
     private var movedActions: [BrowserToolbarAction] {
         BrowserToolbarAction.allCases
             .filter { model.isInMoreMenu($0) }
+            .filter { $0 != .closeAllTabs }
             .filter { action in
                 guard model.isPrivateModeEnabled else { return true }
                 return [.containedTabs, .downloadCurrent, .history, .downloads].contains(action) == false
