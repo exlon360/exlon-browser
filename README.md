@@ -19,10 +19,11 @@ Glide is a SwiftUI iOS browser prototype with a dark, Arc/Zen-inspired interface
 - More polished glass-style tab chrome with a settings toggle and adjustable transparency.
 - Tab bar transparency and background controls are available directly from the tab bar, and side/top/bottom chrome overlays the page so transparency shows the page or wallpaper beneath it.
 - User-selected image backgrounds with Files and Photos import, enable, remove, plus stronger bottom chrome contrast over bright/noisy wallpapers.
-- Saved themes for colors, wallpaper, and tab transparency.
+- Saved themes for colors, wallpaper, and tab transparency, with `.glidetheme` export to Files and import back into Glide.
 - Essentials: long-press a normal tab to add it to a saved launcher strip/section.
 - New tabs focus the floating address field and select its current text.
 - Search engine chooser with DuckDuckGo, Google, Bing, Brave, Startpage, Kagi, and a custom `{query}` template.
+- Add-ons Library access for Firefox Add-ons and Brave's Chrome Web Store extension catalog. iOS WebKit can browse these libraries, but desktop Firefox/Brave extensions cannot be installed into a third-party `WKWebView`.
 - Normal and private tabs use non-persistent `WKWebsiteDataStore` instances so WebKit does not keep an app-controlled persistent disk cache.
 - Private tabs do not write browsing history or show local history suggestions in private search.
 - Normal tabs are restored after relaunch; private tabs are not persisted.

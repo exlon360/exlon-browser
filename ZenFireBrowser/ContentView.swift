@@ -349,6 +349,12 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $model.isAddOnsPresented) {
+                AddOnsLibraryView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
             .sheet(isPresented: $model.isAdvancedConfigPresented) {
                 AdvancedConfigView()
                     .environmentObject(model)
@@ -1458,6 +1464,12 @@ private struct MoreTabButton: View {
                 }
 
                 Divider()
+            }
+
+            Button {
+                model.isAddOnsPresented = true
+            } label: {
+                Label("Add-ons Library", systemImage: "puzzlepiece")
             }
 
             Button {
@@ -3248,6 +3260,9 @@ private struct BrowserSettingsView: View {
     @EnvironmentObject private var security: AppSecurityModel
     @Environment(\.dismiss) private var dismiss
     @State private var isBackgroundImporterPresented = false
+    @State private var isThemeImporterPresented = false
+    @State private var themeExportItem: ThemeExportItem?
+    @State private var themeImportMessage = ""
     @State private var savedThemeName = ""
 
     var body: some View {
@@ -3298,6 +3313,14 @@ private struct BrowserSettingsView: View {
                 }
 
                 Section("Advanced") {
+                    Button {
+                        presentAfterDismiss {
+                            model.isAddOnsPresented = true
+                        }
+                    } label: {
+                        Label("Add-ons Library", systemImage: "puzzlepiece")
+                    }
+
                     Button {
                         presentAfterDismiss {
                             model.isAdvancedConfigPresented = true
@@ -3434,6 +3457,28 @@ private struct BrowserSettingsView: View {
                         savedThemeName = ""
                     }
 
+                    HStack(spacing: 10) {
+                        Button {
+                            exportCurrentTheme()
+                        } label: {
+                            Label("Export current", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            isThemeImporterPresented = true
+                        } label: {
+                            Label("Import from Files", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    if themeImportMessage.isEmpty == false {
+                        Text(themeImportMessage)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+
                     if theme.savedThemes.isEmpty {
                         Text("No saved themes yet")
                             .foregroundStyle(theme.color(.mutedText))
@@ -3449,6 +3494,11 @@ private struct BrowserSettingsView: View {
                                 }
 
                                 Spacer()
+
+                                Button("Export") {
+                                    exportTheme(savedTheme)
+                                }
+                                .buttonStyle(.bordered)
 
                                 Button("Apply") {
                                     theme.applySavedTheme(savedTheme)
@@ -3495,6 +3545,19 @@ private struct BrowserSettingsView: View {
                     theme.setUserBackground(from: url)
                 }
             }
+            .fileImporter(
+                isPresented: $isThemeImporterPresented,
+                allowedContentTypes: [.glideTheme, .json, .data],
+                allowsMultipleSelection: false
+            ) { result in
+                importTheme(result)
+            }
+            .sheet(item: $themeExportItem) { item in
+                ThemeFileExportController(url: item.url) {
+                    themeExportItem = nil
+                }
+                .ignoresSafeArea()
+            }
         }
     }
 
@@ -3522,6 +3585,128 @@ private struct BrowserSettingsView: View {
     private func presentAfterDismiss(_ action: @escaping () -> Void) {
         dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: action)
+    }
+
+    private func exportCurrentTheme() {
+        let themeName = savedThemeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Glide Theme"
+            : savedThemeName
+        exportTheme(theme.currentTheme(named: themeName))
+    }
+
+    private func exportTheme(_ savedTheme: SavedBrowserTheme) {
+        do {
+            let url = try theme.exportThemeFile(savedTheme)
+            themeExportItem = ThemeExportItem(url: url)
+            themeImportMessage = "Ready to save \(savedTheme.name)."
+        } catch {
+            themeImportMessage = error.localizedDescription
+        }
+    }
+
+    private func importTheme(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let importedTheme = try theme.importTheme(from: url)
+            themeImportMessage = "Imported and applied \(importedTheme.name)."
+        } catch {
+            themeImportMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct ThemeExportItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct ThemeFileExportController: UIViewControllerRepresentable {
+    let url: URL
+    let onComplete: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onComplete: onComplete)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let controller = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onComplete: () -> Void
+
+        init(onComplete: @escaping () -> Void) {
+            self.onComplete = onComplete
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onComplete()
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onComplete()
+        }
+    }
+}
+
+private struct AddOnsLibraryView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Add-ons") {
+                    ForEach(BrowserAddOnLibrary.allCases) { library in
+                        Button {
+                            model.openAddOnLibrary(library)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: library.symbolName)
+                                    .font(.system(size: 17, weight: .bold))
+                                    .frame(width: 34, height: 34)
+                                    .foregroundStyle(theme.color(.accent))
+                                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(library.title)
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(theme.color(.text))
+                                    Text(library.subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(theme.color(.mutedText))
+                                }
+
+                                Spacer(minLength: 0)
+                            }
+                        }
+                    }
+                }
+
+                Section("Compatibility") {
+                    Text("Glide can browse Firefox and Brave add-on libraries. iOS WKWebView does not expose desktop extension installation, so add-ons open as web pages.")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Add-ons Library")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 

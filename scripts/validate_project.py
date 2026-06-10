@@ -368,6 +368,26 @@ def main() -> int:
         "The browser shell must render the optional top search bar.",
     )
     require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "BrowserAddOnLibrary",
+        "Firefox and Brave add-on libraries must be modeled.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "addons.mozilla.org/firefox",
+        "The add-ons library must include Firefox Add-ons access.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "chromewebstore.google.com/category/extensions",
+        "The add-ons library must include Brave/Chrome Web Store access.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "AddOnsLibraryView",
+        "The app must expose an add-ons library screen.",
+    )
+    require_contains(
         "ZenFireBrowser/ContentView.swift",
         "AdvancedConfigView",
         "Settings must expose the advanced config editor.",
@@ -401,6 +421,31 @@ def main() -> int:
         "ZenFireBrowser/ContentView.swift",
         "BrowserIcon",
         "The chrome must render configurable custom icons.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "glidetheme",
+        "Themes must export with a Glide theme file extension.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "exportThemeFile",
+        "Saved themes must be exportable to Files.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserTheme.swift",
+        "importTheme",
+        "Theme files must be importable back into Glide.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "ThemeFileExportController",
+        "The settings UI must present a native Files export picker for themes.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "Import from Files",
+        "The settings UI must import theme files from Files.",
     )
     require_contains(
         "ZenFireBrowser/ContentView.swift",

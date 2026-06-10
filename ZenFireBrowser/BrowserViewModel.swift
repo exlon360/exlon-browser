@@ -220,6 +220,49 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
+    case firefox
+    case brave
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .firefox:
+            return "Firefox Add-ons"
+        case .brave:
+            return "Brave Add-ons"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .firefox:
+            return "Browse Mozilla's extension and theme library."
+        case .brave:
+            return "Browse the Chrome Web Store used by Brave desktop."
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .firefox:
+            return "flame"
+        case .brave:
+            return "shield.lefthalf.filled"
+        }
+    }
+
+    var url: URL {
+        switch self {
+        case .firefox:
+            return URL(string: "https://addons.mozilla.org/firefox/")!
+        case .brave:
+            return URL(string: "https://chromewebstore.google.com/category/extensions")!
+        }
+    }
+}
+
 extension BrowserToolbarAction {
     var customIconSlot: BrowserCustomIconSlot {
         switch self {
@@ -265,6 +308,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isHistoryPresented = false
     @Published var isDownloadsPresented = false
     @Published var isVPNPresented = false
+    @Published var isAddOnsPresented = false
     @Published var isAdvancedConfigPresented = false
     @Published var isCustomIconsPresented = false
     @Published var isWebFileImporterPresented = false
@@ -997,6 +1041,11 @@ final class BrowserViewModel: ObservableObject {
         }
 
         openTab(startURL: url)
+    }
+
+    func openAddOnLibrary(_ library: BrowserAddOnLibrary) {
+        openTab(startURL: library.url)
+        isAddOnsPresented = false
     }
 
     func importLocalAI(name: String, urlText: String) {

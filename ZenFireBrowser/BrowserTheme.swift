@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 enum BrowserThemeToken: String, CaseIterable, Identifiable {
     case canvas
@@ -97,6 +98,10 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     }
 }
 
+extension UTType {
+    static let glideTheme = UTType(exportedAs: "com.exlon360.glide.theme", conformingTo: .json)
+}
+
 @MainActor
 final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
@@ -190,6 +195,20 @@ final class BrowserTheme: ObservableObject {
         vault.save(hex, forKey: Self.storageKey(for: token))
     }
 
+    func currentTheme(named rawName: String) -> SavedBrowserTheme {
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let themeName = trimmedName.isEmpty ? "Glide Theme" : trimmedName
+        let savedColors = Dictionary(uniqueKeysWithValues: colorHexByToken.map { ($0.key.rawValue, $0.value) })
+        return SavedBrowserTheme(
+            name: themeName,
+            colorHexByToken: savedColors,
+            isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
+            tabBarTransparency: tabBarTransparency,
+            isUserBackgroundEnabled: isUserBackgroundEnabled,
+            userBackgroundImageData: userBackgroundImageData
+        )
+    }
+
     func resetToZenDefaults() {
         for token in BrowserThemeToken.allCases {
             colorHexByToken[token] = token.defaultHex
@@ -253,20 +272,17 @@ final class BrowserTheme: ObservableObject {
         vault.remove(Self.userBackgroundImageDataKey)
     }
 
-    func saveCurrentTheme(named rawName: String) {
+    @discardableResult
+    func saveCurrentTheme(named rawName: String) -> SavedBrowserTheme {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let themeName = trimmedName.isEmpty ? "Saved Theme \(savedThemes.count + 1)" : trimmedName
-        let savedColors = Dictionary(uniqueKeysWithValues: colorHexByToken.map { ($0.key.rawValue, $0.value) })
-        let theme = SavedBrowserTheme(
-            name: themeName,
-            colorHexByToken: savedColors,
-            isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
-            tabBarTransparency: tabBarTransparency,
-            isUserBackgroundEnabled: isUserBackgroundEnabled,
-            userBackgroundImageData: userBackgroundImageData
-        )
+        let theme = currentTheme(named: themeName)
+        saveTheme(theme)
+        return theme
+    }
 
-        savedThemes.removeAll { $0.name.caseInsensitiveCompare(themeName) == .orderedSame }
+    func saveTheme(_ theme: SavedBrowserTheme) {
+        savedThemes.removeAll { $0.id == theme.id || $0.name.caseInsensitiveCompare(theme.name) == .orderedSame }
         savedThemes.insert(theme, at: 0)
         if savedThemes.count > 12 {
             savedThemes = Array(savedThemes.prefix(12))
@@ -298,6 +314,40 @@ final class BrowserTheme: ObservableObject {
         persistSavedThemes()
     }
 
+    func exportThemeFile(_ savedTheme: SavedBrowserTheme) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GlideThemeExports", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let filename = "\(Self.safeThemeFilename(savedTheme.name)).glidetheme"
+        let url = directory.appendingPathComponent(filename)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(savedTheme)
+        try data.write(to: url, options: [.atomic])
+        return url
+    }
+
+    func importTheme(from url: URL) throws -> SavedBrowserTheme {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let data = try Data(contentsOf: url)
+        var importedTheme = try JSONDecoder().decode(SavedBrowserTheme.self, from: data)
+        importedTheme.id = UUID()
+        importedTheme.savedAt = Date()
+        saveTheme(importedTheme)
+        applySavedTheme(importedTheme)
+        return importedTheme
+    }
+
     private func persistSavedThemes() {
         vault.save(savedThemes, forKey: Self.savedThemesKey)
     }
@@ -319,6 +369,15 @@ final class BrowserTheme: ObservableObject {
 
     private static func storageKey(for token: BrowserThemeToken) -> String {
         "\(storagePrefix)\(token.rawValue)"
+    }
+
+    private static func safeThemeFilename(_ filename: String) -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = trimmed.isEmpty ? "Glide Theme" : trimmed
+        let illegal = CharacterSet(charactersIn: "/\\?%*|\"<>:")
+        return fallback
+            .components(separatedBy: illegal)
+            .joined(separator: "-")
     }
 }
 
