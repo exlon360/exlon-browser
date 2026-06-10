@@ -5,12 +5,12 @@ import WebKit
 final class DOSBundleBuilder {
     func buildBundle(for package: EmuPackage) throws -> URL {
         guard package.kind == .exe else {
-            throw runtimeError("Only .exe packages can use the DOS runtime.")
+            throw Self.runtimeError("Only .exe packages can use the DOS runtime.")
         }
 
         let exeData = try Data(contentsOf: package.localURL)
         guard exeData.isEmpty == false else {
-            throw runtimeError("The executable file is empty.")
+            throw Self.runtimeError("The executable file is empty.")
         }
 
         let directory = try Self.bundleDirectory()
