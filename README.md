@@ -58,7 +58,9 @@ Open `ZenFireBrowser.xcodeproj` in Xcode on macOS, set your development team, an
 The repo includes GitHub Actions workflows under `.github/workflows`:
 
 - `ios-ci.yml` builds the shared `ZenFireBrowser` Xcode scheme on a macOS runner for pushes, pull requests, and manual dispatches.
+- `glide-emu-ios-ci.yml` builds the separate `GlideEmu` Xcode scheme on a macOS runner for pushes, pull requests, and manual dispatches.
 - `build-ipa.yml` creates an unsigned `ZenFireBrowser-unsigned.ipa` artifact from a manual workflow run or a `v*` tag, and publishes the IPA to GitHub Releases for tag builds.
+- `build-glide-emu-ipa.yml` creates a separate unsigned `GlideEmu-unsigned.ipa` artifact from a manual workflow run or an `emu-v*` tag.
 - `build-signed-ipa.yml` creates a signed IPA when Apple signing secrets are configured.
 - `repository-checks.yml` validates the plist, shared scheme XML, required project files, private browsing storage, and dark mode enforcement.
 
@@ -100,3 +102,16 @@ base64 -i ZenFireBrowser.mobileprovision | pbcopy
 ```
 
 Then run the `Build Signed IPA` workflow manually.
+
+## Separate Glide Emu App
+
+`GlideEmu.xcodeproj` is a separate SwiftUI iOS app from the Glide browser. It registers `.dmg`, `.apk`, `.exe`, and `.deb` document imports, copies selected packages into app storage, keeps a local package library, and opens a run-session console for the selected runtime slot.
+
+Build it from GitHub Actions with the `Build Glide Emu IPA` workflow. For release assets, push an `emu-v*` tag, such as:
+
+```bash
+git tag emu-v0.1.0
+git push origin emu-v0.1.0
+```
+
+The first version stages imports and runtime sessions. Real execution still requires bundling the matching VM, interpreter, or compatibility core into the IPA; iOS does not natively execute imported macOS, Android, Windows, or Linux package files by itself.

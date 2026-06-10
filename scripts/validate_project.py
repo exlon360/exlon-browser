@@ -76,12 +76,22 @@ def require_app_icon_files() -> None:
 def main() -> int:
     required_files = [
         ".github/workflows/ios-ci.yml",
+        ".github/workflows/glide-emu-ios-ci.yml",
         ".github/workflows/build-ipa.yml",
         ".github/workflows/build-signed-ipa.yml",
         ".github/workflows/repository-checks.yml",
         "README.md",
         "scripts/build_unsigned_ipa.sh",
+        "scripts/build_glide_emu_unsigned_ipa.sh",
         "scripts/build_signed_ipa.sh",
+        "GlideEmu.xcodeproj/project.pbxproj",
+        "GlideEmu.xcodeproj/xcshareddata/xcschemes/GlideEmu.xcscheme",
+        "GlideEmu/Assets.xcassets/Contents.json",
+        "GlideEmu/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "GlideEmu/ContentView.swift",
+        "GlideEmu/EmuModels.swift",
+        "GlideEmu/GlideEmuApp.swift",
+        "GlideEmu/Info.plist",
         "ZenFireBrowser.xcodeproj/project.pbxproj",
         "ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme",
         "ZenFireBrowser/Assets.xcassets/Contents.json",
@@ -106,8 +116,12 @@ def main() -> int:
 
     parse_xml("ZenFireBrowser/Info.plist")
     parse_xml("ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme")
+    parse_xml("GlideEmu/Info.plist")
+    parse_xml("GlideEmu.xcodeproj/xcshareddata/xcschemes/GlideEmu.xcscheme")
     parse_json("ZenFireBrowser/Assets.xcassets/Contents.json")
     parse_json("ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Contents.json")
+    parse_json("GlideEmu/Assets.xcassets/Contents.json")
+    parse_json("GlideEmu/Assets.xcassets/AppIcon.appiconset/Contents.json")
     require_app_icon_files()
 
     require_contains(
@@ -848,6 +862,11 @@ def main() -> int:
         "The iOS CI workflow must run xcodebuild.",
     )
     require_contains(
+        ".github/workflows/glide-emu-ios-ci.yml",
+        "GlideEmu.xcodeproj",
+        "The Glide Emu CI workflow must build the separate Xcode project.",
+    )
+    require_contains(
         ".github/workflows/build-ipa.yml",
         "ZenFireBrowser-unsigned.ipa",
         "The IPA workflow must upload a ZenFireBrowser IPA artifact.",
@@ -856,6 +875,51 @@ def main() -> int:
         ".github/workflows/build-ipa.yml",
         "softprops/action-gh-release",
         "The IPA workflow must publish tag builds to GitHub Releases.",
+    )
+    require_contains(
+        "GlideEmu/Info.plist",
+        "<key>CFBundleDisplayName</key>\n\t<string>Glide Emu</string>",
+        "The separate emulator app display name must be Glide Emu.",
+    )
+    require_contains(
+        "GlideEmu/Info.plist",
+        "com.android.package-archive",
+        "Glide Emu must register APK imports.",
+    )
+    require_contains(
+        "GlideEmu/Info.plist",
+        "com.microsoft.windows-executable",
+        "Glide Emu must register EXE imports.",
+    )
+    require_contains(
+        "GlideEmu/Info.plist",
+        "org.debian.deb-package",
+        "Glide Emu must register DEB imports.",
+    )
+    require_contains(
+        "GlideEmu/Info.plist",
+        "com.apple.disk-image",
+        "Glide Emu must register DMG imports.",
+    )
+    require_contains(
+        "GlideEmu/ContentView.swift",
+        "fileImporter",
+        "Glide Emu must expose a native Files importer.",
+    )
+    require_contains(
+        "GlideEmu/EmuModels.swift",
+        "func run(_ package: EmuPackage)",
+        "Glide Emu must include a run-session entry point.",
+    )
+    require_contains(
+        ".github/workflows/build-glide-emu-ipa.yml",
+        "GlideEmu-unsigned.ipa",
+        "The Glide Emu IPA workflow must upload a GlideEmu IPA artifact.",
+    )
+    require_contains(
+        "scripts/build_glide_emu_unsigned_ipa.sh",
+        "CODE_SIGNING_ALLOWED=NO",
+        "The Glide Emu unsigned IPA script must disable code signing.",
     )
     require_contains(
         ".github/workflows/build-signed-ipa.yml",
