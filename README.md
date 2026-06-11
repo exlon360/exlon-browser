@@ -53,6 +53,19 @@ The custom VPN screen is native, not a website shortcut. A working tunnel still 
 
 Open `ZenFireBrowser.xcodeproj` in Xcode on macOS, set your development team, and run the `ZenFireBrowser` scheme on an iPhone or iPad simulator.
 
+## Separate Nebula Rooms App
+
+`NebulaRooms.xcodeproj` is a separate SwiftUI iOS messaging app prototype. It uses username/password accounts only, accepts account and room passwords from 1 to 100 characters, lets users create or join password-protected rooms, send messages, delete messages for themselves, remove their own messages for everyone, and create unlimited custom color themes. The default visual style is a black and purple Nebula Rooms theme with generated app icon and backdrop assets.
+
+Open `NebulaRooms.xcodeproj` in Xcode on macOS, set your development team, and run the `NebulaRooms` scheme on an iPhone or iPad simulator.
+
+Build an unsigned IPA with the `Build Nebula Rooms IPA` workflow. For release assets, push a `nebula-v*` tag, such as:
+
+```bash
+git tag nebula-v0.1.0
+git push origin nebula-v0.1.0
+```
+
 ## GitHub Automations
 
 The repo includes GitHub Actions workflows under `.github/workflows`:
@@ -61,6 +74,7 @@ The repo includes GitHub Actions workflows under `.github/workflows`:
 - `glide-emu-ios-ci.yml` builds the separate `GlideEmu` Xcode scheme on a macOS runner for pushes, pull requests, and manual dispatches.
 - `build-ipa.yml` creates an unsigned `ZenFireBrowser-unsigned.ipa` artifact from a manual workflow run or a `v*` tag, and publishes the IPA to GitHub Releases for tag builds.
 - `build-glide-emu-ipa.yml` creates a separate unsigned `GlideEmu-unsigned.ipa` artifact from a manual workflow run or an `emu-v*` tag.
+- `build-nebula-rooms-ipa.yml` creates a separate unsigned `NebulaRooms-unsigned.ipa` artifact from a manual workflow run or a `nebula-v*` tag.
 - `build-signed-ipa.yml` creates a signed IPA when Apple signing secrets are configured.
 - `repository-checks.yml` validates the plist, shared scheme XML, required project files, private browsing storage, and dark mode enforcement.
 
