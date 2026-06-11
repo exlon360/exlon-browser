@@ -139,57 +139,51 @@ private struct RoomLobbyView: View {
     @State private var isThemesPresented = false
 
     var body: some View {
-        GeometryReader { proxy in
-            let isWide = proxy.size.width >= 760
+        ScrollView {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        LobbyHeader(isThemesPresented: $isThemesPresented)
 
-            ScrollView {
-                Group {
-                    if isWide {
-                        HStack(alignment: .top, spacing: 24) {
-                            VStack(alignment: .leading, spacing: 20) {
-                                LobbyHeader(isThemesPresented: $isThemesPresented)
+                        RoomAccessPanel(
+                            mode: $mode,
+                            roomName: $roomName,
+                            roomPassword: $roomPassword,
+                            isPasswordVisible: $isPasswordVisible,
+                            submit: submit
+                        )
 
-                                RoomAccessPanel(
-                                    mode: $mode,
-                                    roomName: $roomName,
-                                    roomPassword: $roomPassword,
-                                    isPasswordVisible: $isPasswordVisible,
-                                    submit: submit
-                                )
-
-                                StatusText(text: store.statusMessage)
-                            }
-                            .frame(width: min(430, proxy.size.width * 0.42), alignment: .topLeading)
-
-                            RoomListView()
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                        }
-                    } else {
-                        VStack(alignment: .leading, spacing: 20) {
-                            LobbyHeader(isThemesPresented: $isThemesPresented)
-
-                            RoomAccessPanel(
-                                mode: $mode,
-                                roomName: $roomName,
-                                roomPassword: $roomPassword,
-                                isPasswordVisible: $isPasswordVisible,
-                                submit: submit
-                            )
-
-                            RoomListView()
-
-                            StatusText(text: store.statusMessage)
-                        }
+                        StatusText(text: store.statusMessage)
                     }
+                    .frame(width: 420, alignment: .topLeading)
+
+                    RoomListView()
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .frame(maxWidth: min(proxy.size.width, 1040), alignment: .topLeading)
-                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
-                .padding(.horizontal, isWide ? 28 : 18)
-                .padding(.vertical, isWide ? 24 : 18)
+
+                VStack(alignment: .leading, spacing: 18) {
+                    LobbyHeader(isThemesPresented: $isThemesPresented)
+
+                    RoomAccessPanel(
+                        mode: $mode,
+                        roomName: $roomName,
+                        roomPassword: $roomPassword,
+                        isPasswordVisible: $isPasswordVisible,
+                        submit: submit
+                    )
+
+                    RoomListView()
+
+                    StatusText(text: store.statusMessage)
+                }
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .scrollIndicators(.hidden)
+            .frame(maxWidth: 1040, alignment: .topLeading)
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 28)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .scrollIndicators(.hidden)
         .sheet(isPresented: $isThemesPresented) {
             ThemeStudioView()
                 .presentationDetents([.medium, .large])
@@ -217,12 +211,19 @@ private struct RoomAccessPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("Room mode", selection: $mode) {
-                ForEach(RoomMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+            HStack(spacing: 10) {
+                ForEach(RoomMode.allCases) { option in
+                    Button {
+                        mode = option
+                    } label: {
+                        Label(option.title, systemImage: option == .create ? "plus.message.fill" : "rectangle.portrait.and.arrow.right")
+                            .font(.headline.weight(.black))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 54)
+                    }
+                    .buttonStyle(RoomModeButtonStyle(theme: store.selectedTheme, isSelected: mode == option))
                 }
             }
-            .pickerStyle(.segmented)
 
             NebulaField(title: "Room Name", text: $roomName, systemImage: mode == .create ? "plus.message.fill" : "rectangle.portrait.and.arrow.right")
 
@@ -277,9 +278,9 @@ private enum RoomMode: String, CaseIterable, Identifiable {
     var buttonTitle: String {
         switch self {
         case .create:
-            return "Create"
+            return "Create Room"
         case .join:
-            return "Join"
+            return "Join Room"
         }
     }
 }
@@ -1033,6 +1034,40 @@ private struct NebulaPrimaryButtonStyle: ButtonStyle {
                 ),
                 in: RoundedRectangle(cornerRadius: 8, style: .continuous)
             )
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+    }
+}
+
+private struct RoomModeButtonStyle: ButtonStyle {
+    let theme: NebulaTheme
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isSelected ? .white : Color(hex: theme.primaryHex))
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        isSelected
+                        ? AnyShapeStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(hex: theme.primaryHex),
+                                    Color(hex: theme.secondaryHex)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        : AnyShapeStyle(Color.black.opacity(0.24))
+                    )
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(hex: theme.primaryHex).opacity(isSelected ? 0.62 : 0.36), lineWidth: 1)
+            }
             .opacity(configuration.isPressed ? 0.72 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
