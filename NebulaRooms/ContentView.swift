@@ -34,7 +34,7 @@ private struct AuthView: View {
                 VStack(alignment: .leading, spacing: 26) {
                     Spacer(minLength: 18)
 
-                    BrandHeader(subtitle: "Username and password only.")
+                    BrandHeader(subtitle: "Username and password only. Your login stays saved.")
 
                     VStack(alignment: .leading, spacing: 16) {
                         Picker("Mode", selection: $mode) {
@@ -501,7 +501,7 @@ private struct RoomListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Live Chat Preview")
+                Text("Rooms")
                     .font(.headline.weight(.black))
                     .foregroundStyle(.white)
 
@@ -513,18 +513,22 @@ private struct RoomListView: View {
             }
 
             VStack(spacing: 0) {
-                ForEach(store.joinedRooms) { room in
-                    Button {
-                        store.openRoom(room)
-                    } label: {
-                        RoomRow(room: room)
-                    }
-                    .buttonStyle(.plain)
+                if store.joinedRooms.isEmpty {
+                    EmptyRoomsView()
+                } else {
+                    ForEach(store.joinedRooms) { room in
+                        Button {
+                            store.openRoom(room)
+                        } label: {
+                            RoomRow(room: room)
+                        }
+                        .buttonStyle(.plain)
 
-                    if room.id != store.joinedRooms.last?.id {
-                        Divider()
-                            .overlay(Color.white.opacity(0.08))
-                            .padding(.leading, 58)
+                        if room.id != store.joinedRooms.last?.id {
+                            Divider()
+                                .overlay(Color.white.opacity(0.08))
+                                .padding(.leading, 58)
+                        }
                     }
                 }
             }
@@ -534,6 +538,30 @@ private struct RoomListView: View {
                     .stroke(Color(hex: store.selectedTheme.primaryHex).opacity(0.24), lineWidth: 1)
             }
         }
+    }
+}
+
+private struct EmptyRoomsView: View {
+    @EnvironmentObject private var store: ChatStore
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock.message.fill")
+                .font(.system(size: 36, weight: .black))
+                .foregroundStyle(Color(hex: store.selectedTheme.primaryHex))
+
+            Text("No rooms yet")
+                .font(.headline.weight(.black))
+                .foregroundStyle(.white)
+
+            Text("Create a room with a name and password, or join one someone already made.")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.58))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
     }
 }
 

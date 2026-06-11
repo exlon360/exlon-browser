@@ -55,7 +55,7 @@ Open `ZenFireBrowser.xcodeproj` in Xcode on macOS, set your development team, an
 
 ## Separate Nebula Rooms App
 
-`NebulaRooms.xcodeproj` is a separate SwiftUI iOS messaging app prototype. It uses username/password accounts only, accepts account and room passwords from 1 to 100 characters, lets users create or join password-protected rooms, send messages, delete messages for themselves, remove their own messages for everyone, and create unlimited custom color themes. The default visual style is a black and purple Nebula Rooms theme with generated app icon and backdrop assets.
+`NebulaRooms.xcodeproj` is a separate SwiftUI iOS messaging app. It uses username/password accounts only, accepts account and room passwords from 1 to 100 characters, keeps the signed-in account saved across app launches, lets users create or join password-protected rooms, send messages, delete messages for themselves, remove their own messages for everyone, and create unlimited custom color themes. The default visual style is a black and purple Nebula Rooms theme with generated app icon and backdrop assets.
 
 Open `NebulaRooms.xcodeproj` in Xcode on macOS, set your development team, and run the `NebulaRooms` scheme on an iPhone or iPad simulator.
 

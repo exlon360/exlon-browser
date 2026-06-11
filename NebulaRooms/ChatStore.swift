@@ -1,12 +1,22 @@
 import Foundation
 import Combine
+import CryptoKit
+import Security
 
 @MainActor
 final class ChatStore: ObservableObject {
     @Published private(set) var users: [ChatUser]
     @Published private(set) var rooms: [ChatRoom]
-    @Published var currentUser: ChatUser?
-    @Published var currentRoomID: UUID?
+    @Published var currentUser: ChatUser? = nil {
+        didSet {
+            saveCurrentUserID()
+        }
+    }
+    @Published var currentRoomID: UUID? = nil {
+        didSet {
+            saveCurrentRoomID()
+        }
+    }
     @Published var selectedTheme: NebulaTheme
     @Published var customThemes: [NebulaTheme]
     @Published var statusMessage = ""
@@ -15,6 +25,9 @@ final class ChatStore: ObservableObject {
     private static let roomsKey = "nebula.rooms.rooms"
     private static let themeKey = "nebula.rooms.theme"
     private static let customThemesKey = "nebula.rooms.customThemes"
+    private static let currentUserIDKey = "nebula.rooms.currentUserID"
+    private static let currentRoomIDKey = "nebula.rooms.currentRoomID"
+    private static let legacySeededSystemUserID = UUID(uuidString: "75DB0F6E-7E9D-43E1-9776-3C192E64A496") ?? UUID()
 
     var currentRoom: ChatRoom? {
         guard let currentRoomID else { return nil }
@@ -31,9 +44,27 @@ final class ChatStore: ObservableObject {
 
     init() {
         users = Self.load([ChatUser].self, key: Self.usersKey, fallback: [])
-        rooms = Self.load([ChatRoom].self, key: Self.roomsKey, fallback: Self.seedRooms())
+        rooms = Self.load([ChatRoom].self, key: Self.roomsKey, fallback: [])
+            .filter { $0.createdByUserID != Self.legacySeededSystemUserID }
         selectedTheme = Self.load(NebulaTheme.self, key: Self.themeKey, fallback: .defaultTheme)
         customThemes = Self.load([NebulaTheme].self, key: Self.customThemesKey, fallback: [])
+
+        if let savedUserID = Self.loadUUID(key: Self.currentUserIDKey),
+           let user = users.first(where: { $0.id == savedUserID }) {
+            currentUser = user
+        } else {
+            currentUser = nil
+        }
+
+        if currentUser != nil,
+           let savedRoomID = Self.loadUUID(key: Self.currentRoomIDKey),
+           rooms.contains(where: { $0.id == savedRoomID }) {
+            currentRoomID = savedRoomID
+        } else {
+            currentRoomID = nil
+        }
+
+        saveRooms()
     }
 
     func signUp(username: String, password: String) {
@@ -54,7 +85,14 @@ final class ChatStore: ObservableObject {
             return
         }
 
-        let user = ChatUser(id: UUID(), username: cleanedName, password: password, createdAt: Date())
+        let credentials = Self.makePasswordHash(password)
+        let user = ChatUser(
+            id: UUID(),
+            username: cleanedName,
+            passwordHash: credentials.hash,
+            passwordSalt: credentials.salt,
+            createdAt: Date()
+        )
         users.append(user)
         currentUser = user
         statusMessage = "Welcome, \(cleanedName)."
@@ -64,14 +102,21 @@ final class ChatStore: ObservableObject {
     func signIn(username: String, password: String) {
         let cleanedName = username.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let user = users.first(where: {
-            $0.username.caseInsensitiveCompare(cleanedName) == .orderedSame && $0.password == password
+        guard let userIndex = users.firstIndex(where: {
+            $0.username.caseInsensitiveCompare(cleanedName) == .orderedSame && verifyPassword(password, for: $0)
         }) else {
             statusMessage = "Username or password did not match."
             return
         }
 
-        currentUser = user
+        if users[userIndex].passwordSalt.isEmpty {
+            let credentials = Self.makePasswordHash(password)
+            users[userIndex].passwordHash = credentials.hash
+            users[userIndex].passwordSalt = credentials.salt
+            saveUsers()
+        }
+
+        currentUser = users[userIndex]
         statusMessage = "Back in the room."
     }
 
@@ -219,6 +264,14 @@ final class ChatStore: ObservableObject {
         (1...100).contains(password.count)
     }
 
+    private func verifyPassword(_ password: String, for user: ChatUser) -> Bool {
+        guard user.passwordSalt.isEmpty == false else {
+            return user.passwordHash == password
+        }
+
+        return Self.hash(password: password, salt: user.passwordSalt) == user.passwordHash
+    }
+
     private func normalizeHex(_ value: String, fallback: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
@@ -247,6 +300,22 @@ final class ChatStore: ObservableObject {
         Self.save(customThemes, key: Self.customThemesKey)
     }
 
+    private func saveCurrentUserID() {
+        if let currentUser {
+            UserDefaults.standard.set(currentUser.id.uuidString, forKey: Self.currentUserIDKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.currentUserIDKey)
+        }
+    }
+
+    private func saveCurrentRoomID() {
+        if let currentRoomID {
+            UserDefaults.standard.set(currentRoomID.uuidString, forKey: Self.currentRoomIDKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.currentRoomIDKey)
+        }
+    }
+
     private static func load<T: Decodable>(_ type: T.Type, key: String, fallback: T) -> T {
         guard let data = UserDefaults.standard.data(forKey: key),
               let value = try? JSONDecoder().decode(T.self, from: data) else {
@@ -260,32 +329,30 @@ final class ChatStore: ObservableObject {
         UserDefaults.standard.set(data, forKey: key)
     }
 
-    private static func seedRooms() -> [ChatRoom] {
-        let systemID = UUID(uuidString: "75DB0F6E-7E9D-43E1-9776-3C192E64A496") ?? UUID()
+    private static func loadUUID(key: String) -> UUID? {
+        guard let string = UserDefaults.standard.string(forKey: key) else { return nil }
+        return UUID(uuidString: string)
+    }
 
-        return [
-            ChatRoom(
-                id: UUID(),
-                name: "Nebula Lounge",
-                password: "purple",
-                createdByUserID: systemID,
-                createdAt: Date().addingTimeInterval(-3600),
-                messages: [
-                    ChatMessage(id: UUID(), authorID: systemID, authorName: "Vortex", body: "Welcome to Nebula Lounge. Share and connect.", createdAt: Date().addingTimeInterval(-3200), state: .visible),
-                    ChatMessage(id: UUID(), authorID: systemID, authorName: "Luna", body: "Glad to be here!", createdAt: Date().addingTimeInterval(-2800), state: .visible),
-                    ChatMessage(id: UUID(), authorID: systemID, authorName: "Nova", body: "I'm in.", createdAt: Date().addingTimeInterval(-2400), state: .visible)
-                ]
-            ),
-            ChatRoom(
-                id: UUID(),
-                name: "Midnight Builds",
-                password: "1",
-                createdByUserID: systemID,
-                createdAt: Date().addingTimeInterval(-7200),
-                messages: [
-                    ChatMessage(id: UUID(), authorID: systemID, authorName: "Pulse", body: "Drop your late-night project updates here.", createdAt: Date().addingTimeInterval(-7000), state: .visible)
-                ]
-            )
-        ]
+    private static func makePasswordHash(_ password: String) -> (hash: String, salt: String) {
+        let salt = randomSalt()
+        return (hash(password: password, salt: salt), salt)
+    }
+
+    private static func hash(password: String, salt: String) -> String {
+        let data = Data("\(salt):\(password)".utf8)
+        return SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func randomSalt() -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        let result = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        if result == errSecSuccess {
+            return bytes.map { String(format: "%02x", $0) }.joined()
+        }
+
+        return UUID().uuidString.replacingOccurrences(of: "-", with: "")
     }
 }

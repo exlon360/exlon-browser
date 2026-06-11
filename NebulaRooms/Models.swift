@@ -4,8 +4,50 @@ import SwiftUI
 struct ChatUser: Identifiable, Codable, Equatable {
     let id: UUID
     var username: String
-    var password: String
+    var passwordHash: String
+    var passwordSalt: String
     var createdAt: Date
+
+    init(id: UUID, username: String, passwordHash: String, passwordSalt: String, createdAt: Date) {
+        self.id = id
+        self.username = username
+        self.passwordHash = passwordHash
+        self.passwordSalt = passwordSalt
+        self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case username
+        case password
+        case passwordHash
+        case passwordSalt
+        case createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        username = try container.decode(String.self, forKey: .username)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+
+        if let hash = try container.decodeIfPresent(String.self, forKey: .passwordHash) {
+            passwordHash = hash
+            passwordSalt = try container.decodeIfPresent(String.self, forKey: .passwordSalt) ?? ""
+        } else {
+            passwordHash = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
+            passwordSalt = ""
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(username, forKey: .username)
+        try container.encode(passwordHash, forKey: .passwordHash)
+        try container.encode(passwordSalt, forKey: .passwordSalt)
+        try container.encode(createdAt, forKey: .createdAt)
+    }
 }
 
 struct ChatRoom: Identifiable, Codable, Equatable {
