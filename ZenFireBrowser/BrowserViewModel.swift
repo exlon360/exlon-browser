@@ -1,4 +1,5 @@
 import Combine
+import AVFoundation
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -53,6 +54,7 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     case downloadCurrent
     case history
     case downloads
+    case browserMusic
     case placement
     case settings
 
@@ -76,6 +78,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "History"
         case .downloads:
             return "Downloads"
+        case .browserMusic:
+            return "Browser Music"
         case .placement:
             return "Chrome Placement"
         case .settings:
@@ -112,6 +116,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "clock.arrow.circlepath"
         case .downloads:
             return "arrow.down.circle"
+        case .browserMusic:
+            return "music.note"
         case .placement:
             return "rectangle.split.2x1"
         case .settings:
@@ -138,6 +144,7 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case downloadCurrent
     case downloads
     case history
+    case browserMusic
     case placement
     case settings
 
@@ -179,6 +186,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "Downloads"
         case .history:
             return "History"
+        case .browserMusic:
+            return "Browser Music"
         case .placement:
             return "Placement"
         case .settings:
@@ -222,6 +231,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "arrow.down.circle"
         case .history:
             return "clock.arrow.circlepath"
+        case .browserMusic:
+            return "music.note"
         case .placement:
             return "rectangle.split.2x1"
         case .settings:
@@ -354,10 +365,207 @@ extension BrowserToolbarAction {
             return .history
         case .downloads:
             return .downloads
+        case .browserMusic:
+            return .browserMusic
         case .placement:
             return .placement
         case .settings:
             return .settings
+        }
+    }
+}
+
+final class BrowserMusicPlayer {
+    private struct Parameters {
+        var baseFrequency: Double
+        var harmonyRatio: Double
+        var shimmerFrequency: Double
+        var pulseSpeed: Double
+        var noiseLevel: Float
+        var toneLevel: Float
+        var shimmerLevel: Float
+    }
+
+    private let engine = AVAudioEngine()
+    private var sourceNode: AVAudioSourceNode?
+    private var sampleTime = 0.0
+    private var noiseSeed: UInt64 = 0x1234ABCD
+    private var filteredNoise: Float = 0
+    private var currentTrack: BrowserMusicTrack = .focus
+    private var currentVolume: Float = 0.32
+    private var parameters = Parameters(
+        baseFrequency: 92,
+        harmonyRatio: 1.5,
+        shimmerFrequency: 440,
+        pulseSpeed: 0.07,
+        noiseLevel: 0.01,
+        toneLevel: 0.18,
+        shimmerLevel: 0.015
+    )
+
+    deinit {
+        stop()
+    }
+
+    func update(isEnabled: Bool, track: BrowserMusicTrack, volume: Double) {
+        currentVolume = Float(max(0, min(1, volume)))
+        engine.mainMixerNode.outputVolume = currentVolume
+
+        if track != currentTrack || sourceNode == nil {
+            let wasRunning = engine.isRunning
+            stopEngineOnly()
+            currentTrack = track
+            parameters = Self.parameters(for: track)
+            configureSourceNode()
+            if wasRunning || isEnabled {
+                start()
+            }
+            return
+        }
+
+        if isEnabled {
+            start()
+        } else {
+            stop()
+        }
+    }
+
+    func stop() {
+        stopEngineOnly()
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    private func start() {
+        if sourceNode == nil {
+            configureSourceNode()
+        }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+
+            if engine.isRunning == false {
+                engine.prepare()
+                try engine.start()
+            }
+        } catch {
+            stopEngineOnly()
+        }
+    }
+
+    private func stopEngineOnly() {
+        if engine.isRunning {
+            engine.stop()
+        }
+
+        if let sourceNode {
+            engine.disconnectNodeOutput(sourceNode)
+            engine.detach(sourceNode)
+        }
+
+        sourceNode = nil
+    }
+
+    private func configureSourceNode() {
+        let sampleRate = 44_100.0
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) else { return }
+
+        sampleTime = 0
+        filteredNoise = 0
+
+        let node = AVAudioSourceNode(format: format) { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
+            guard let self else { return noErr }
+            self.render(frameCount: frameCount, audioBufferList: audioBufferList, sampleRate: sampleRate)
+            return noErr
+        }
+
+        engine.attach(node)
+        engine.connect(node, to: engine.mainMixerNode, format: format)
+        engine.mainMixerNode.outputVolume = currentVolume
+        sourceNode = node
+    }
+
+    private func render(
+        frameCount: AVAudioFrameCount,
+        audioBufferList: UnsafeMutablePointer<AudioBufferList>,
+        sampleRate: Double
+    ) {
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+        let frameTotal = Int(frameCount)
+        let twoPi = Double.pi * 2
+
+        for frame in 0..<frameTotal {
+            let time = sampleTime / sampleRate
+            let pulse = 0.55 + 0.45 * sin(twoPi * parameters.pulseSpeed * time)
+            let fundamental = sin(twoPi * parameters.baseFrequency * time)
+            let harmony = sin(twoPi * parameters.baseFrequency * parameters.harmonyRatio * time + 0.4)
+            let sub = sin(twoPi * parameters.baseFrequency * 0.5 * time + 1.2)
+            let shimmerMod = sin(twoPi * 0.045 * time) * 0.8
+            let shimmer = sin(twoPi * parameters.shimmerFrequency * time + shimmerMod)
+
+            noiseSeed = noiseSeed &* 2862933555777941757 &+ 3037000493
+            let white = Float(Double(noiseSeed & 0xFFFF) / 32768.0 - 1.0)
+            filteredNoise = filteredNoise * 0.985 + white * 0.015
+
+            let tone = Float((fundamental * 0.52 + harmony * 0.32 + sub * 0.16) * pulse)
+            let mixed = tone * parameters.toneLevel +
+                Float(shimmer) * parameters.shimmerLevel +
+                filteredNoise * parameters.noiseLevel
+            let sample = max(-0.8, min(0.8, mixed))
+
+            for bufferIndex in 0..<buffers.count {
+                guard let data = buffers[bufferIndex].mData else { continue }
+                let samples = data.bindMemory(to: Float.self, capacity: frameTotal)
+                samples[frame] = bufferIndex == 0 ? sample : sample * 0.92
+            }
+
+            sampleTime += 1
+        }
+    }
+
+    private static func parameters(for track: BrowserMusicTrack) -> Parameters {
+        switch track {
+        case .focus:
+            return Parameters(
+                baseFrequency: 96,
+                harmonyRatio: 1.5,
+                shimmerFrequency: 384,
+                pulseSpeed: 0.08,
+                noiseLevel: 0.006,
+                toneLevel: 0.18,
+                shimmerLevel: 0.012
+            )
+        case .rain:
+            return Parameters(
+                baseFrequency: 74,
+                harmonyRatio: 1.33,
+                shimmerFrequency: 296,
+                pulseSpeed: 0.045,
+                noiseLevel: 0.052,
+                toneLevel: 0.09,
+                shimmerLevel: 0.006
+            )
+        case .midnight:
+            return Parameters(
+                baseFrequency: 58,
+                harmonyRatio: 2.0,
+                shimmerFrequency: 232,
+                pulseSpeed: 0.032,
+                noiseLevel: 0.012,
+                toneLevel: 0.22,
+                shimmerLevel: 0.018
+            )
+        case .drift:
+            return Parameters(
+                baseFrequency: 112,
+                harmonyRatio: 1.25,
+                shimmerFrequency: 512,
+                pulseSpeed: 0.055,
+                noiseLevel: 0.01,
+                toneLevel: 0.12,
+                shimmerLevel: 0.026
+            )
         }
     }
 }
@@ -396,6 +604,29 @@ final class BrowserViewModel: ObservableObject {
     @Published var isTutorialPresented: Bool
     @Published var isDarkReaderEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
+    @Published var isBrowserMusicEnabled: Bool {
+        didSet {
+            vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
+            updateBrowserMusicPlayer()
+        }
+    }
+    @Published var browserMusicTrack: BrowserMusicTrack {
+        didSet {
+            vault.save(browserMusicTrack.rawValue, forKey: Self.StorageKey.browserMusicTrack)
+            updateBrowserMusicPlayer()
+        }
+    }
+    @Published var browserMusicVolume: Double {
+        didSet {
+            let clamped = Self.clampedUnit(browserMusicVolume)
+            if clamped != browserMusicVolume {
+                browserMusicVolume = clamped
+                return
+            }
+            vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
+            updateBrowserMusicPlayer()
+        }
+    }
     @Published var newTabOpensSearch: Bool {
         didSet {
             vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
@@ -485,6 +716,7 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     private let vault: SecureBrowserVault
+    private let browserMusicPlayer = BrowserMusicPlayer()
     private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
 
     init(vault: SecureBrowserVault) {
@@ -501,6 +733,9 @@ final class BrowserViewModel: ObservableObject {
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedDownloads = Self.loadDownloads(vault: vault)
         let savedVPNProfile = Self.loadVPNProfile(vault: vault)
+        let savedBrowserMusicTrack = BrowserMusicTrack(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.browserMusicTrack, default: "")
+        ) ?? .focus
         let restoredTabs = Self.loadTabs(vault: vault, isDarkReaderEnabled: darkReaderEnabled, isAdBlockerEnabled: adBlockerEnabled)
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
@@ -535,6 +770,9 @@ final class BrowserViewModel: ObservableObject {
         self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
         self.isAdBlockerEnabled = adBlockerEnabled
+        self.isBrowserMusicEnabled = vault.load(Bool.self, forKey: Self.StorageKey.browserMusicEnabled, default: false)
+        self.browserMusicTrack = savedBrowserMusicTrack
+        self.browserMusicVolume = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.browserMusicVolume, default: 0.34))
         self.newTabOpensSearch = vault.load(Bool.self, forKey: Self.StorageKey.newTabOpensSearch, default: true)
         self.localAIName = vault.load(String.self, forKey: Self.StorageKey.localAIName, default: "Local AI")
         self.localAIURLText = vault.load(String.self, forKey: Self.StorageKey.localAIURLText, default: "")
@@ -547,6 +785,7 @@ final class BrowserViewModel: ObservableObject {
             configure(tab)
         }
         migrateLoadedStateToEncryptedVault()
+        updateBrowserMusicPlayer()
     }
 
     var selectedTab: BrowserTab? {
@@ -817,6 +1056,22 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
+    func setBrowserMusicEnabled(_ enabled: Bool) {
+        isBrowserMusicEnabled = enabled
+    }
+
+    func toggleBrowserMusic() {
+        isBrowserMusicEnabled.toggle()
+    }
+
+    private func updateBrowserMusicPlayer() {
+        browserMusicPlayer.update(
+            isEnabled: isBrowserMusicEnabled,
+            track: browserMusicTrack,
+            volume: browserMusicVolume
+        )
+    }
+
     func setTabBarCollapsed(_ collapsed: Bool) {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
             areSideTabsCollapsed = collapsed
@@ -1049,6 +1304,9 @@ final class BrowserViewModel: ObservableObject {
             searchEngine: searchEngine.rawValue,
             customSearchTemplate: customSearchTemplate,
             newTabOpensSearch: newTabOpensSearch,
+            browserMusicEnabled: isBrowserMusicEnabled,
+            browserMusicTrack: browserMusicTrack.rawValue,
+            browserMusicVolume: browserMusicVolume,
             darkReaderEnabled: isDarkReaderEnabled,
             adBlockerEnabled: isAdBlockerEnabled,
             moreMenuActions: BrowserToolbarAction.allCases
@@ -1105,6 +1363,12 @@ final class BrowserViewModel: ObservableObject {
         areSideTabsCollapsed = config.sideTabsCollapsed
         customSearchTemplate = config.customSearchTemplate
         newTabOpensSearch = config.newTabOpensSearch ?? true
+        isBrowserMusicEnabled = config.browserMusicEnabled ?? false
+        if let browserMusicTrackValue = config.browserMusicTrack,
+           let track = BrowserMusicTrack(rawValue: browserMusicTrackValue) {
+            browserMusicTrack = track
+        }
+        browserMusicVolume = Self.clampedUnit(config.browserMusicVolume ?? 0.34)
         moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
             BrowserToolbarAction(rawValue: actionID) != nil
         })
@@ -1137,6 +1401,8 @@ final class BrowserViewModel: ObservableObject {
             isHistoryPresented = true
         case .downloads:
             isDownloadsPresented = true
+        case .browserMusic:
+            toggleBrowserMusic()
         case .placement:
             break
         case .settings:
@@ -1437,6 +1703,9 @@ final class BrowserViewModel: ObservableObject {
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         newTabOpensSearch = true
+        isBrowserMusicEnabled = false
+        browserMusicTrack = .focus
+        browserMusicVolume = 0.34
         moreMenuActionIDs = []
         resetCustomIcons()
         localAIName = "Local AI"
@@ -1761,6 +2030,9 @@ final class BrowserViewModel: ObservableObject {
         vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
         vault.save(isAdBlockerEnabled, forKey: Self.StorageKey.adBlockerEnabled)
         vault.save(isDarkReaderEnabled, forKey: Self.StorageKey.darkReaderEnabled)
+        vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
+        vault.save(browserMusicTrack.rawValue, forKey: Self.StorageKey.browserMusicTrack)
+        vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
         vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
         vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
         vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
@@ -1890,6 +2162,9 @@ final class BrowserViewModel: ObservableObject {
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
         static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
+        static let browserMusicEnabled = "ZenFireBrowser.browserMusicEnabled"
+        static let browserMusicTrack = "ZenFireBrowser.browserMusicTrack"
+        static let browserMusicVolume = "ZenFireBrowser.browserMusicVolume"
         static let newTabOpensSearch = "ZenFireBrowser.newTabOpensSearch"
         static let hasCompletedTutorial = "ZenFireBrowser.hasCompletedTutorial"
         static let downloads = "ZenFireBrowser.downloads"

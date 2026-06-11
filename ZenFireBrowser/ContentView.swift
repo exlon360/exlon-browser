@@ -748,6 +748,10 @@ private struct FloatingChrome: View {
                         }
                     }
 
+                    if model.isInMoreMenu(.browserMusic) == false {
+                        BrowserMusicToolbarButton()
+                    }
+
                     TabBarStyleControl(compact: true)
 
                     if model.isInMoreMenu(.settings) == false {
@@ -853,6 +857,10 @@ private struct ChromeFooter: View {
                     ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                         model.showContainedTabs()
                     }
+                }
+
+                if model.isInMoreMenu(.browserMusic) == false {
+                    BrowserMusicToolbarButton()
                 }
 
                 if model.isInMoreMenu(.placement) == false {
@@ -1737,6 +1745,21 @@ private struct BrowserPageControls: View {
     }
 }
 
+private struct BrowserMusicToolbarButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+
+    var body: some View {
+        ChromeButton(
+            slot: .browserMusic,
+            symbol: model.isBrowserMusicEnabled ? "pause.fill" : "music.note",
+            label: model.isBrowserMusicEnabled ? "Pause Browser Music" : "Play Browser Music"
+        ) {
+            model.toggleBrowserMusic()
+        }
+        .accessibilityValue(model.browserMusicTrack.title)
+    }
+}
+
 private struct PrivateModeBadge: View {
     @EnvironmentObject private var theme: BrowserTheme
 
@@ -1949,12 +1972,18 @@ private struct MoreTabButton: View {
         if action == .reload {
             return model.selectedTab?.isLoading == true ? "Stop Loading" : "Reload"
         }
+        if action == .browserMusic {
+            return model.isBrowserMusicEnabled ? "Pause Browser Music" : "Play Browser Music"
+        }
         return action.menuTitle
     }
 
     private func menuSymbol(for action: BrowserToolbarAction) -> String {
         if action == .reload {
             return model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise"
+        }
+        if action == .browserMusic {
+            return model.isBrowserMusicEnabled ? "pause.fill" : model.customIconName(for: .browserMusic, fallback: action.symbolName)
         }
         return model.customIconName(for: action.customIconSlot, fallback: action.symbolName)
     }
@@ -3905,6 +3934,32 @@ private struct BrowserSettingsView: View {
                         presentAfterDismiss {
                             model.isVPNPresented = true
                         }
+                    }
+                }
+
+                Section("Browser Music") {
+                    Toggle("Play browser music", isOn: $model.isBrowserMusicEnabled)
+
+                    Picker("Track", selection: $model.browserMusicTrack) {
+                        ForEach(BrowserMusicTrack.allCases) { track in
+                            Label(track.title, systemImage: track.symbolName)
+                                .tag(track)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Volume")
+                            Spacer()
+                            Text("\(Int(model.browserMusicVolume * 100))%")
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+                        Slider(value: $model.browserMusicVolume, in: 0...1)
+                    }
+
+                    LabeledContent("Now selected") {
+                        Label(model.browserMusicTrack.title, systemImage: model.browserMusicTrack.symbolName)
+                            .foregroundStyle(theme.color(.accent))
                     }
                 }
 

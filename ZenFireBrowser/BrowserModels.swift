@@ -84,6 +84,54 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserMusicTrack: String, CaseIterable, Identifiable {
+    case focus
+    case rain
+    case midnight
+    case drift
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .focus:
+            return "Focus Pulse"
+        case .rain:
+            return "Rain Glass"
+        case .midnight:
+            return "Midnight Synth"
+        case .drift:
+            return "Soft Drift"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .focus:
+            return "Low, steady browser music"
+        case .rain:
+            return "Soft noise and slow tones"
+        case .midnight:
+            return "Dark synthetic pad"
+        case .drift:
+            return "Light ambient motion"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .focus:
+            return "music.note"
+        case .rain:
+            return "cloud.rain"
+        case .midnight:
+            return "moon.stars"
+        case .drift:
+            return "waveform"
+        }
+    }
+}
+
 enum AIAssistant: String, CaseIterable, Identifiable {
     case chatGPT
     case gemini
@@ -263,6 +311,9 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var searchEngine: String
     var customSearchTemplate: String
     var newTabOpensSearch: Bool?
+    var browserMusicEnabled: Bool?
+    var browserMusicTrack: String?
+    var browserMusicVolume: Double?
     var darkReaderEnabled: Bool
     var adBlockerEnabled: Bool
     var moreMenuActions: [String]
