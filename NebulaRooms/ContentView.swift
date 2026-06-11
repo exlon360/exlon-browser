@@ -15,7 +15,9 @@ struct ContentView: View {
                 ChatRoomView()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(Color(hex: store.selectedTheme.primaryHex))
+        .statusBarHidden(true)
     }
 }
 
@@ -27,65 +29,70 @@ private struct AuthView: View {
     @State private var isPasswordVisible = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                Spacer(minLength: 18)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    Spacer(minLength: 18)
 
-                BrandHeader(subtitle: "Username and password only.")
+                    BrandHeader(subtitle: "Username and password only.")
 
-                VStack(alignment: .leading, spacing: 16) {
-                    Picker("Mode", selection: $mode) {
-                        ForEach(AuthMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
+                    VStack(alignment: .leading, spacing: 16) {
+                        Picker("Mode", selection: $mode) {
+                            ForEach(AuthMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
                         }
+                        .pickerStyle(.segmented)
+
+                        NebulaField(title: "Username", text: $username, systemImage: "person.fill")
+
+                        NebulaSecureField(
+                            title: "Password",
+                            text: $password,
+                            isVisible: $isPasswordVisible,
+                            systemImage: "lock.fill"
+                        )
+
+                        HStack {
+                            Text("Password length: 1-100 characters")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.56))
+
+                            Spacer()
+
+                            Text("\(password.count) / 100")
+                                .font(.footnote.weight(.bold))
+                                .foregroundStyle(Color(hex: store.selectedTheme.primaryHex))
+                        }
+
+                        Button {
+                            submit()
+                        } label: {
+                            Label(mode.buttonTitle, systemImage: mode == .signUp ? "sparkles" : "arrow.right")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(NebulaPrimaryButtonStyle(theme: store.selectedTheme))
+                        .disabled(password.count > 100)
                     }
-                    .pickerStyle(.segmented)
-
-                    NebulaField(title: "Username", text: $username, systemImage: "person.fill")
-
-                    NebulaSecureField(
-                        title: "Password",
-                        text: $password,
-                        isVisible: $isPasswordVisible,
-                        systemImage: "lock.fill"
-                    )
-
-                    HStack {
-                        Text("Password length: 1-100 characters")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.56))
-
-                        Spacer()
-
-                        Text("\(password.count) / 100")
-                            .font(.footnote.weight(.bold))
-                            .foregroundStyle(Color(hex: store.selectedTheme.primaryHex))
+                    .padding(18)
+                    .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(hex: store.selectedTheme.primaryHex).opacity(0.28), lineWidth: 1)
                     }
 
-                    Button {
-                        submit()
-                    } label: {
-                        Label(mode.buttonTitle, systemImage: mode == .signUp ? "sparkles" : "arrow.right")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(NebulaPrimaryButtonStyle(theme: store.selectedTheme))
-                    .disabled(password.count > 100)
+                    StatusText(text: store.statusMessage)
+
+                    Spacer(minLength: 18)
                 }
-                .padding(18)
-                .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(hex: store.selectedTheme.primaryHex).opacity(0.28), lineWidth: 1)
-                }
-
-                StatusText(text: store.statusMessage)
-
-                Spacer(minLength: 18)
+                .frame(maxWidth: proxy.size.width > 700 ? 560 : .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .center)
+                .padding(.horizontal, proxy.size.width > 700 ? 32 : 20)
+                .padding(.vertical, 18)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 18)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
     }
 
     private func submit() {
@@ -132,58 +139,57 @@ private struct RoomLobbyView: View {
     @State private var isThemesPresented = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                LobbyHeader(isThemesPresented: $isThemesPresented)
+        GeometryReader { proxy in
+            let isWide = proxy.size.width >= 760
 
-                VStack(alignment: .leading, spacing: 16) {
-                    Picker("Room mode", selection: $mode) {
-                        ForEach(RoomMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
+            ScrollView {
+                Group {
+                    if isWide {
+                        HStack(alignment: .top, spacing: 24) {
+                            VStack(alignment: .leading, spacing: 20) {
+                                LobbyHeader(isThemesPresented: $isThemesPresented)
+
+                                RoomAccessPanel(
+                                    mode: $mode,
+                                    roomName: $roomName,
+                                    roomPassword: $roomPassword,
+                                    isPasswordVisible: $isPasswordVisible,
+                                    submit: submit
+                                )
+
+                                StatusText(text: store.statusMessage)
+                            }
+                            .frame(width: min(430, proxy.size.width * 0.42), alignment: .topLeading)
+
+                            RoomListView()
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 20) {
+                            LobbyHeader(isThemesPresented: $isThemesPresented)
+
+                            RoomAccessPanel(
+                                mode: $mode,
+                                roomName: $roomName,
+                                roomPassword: $roomPassword,
+                                isPasswordVisible: $isPasswordVisible,
+                                submit: submit
+                            )
+
+                            RoomListView()
+
+                            StatusText(text: store.statusMessage)
                         }
                     }
-                    .pickerStyle(.segmented)
-
-                    NebulaField(title: "Room Name", text: $roomName, systemImage: mode == .create ? "plus.message.fill" : "rectangle.portrait.and.arrow.right")
-
-                    NebulaSecureField(
-                        title: "Room Password",
-                        text: $roomPassword,
-                        isVisible: $isPasswordVisible,
-                        systemImage: "lock.fill"
-                    )
-
-                    HStack {
-                        Text("Password length: 1-100 characters")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.56))
-
-                        Spacer()
-
-                        Button {
-                            submit()
-                        } label: {
-                            Label(mode.buttonTitle, systemImage: mode == .create ? "plus" : "arrow.right")
-                        }
-                        .buttonStyle(NebulaPrimaryButtonStyle(theme: store.selectedTheme, isCompact: true))
-                        .disabled(roomPassword.count > 100)
-                    }
                 }
-                .padding(16)
-                .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(hex: store.selectedTheme.primaryHex).opacity(0.24), lineWidth: 1)
-                }
-
-                RoomListView()
-
-                StatusText(text: store.statusMessage)
+                .frame(maxWidth: min(proxy.size.width, 1040), alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
+                .padding(.horizontal, isWide ? 28 : 18)
+                .padding(.vertical, isWide ? 24 : 18)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 18)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
         .sheet(isPresented: $isThemesPresented) {
             ThemeStudioView()
                 .presentationDetents([.medium, .large])
@@ -197,6 +203,58 @@ private struct RoomLobbyView: View {
             store.createRoom(name: roomName, password: roomPassword)
         case .join:
             store.joinRoom(name: roomName, password: roomPassword)
+        }
+    }
+}
+
+private struct RoomAccessPanel: View {
+    @EnvironmentObject private var store: ChatStore
+    @Binding var mode: RoomMode
+    @Binding var roomName: String
+    @Binding var roomPassword: String
+    @Binding var isPasswordVisible: Bool
+    let submit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("Room mode", selection: $mode) {
+                ForEach(RoomMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            NebulaField(title: "Room Name", text: $roomName, systemImage: mode == .create ? "plus.message.fill" : "rectangle.portrait.and.arrow.right")
+
+            NebulaSecureField(
+                title: "Room Password",
+                text: $roomPassword,
+                isVisible: $isPasswordVisible,
+                systemImage: "lock.fill"
+            )
+
+            HStack {
+                Text("Password length: 1-100 characters")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.56))
+
+                Spacer()
+
+                Button {
+                    submit()
+                } label: {
+                    Label(mode.buttonTitle, systemImage: mode == .create ? "plus" : "arrow.right")
+                }
+                .buttonStyle(NebulaPrimaryButtonStyle(theme: store.selectedTheme, isCompact: true))
+                .disabled(roomPassword.count > 100)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(hex: store.selectedTheme.primaryHex).opacity(0.24), lineWidth: 1)
         }
     }
 }
@@ -236,30 +294,36 @@ private struct ChatRoomView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ChatHeader(isThemesPresented: $isThemesPresented)
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                ChatHeader(isThemesPresented: $isThemesPresented)
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        ForEach(visibleMessages) { message in
-                            MessageRow(message: message)
-                                .id(message.id)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 18) {
+                            ForEach(visibleMessages) { message in
+                                MessageRow(message: message)
+                                    .id(message.id)
+                            }
+                        }
+                        .frame(maxWidth: min(geometry.size.width - 32, 860), alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 18)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .scrollIndicators(.hidden)
+                    .onChange(of: visibleMessages.count) { _ in
+                        guard let last = visibleMessages.last else { return }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 18)
                 }
-                .scrollIndicators(.hidden)
-                .onChange(of: visibleMessages.count) { _ in
-                    guard let last = visibleMessages.last else { return }
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
-                }
-            }
 
-            ComposerView(draft: $draft)
+                ComposerView(draft: $draft)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .background {
             NebulaBackground(theme: store.selectedTheme)
