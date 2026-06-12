@@ -3894,6 +3894,25 @@ private struct BrowserSettingsView: View {
                         }
                     }
                     Toggle("Stylus Catppuccin styles", isOn: stylusCatppuccinBinding)
+                    Toggle("FPS forcer", isOn: fpsForcerBinding)
+                    if model.isFPSForcerEnabled {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Target FPS")
+                                Spacer()
+                                Text(model.forcedFPSLabel)
+                                    .foregroundStyle(theme.color(.mutedText))
+                            }
+                            Slider(
+                                value: Binding(
+                                    get: { model.forcedFPS },
+                                    set: { model.setForcedFPS($0) }
+                                ),
+                                in: BrowserViewModel.minimumForcedFPS...BrowserViewModel.infiniteForcedFPSValue,
+                                step: 1
+                            )
+                        }
+                    }
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
                     Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
@@ -4248,6 +4267,13 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isStylusCatppuccinEnabled },
             set: { model.setStylusCatppuccinEnabled($0) }
+        )
+    }
+
+    private var fpsForcerBinding: Binding<Bool> {
+        Binding(
+            get: { model.isFPSForcerEnabled },
+            set: { model.setFPSForcerEnabled($0) }
         )
     }
 

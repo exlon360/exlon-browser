@@ -27,6 +27,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var darkReaderTheme: BrowserDarkReaderTheme
     @Published var isStylusCatppuccinEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
+    @Published var isFPSForcerEnabled: Bool
+    @Published var forcedFPS: Double
 
     var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
     var onDownloadUpdated: (@MainActor (BrowserDownloadItem) -> Void)?
@@ -46,7 +48,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         isDarkReaderEnabled: Bool = false,
         darkReaderTheme: BrowserDarkReaderTheme = .zenCopy,
         isStylusCatppuccinEnabled: Bool = false,
-        isAdBlockerEnabled: Bool = true
+        isAdBlockerEnabled: Bool = true,
+        isFPSForcerEnabled: Bool = false,
+        forcedFPS: Double = 60
     ) {
         self.isPrivate = isPrivate
         self.isContainedBrowser = isContainedBrowser
@@ -54,6 +58,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.darkReaderTheme = darkReaderTheme
         self.isStylusCatppuccinEnabled = isStylusCatppuccinEnabled
         self.isAdBlockerEnabled = isAdBlockerEnabled
+        self.isFPSForcerEnabled = isFPSForcerEnabled
+        self.forcedFPS = forcedFPS
         self.title = isContainedBrowser ? "Contained Browser" : (isPrivate ? "Private Start" : "Start")
         self.url = startURL
         self.addressText = startURL.absoluteString
@@ -87,14 +93,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         bindWebViewState()
         installGestureControls()
 
-        if isAdBlockerEnabled {
-            BrowserContentBlocker.setEnabled(true, on: webView.configuration.userContentController) { [weak self] _ in
-                Task { @MainActor in
-                    self?.loadInitialContent(startURL)
-                }
-            }
-        } else {
-            loadInitialContent(startURL)
+        rebuildWebKitUserContent(reloadAfterChange: false) { [weak self] in
+            self?.loadInitialContent(startURL)
         }
     }
 
@@ -146,53 +146,94 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     func setDarkReaderEnabled(_ enabled: Bool) {
         isDarkReaderEnabled = enabled
+        rebuildWebKitUserContent()
         applyPageStyleOverrides()
     }
 
     func setDarkReaderTheme(_ theme: BrowserDarkReaderTheme) {
         darkReaderTheme = theme
+        rebuildWebKitUserContent()
         applyPageStyleOverrides()
     }
 
     func setStylusCatppuccinEnabled(_ enabled: Bool) {
         isStylusCatppuccinEnabled = enabled
+        rebuildWebKitUserContent()
+        applyPageStyleOverrides()
+    }
+
+    func setFPSForcerEnabled(_ enabled: Bool) {
+        isFPSForcerEnabled = enabled
+        rebuildWebKitUserContent()
+        applyPageStyleOverrides()
+    }
+
+    func setForcedFPS(_ fps: Double) {
+        forcedFPS = fps
+        rebuildWebKitUserContent()
         applyPageStyleOverrides()
     }
 
     func setAdBlockerEnabled(_ enabled: Bool, reloadAfterChange: Bool = true) {
         isAdBlockerEnabled = enabled
-        BrowserContentBlocker.setEnabled(enabled, on: webView.configuration.userContentController) { [weak self] _ in
-            guard reloadAfterChange else { return }
-            Task { @MainActor in
-                self?.webView.reload()
+        rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)
+    }
+
+    private func applyPageStyleOverrides() {
+        webView.evaluateJavaScript(Self.pageControlsScript(
+            darkReaderCSS: activeDarkReaderCSS,
+            stylusCSS: activeStylusCSS,
+            fpsLimit: activeFPSLimit
+        ))
+    }
+
+    private func rebuildWebKitUserContent(
+        reloadAfterChange: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
+        BrowserContentBlocker.setEnabled(
+            isAdBlockerEnabled,
+            on: webView.configuration.userContentController,
+            additionalUserScripts: pageControlUserScripts()
+        ) { [weak self] _ in
+            guard let self = self else {
+                completion?()
+                return
+            }
+
+            completion?()
+            if reloadAfterChange {
+                self.webView.reload()
             }
         }
     }
 
-    private func applyPageStyleOverrides() {
-        let darkReaderCSS = isDarkReaderEnabled ? Self.darkReaderCSS(for: darkReaderTheme) : ""
-        let stylusCSS = isStylusCatppuccinEnabled ? Self.stylusCatppuccinCSS() : ""
-        let script = """
-        (() => {
-          const setStyle = (id, css) => {
-            let style = document.getElementById(id);
-            if (!css) {
-              if (style) { style.remove(); }
-              return;
-            }
-            if (!style) {
-              style = document.createElement('style');
-              style.id = id;
-              (document.head || document.documentElement).appendChild(style);
-            }
-            style.textContent = css;
-          };
-          setStyle('glide-dark-reader', "\(Self.javaScriptEscaped(darkReaderCSS))");
-          setStyle('glide-stylus-catppuccin', "\(Self.javaScriptEscaped(stylusCSS))");
-        })();
-        """
+    private func pageControlUserScripts() -> [WKUserScript] {
+        [
+            WKUserScript(
+                source: Self.pageControlsScript(
+                    darkReaderCSS: activeDarkReaderCSS,
+                    stylusCSS: activeStylusCSS,
+                    fpsLimit: activeFPSLimit
+                ),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        ]
+    }
 
-        webView.evaluateJavaScript(script)
+    private var activeDarkReaderCSS: String {
+        isDarkReaderEnabled ? Self.darkReaderCSS(for: darkReaderTheme) : ""
+    }
+
+    private var activeStylusCSS: String {
+        isStylusCatppuccinEnabled ? Self.stylusCatppuccinCSS() : ""
+    }
+
+    private var activeFPSLimit: Double? {
+        guard isFPSForcerEnabled,
+              forcedFPS < BrowserViewModel.infiniteForcedFPSValue else { return nil }
+        return max(BrowserViewModel.minimumForcedFPS, min(BrowserViewModel.maximumFiniteForcedFPS, forcedFPS))
     }
 
     private func loadInitialContent(_ startURL: URL) {
@@ -967,6 +1008,162 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
+    }
+
+    private static func pageControlsScript(
+        darkReaderCSS: String,
+        stylusCSS: String,
+        fpsLimit: Double?
+    ) -> String {
+        let fpsLiteral: String
+        if let fpsLimit {
+            fpsLiteral = String(format: "%.0f", fpsLimit)
+        } else {
+            fpsLiteral = "null"
+        }
+
+        return """
+        (() => {
+          const nextConfig = {
+            darkReaderCSS: "\(javaScriptEscaped(darkReaderCSS))",
+            stylusCSS: "\(javaScriptEscaped(stylusCSS))",
+            fpsLimit: \(fpsLiteral)
+          };
+
+          const internalHosts = new Set(["glide.local", "browser.local"]);
+          const isInternalPage = () => internalHosts.has(String(location.hostname || "").toLowerCase());
+
+          const installStyle = (id, css) => {
+            let style = document.getElementById(id);
+            const effectiveCSS = isInternalPage() ? "" : css;
+            if (!effectiveCSS) {
+              if (style) { style.remove(); }
+              return;
+            }
+
+            if (!style) {
+              style = document.createElement("style");
+              style.id = id;
+              style.setAttribute("data-glide-page-style", "true");
+            }
+
+            if (style.textContent !== effectiveCSS) {
+              style.textContent = effectiveCSS;
+            }
+
+            const target = document.head || document.documentElement || document.body;
+            if (target && style.parentNode !== target) {
+              target.appendChild(style);
+            }
+          };
+
+          const restoreFPS = (state) => {
+            if (!state || !state.fpsPatched) { return; }
+            window.requestAnimationFrame = state.nativeRequestAnimationFrame;
+            window.cancelAnimationFrame = state.nativeCancelAnimationFrame;
+            state.fpsPatched = false;
+            state.lastFrameTime = 0;
+          };
+
+          const applyFPS = (state) => {
+            const fps = Number(state.config.fpsLimit || 0);
+            if (!Number.isFinite(fps) || fps <= 0) {
+              restoreFPS(state);
+              return;
+            }
+
+            const minInterval = Math.max(1, 1000 / fps);
+            state.minFrameInterval = minInterval;
+
+            if (state.fpsPatched) { return; }
+
+            state.fpsPatched = true;
+            window.requestAnimationFrame = (callback) => {
+              const handle = state.nativeRequestAnimationFrame((now) => {
+                const elapsed = state.lastFrameTime ? now - state.lastFrameTime : minInterval;
+                const wait = state.minFrameInterval - elapsed;
+                if (wait <= 0) {
+                  state.lastFrameTime = now;
+                  callback(now);
+                  return;
+                }
+
+                const timeout = window.setTimeout(() => {
+                  state.pendingFrameTimeouts.delete(handle);
+                  const adjustedNow = performance.now();
+                  state.lastFrameTime = adjustedNow;
+                  callback(adjustedNow);
+                }, wait);
+                state.pendingFrameTimeouts.set(handle, timeout);
+              });
+              return handle;
+            };
+
+            window.cancelAnimationFrame = (handle) => {
+              const timeout = state.pendingFrameTimeouts.get(handle);
+              if (timeout) {
+                window.clearTimeout(timeout);
+                state.pendingFrameTimeouts.delete(handle);
+              }
+              state.nativeCancelAnimationFrame(handle);
+            };
+          };
+
+          const applyAll = () => {
+            const state = window.__glidePageControls;
+            if (!state) { return; }
+            installStyle("glide-dark-reader", state.config.darkReaderCSS);
+            installStyle("glide-stylus-catppuccin", state.config.stylusCSS);
+            applyFPS(state);
+          };
+
+          if (!window.__glidePageControls) {
+            const state = {
+              config: nextConfig,
+              nativeRequestAnimationFrame: window.requestAnimationFrame.bind(window),
+              nativeCancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+              fpsPatched: false,
+              lastFrameTime: 0,
+              minFrameInterval: 0,
+              pendingFrameTimeouts: new Map(),
+              observer: null,
+              observerTimer: 0
+            };
+
+            window.__glidePageControls = state;
+            window.__glideApplyPageControls = (config) => {
+              state.config = config || nextConfig;
+              applyAll();
+            };
+
+            const startObserver = () => {
+              if (state.observer || !document.documentElement) { return; }
+              state.observer = new MutationObserver(() => {
+                if (state.observerTimer) { return; }
+                state.observerTimer = window.setTimeout(() => {
+                  state.observerTimer = 0;
+                  applyAll();
+                }, 80);
+              });
+              state.observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true
+              });
+            };
+
+            if (document.readyState === "loading") {
+              document.addEventListener("DOMContentLoaded", () => {
+                applyAll();
+                startObserver();
+              }, { once: true });
+            } else {
+              startObserver();
+            }
+          }
+
+          window.__glideApplyPageControls(nextConfig);
+        })();
+        """
     }
 
     private static func darkReaderCSS(for theme: BrowserDarkReaderTheme) -> String {

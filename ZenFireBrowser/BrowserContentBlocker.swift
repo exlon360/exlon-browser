@@ -820,10 +820,14 @@ enum BrowserContentBlocker {
     static func setEnabled(
         _ enabled: Bool,
         on userContentController: WKUserContentController,
+        additionalUserScripts: [WKUserScript] = [],
         completion: ((Error?) -> Void)? = nil
     ) {
         userContentController.removeAllContentRuleLists()
         userContentController.removeAllUserScripts()
+        for script in additionalUserScripts {
+            userContentController.addUserScript(script)
+        }
 
         guard enabled else {
             completion?(nil)

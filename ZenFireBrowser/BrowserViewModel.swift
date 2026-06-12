@@ -572,6 +572,10 @@ final class BrowserMusicPlayer {
 
 @MainActor
 final class BrowserViewModel: ObservableObject {
+    static let minimumForcedFPS = 15.0
+    static let maximumFiniteForcedFPS = 240.0
+    static let infiniteForcedFPSValue = 241.0
+
     @Published var tabs: [BrowserTab]
     @Published var selectedTabID: BrowserTab.ID?
     @Published var containedTabs: [BrowserTab] = []
@@ -622,6 +626,33 @@ final class BrowserViewModel: ObservableObject {
             }
             for tab in containedTabs {
                 tab.setStylusCatppuccinEnabled(isStylusCatppuccinEnabled)
+            }
+        }
+    }
+    @Published var isFPSForcerEnabled: Bool {
+        didSet {
+            vault.save(isFPSForcerEnabled, forKey: Self.StorageKey.fpsForcerEnabled)
+            for tab in tabs {
+                tab.setFPSForcerEnabled(isFPSForcerEnabled)
+            }
+            for tab in containedTabs {
+                tab.setFPSForcerEnabled(isFPSForcerEnabled)
+            }
+        }
+    }
+    @Published var forcedFPS: Double {
+        didSet {
+            let clamped = Self.clampedForcedFPS(forcedFPS)
+            if clamped != forcedFPS {
+                forcedFPS = clamped
+                return
+            }
+            vault.save(forcedFPS, forKey: Self.StorageKey.forcedFPS)
+            for tab in tabs {
+                tab.setForcedFPS(forcedFPS)
+            }
+            for tab in containedTabs {
+                tab.setForcedFPS(forcedFPS)
             }
         }
     }
@@ -748,6 +779,10 @@ final class BrowserViewModel: ObservableObject {
             rawValue: vault.load(String.self, forKey: Self.StorageKey.darkReaderTheme, default: "")
         ) ?? .zenCopy
         let stylusCatppuccinEnabled = vault.load(Bool.self, forKey: Self.StorageKey.stylusCatppuccinEnabled, default: false)
+        let fpsForcerEnabled = vault.load(Bool.self, forKey: Self.StorageKey.fpsForcerEnabled, default: false)
+        let savedForcedFPS = Self.clampedForcedFPS(
+            vault.load(Double.self, forKey: Self.StorageKey.forcedFPS, default: 60)
+        )
         let adBlockerEnabled = vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)
         let placement = BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
@@ -767,6 +802,8 @@ final class BrowserViewModel: ObservableObject {
             isDarkReaderEnabled: darkReaderEnabled,
             darkReaderTheme: savedDarkReaderTheme,
             isStylusCatppuccinEnabled: stylusCatppuccinEnabled,
+            isFPSForcerEnabled: fpsForcerEnabled,
+            forcedFPS: savedForcedFPS,
             isAdBlockerEnabled: adBlockerEnabled
         )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
@@ -803,6 +840,8 @@ final class BrowserViewModel: ObservableObject {
         self.isDarkReaderEnabled = darkReaderEnabled
         self.darkReaderTheme = savedDarkReaderTheme
         self.isStylusCatppuccinEnabled = stylusCatppuccinEnabled
+        self.isFPSForcerEnabled = fpsForcerEnabled
+        self.forcedFPS = savedForcedFPS
         self.isAdBlockerEnabled = adBlockerEnabled
         self.isBrowserMusicEnabled = vault.load(Bool.self, forKey: Self.StorageKey.browserMusicEnabled, default: false)
         self.browserMusicTrack = savedBrowserMusicTrack
@@ -820,6 +859,10 @@ final class BrowserViewModel: ObservableObject {
         }
         migrateLoadedStateToEncryptedVault()
         updateBrowserMusicPlayer()
+    }
+
+    var forcedFPSLabel: String {
+        forcedFPS >= Self.infiniteForcedFPSValue ? "Infinite" : "\(Int(forcedFPS.rounded())) FPS"
     }
 
     var selectedTab: BrowserTab? {
@@ -906,7 +949,9 @@ final class BrowserViewModel: ObservableObject {
             isDarkReaderEnabled: isDarkReaderEnabled,
             darkReaderTheme: darkReaderTheme,
             isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
-            isAdBlockerEnabled: isAdBlockerEnabled
+            isAdBlockerEnabled: isAdBlockerEnabled,
+            isFPSForcerEnabled: isFPSForcerEnabled,
+            forcedFPS: forcedFPS
         )
         configure(tab)
         tabs.append(tab)
@@ -940,7 +985,9 @@ final class BrowserViewModel: ObservableObject {
             isDarkReaderEnabled: isDarkReaderEnabled,
             darkReaderTheme: darkReaderTheme,
             isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
-            isAdBlockerEnabled: isAdBlockerEnabled
+            isAdBlockerEnabled: isAdBlockerEnabled,
+            isFPSForcerEnabled: isFPSForcerEnabled,
+            forcedFPS: forcedFPS
         )
         configureContained(tab)
         containedTabs.append(tab)
@@ -1089,6 +1136,14 @@ final class BrowserViewModel: ObservableObject {
 
     func setStylusCatppuccinEnabled(_ enabled: Bool) {
         isStylusCatppuccinEnabled = enabled
+    }
+
+    func setFPSForcerEnabled(_ enabled: Bool) {
+        isFPSForcerEnabled = enabled
+    }
+
+    func setForcedFPS(_ fps: Double) {
+        forcedFPS = fps
     }
 
     func setAdBlockerEnabled(_ enabled: Bool) {
@@ -1352,6 +1407,8 @@ final class BrowserViewModel: ObservableObject {
             newTabOpensSearch: newTabOpensSearch,
             darkReaderTheme: darkReaderTheme.rawValue,
             stylusCatppuccinEnabled: isStylusCatppuccinEnabled,
+            fpsForcerEnabled: isFPSForcerEnabled,
+            forcedFPS: forcedFPS,
             browserMusicEnabled: isBrowserMusicEnabled,
             browserMusicTrack: browserMusicTrack.rawValue,
             browserMusicVolume: browserMusicVolume,
@@ -1416,6 +1473,8 @@ final class BrowserViewModel: ObservableObject {
             darkReaderTheme = theme
         }
         isStylusCatppuccinEnabled = config.stylusCatppuccinEnabled ?? false
+        isFPSForcerEnabled = config.fpsForcerEnabled ?? false
+        forcedFPS = Self.clampedForcedFPS(config.forcedFPS ?? 60)
         isBrowserMusicEnabled = config.browserMusicEnabled ?? false
         if let browserMusicTrackValue = config.browserMusicTrack,
            let track = BrowserMusicTrack(rawValue: browserMusicTrackValue) {
@@ -1767,6 +1826,8 @@ final class BrowserViewModel: ObservableObject {
         setDarkReaderEnabled(false)
         darkReaderTheme = .zenCopy
         isStylusCatppuccinEnabled = false
+        isFPSForcerEnabled = false
+        forcedFPS = 60
         essentials = []
         saveEssentials()
         saveVPNProfile(.empty)
@@ -2087,6 +2148,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(isDarkReaderEnabled, forKey: Self.StorageKey.darkReaderEnabled)
         vault.save(darkReaderTheme.rawValue, forKey: Self.StorageKey.darkReaderTheme)
         vault.save(isStylusCatppuccinEnabled, forKey: Self.StorageKey.stylusCatppuccinEnabled)
+        vault.save(isFPSForcerEnabled, forKey: Self.StorageKey.fpsForcerEnabled)
+        vault.save(forcedFPS, forKey: Self.StorageKey.forcedFPS)
         vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
         vault.save(browserMusicTrack.rawValue, forKey: Self.StorageKey.browserMusicTrack)
         vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
@@ -2101,6 +2164,8 @@ final class BrowserViewModel: ObservableObject {
         isDarkReaderEnabled: Bool,
         darkReaderTheme: BrowserDarkReaderTheme,
         isStylusCatppuccinEnabled: Bool,
+        isFPSForcerEnabled: Bool,
+        forcedFPS: Double,
         isAdBlockerEnabled: Bool
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
@@ -2110,7 +2175,9 @@ final class BrowserViewModel: ObservableObject {
                 isDarkReaderEnabled: isDarkReaderEnabled,
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
-                isAdBlockerEnabled: isAdBlockerEnabled
+                isAdBlockerEnabled: isAdBlockerEnabled,
+                isFPSForcerEnabled: isFPSForcerEnabled,
+                forcedFPS: forcedFPS
             )
             return ([firstTab], firstTab.id)
         }
@@ -2126,7 +2193,9 @@ final class BrowserViewModel: ObservableObject {
                 isDarkReaderEnabled: isDarkReaderEnabled,
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
-                isAdBlockerEnabled: isAdBlockerEnabled
+                isAdBlockerEnabled: isAdBlockerEnabled,
+                isFPSForcerEnabled: isFPSForcerEnabled,
+                forcedFPS: forcedFPS
             )
             restoredTabs.append(tab)
             if savedTab.isSelected {
@@ -2140,7 +2209,9 @@ final class BrowserViewModel: ObservableObject {
                 isDarkReaderEnabled: isDarkReaderEnabled,
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
-                isAdBlockerEnabled: isAdBlockerEnabled
+                isAdBlockerEnabled: isAdBlockerEnabled,
+                isFPSForcerEnabled: isFPSForcerEnabled,
+                forcedFPS: forcedFPS
             )
             return ([firstTab], firstTab.id)
         }
@@ -2190,6 +2261,11 @@ final class BrowserViewModel: ObservableObject {
         min(max(value, 0.0), 1.0)
     }
 
+    private static func clampedForcedFPS(_ value: Double) -> Double {
+        guard value.isFinite else { return infiniteForcedFPSValue }
+        return min(max(value.rounded(), minimumForcedFPS), infiniteForcedFPSValue)
+    }
+
     private static func countLabel(_ count: Int, singular: String) -> String {
         count == 1 ? "1 \(singular)" : "\(count) \(singular)s"
     }
@@ -2237,6 +2313,8 @@ final class BrowserViewModel: ObservableObject {
         static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
         static let darkReaderTheme = "ZenFireBrowser.darkReaderTheme"
         static let stylusCatppuccinEnabled = "ZenFireBrowser.stylusCatppuccinEnabled"
+        static let fpsForcerEnabled = "ZenFireBrowser.fpsForcerEnabled"
+        static let forcedFPS = "ZenFireBrowser.forcedFPS"
         static let browserMusicEnabled = "ZenFireBrowser.browserMusicEnabled"
         static let browserMusicTrack = "ZenFireBrowser.browserMusicTrack"
         static let browserMusicVolume = "ZenFireBrowser.browserMusicVolume"

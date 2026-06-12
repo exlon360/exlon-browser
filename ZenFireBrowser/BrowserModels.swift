@@ -338,6 +338,8 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var newTabOpensSearch: Bool?
     var darkReaderTheme: String?
     var stylusCatppuccinEnabled: Bool?
+    var fpsForcerEnabled: Bool?
+    var forcedFPS: Double?
     var browserMusicEnabled: Bool?
     var browserMusicTrack: String?
     var browserMusicVolume: Double?
