@@ -87,6 +87,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
 enum BrowserDarkReaderTheme: String, CaseIterable, Identifiable {
     case zenCopy
     case catppuccinMocha
+    case catppuccinMochaDark
 
     var id: String { rawValue }
 
@@ -96,6 +97,8 @@ enum BrowserDarkReaderTheme: String, CaseIterable, Identifiable {
             return "Zen Copy"
         case .catppuccinMocha:
             return "Catppuccin Mocha"
+        case .catppuccinMochaDark:
+            return "Catppuccin Dark"
         }
     }
 
@@ -105,6 +108,8 @@ enum BrowserDarkReaderTheme: String, CaseIterable, Identifiable {
             return "moon"
         case .catppuccinMocha:
             return "cup.and.saucer"
+        case .catppuccinMochaDark:
+            return "moon.stars.fill"
         }
     }
 }

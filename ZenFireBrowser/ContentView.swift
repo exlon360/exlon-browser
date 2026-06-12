@@ -132,7 +132,18 @@ private struct BrowserLockView: View {
                         .frame(maxWidth: 440)
                         .frame(height: 54)
                         .foregroundStyle(Color(red: 0.05, green: 0.06, blue: 0.08))
-                        .background(Color(red: 0.84, green: 0.89, blue: 1.0), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.84, green: 0.89, blue: 1.0),
+                                    Color(red: 0.62, green: 0.70, blue: 0.98),
+                                    Color(red: 0.74, green: 0.62, blue: 0.98)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        )
                     }
                     .buttonStyle(.plain)
                     .disabled(canSubmit == false)
@@ -511,6 +522,116 @@ private extension BrowserTheme {
 
     var chromeSecondaryForegroundColor: Color {
         isUserBackgroundEnabled && hasUserBackground ? Color.white.opacity(0.72) : color(.mutedText)
+    }
+}
+
+private enum ButtonGradientProminence {
+    case standard
+    case primary
+    case quiet
+}
+
+private struct ButtonGradientBackground: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let cornerRadius: CGFloat
+    var prominence: ButtonGradientProminence = .standard
+    var isPressed = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(gradient)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.16 : 0))
+            }
+            .opacity(isPressed ? 0.86 : 1)
+    }
+
+    private var gradient: LinearGradient {
+        switch prominence {
+        case .primary:
+            return LinearGradient(
+                colors: [
+                    theme.color(.createTab).opacity(0.98),
+                    theme.color(.accent).opacity(0.92),
+                    theme.color(.surface).opacity(0.76)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .standard:
+            return LinearGradient(
+                colors: [
+                    theme.color(.field).opacity(controlOpacity),
+                    theme.color(.surface).opacity(max(controlOpacity, 0.62)),
+                    theme.color(.accent).opacity(0.22)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .quiet:
+            return LinearGradient(
+                colors: [
+                    theme.color(.surface).opacity(max(controlOpacity, 0.48)),
+                    theme.color(.field).opacity(max(controlOpacity, 0.42)),
+                    theme.color(.accent).opacity(0.14)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
+    private var controlOpacity: Double {
+        theme.isUserBackgroundEnabled && theme.hasUserBackground
+            ? max(theme.controlOpacity, 0.88)
+            : theme.controlOpacity
+    }
+}
+
+private struct GlideGradientButtonStyle: ButtonStyle {
+    @EnvironmentObject private var theme: BrowserTheme
+    var prominence: ButtonGradientProminence = .standard
+    var minHeight: CGFloat = 36
+    var cornerRadius: CGFloat = 8
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .bold))
+            .padding(.horizontal, 12)
+            .frame(minHeight: minHeight)
+            .foregroundStyle(foregroundColor)
+            .background(ButtonGradientBackground(cornerRadius: cornerRadius, prominence: prominence, isPressed: configuration.isPressed))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(strokeColor, lineWidth: 1)
+            }
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.spring(response: 0.18, dampingFraction: 0.82), value: configuration.isPressed)
+    }
+
+    private var foregroundColor: Color {
+        switch prominence {
+        case .primary:
+            return theme.color(.canvas)
+        case .standard, .quiet:
+            return theme.chromeForegroundColor
+        }
+    }
+
+    private var strokeColor: Color {
+        switch prominence {
+        case .primary:
+            return Color.white.opacity(0.34)
+        case .standard:
+            return theme.color(.border).opacity(0.54)
+        case .quiet:
+            return theme.color(.border).opacity(0.36)
+        }
     }
 }
 
@@ -983,6 +1104,20 @@ private struct ControlGlassBackground: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(theme.color(.field).opacity(controlOpacity))
             }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                theme.color(.accent).opacity(0.20),
+                                theme.color(.surface).opacity(max(controlOpacity, 0.42)),
+                                theme.color(.field).opacity(controlOpacity)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
     }
 
     private var controlOpacity: Double {
@@ -1088,13 +1223,13 @@ private struct TabBarStyleControl: View {
                     Button("Solid") {
                         theme.isTabBarTransparencyEnabled = false
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                     Button("Clear") {
                         theme.isTabBarTransparencyEnabled = true
                         theme.tabBarTransparency = 1.0
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
                 }
 
                 Divider()
@@ -1132,15 +1267,15 @@ private struct TabBarStyleControl: View {
                     Button("Files") {
                         isBackgroundImporterPresented = true
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
 
                     BackgroundPhotoPickerButton(title: "Photos")
-                        .buttonStyle(.bordered)
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                     Button("Remove") {
                         theme.clearUserBackground()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                     .disabled(theme.hasUserBackground == false)
                 }
             }
@@ -1588,7 +1723,7 @@ private struct TopSearchBarMoveControls: View {
             } label: {
                 Label("Cancel", systemImage: "xmark")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
             Button {
                 model.resetTopSearchBarPosition()
@@ -1596,7 +1731,7 @@ private struct TopSearchBarMoveControls: View {
                 Image(systemName: "arrow.counterclockwise")
                     .frame(width: 20, height: 20)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
             .accessibilityLabel("Reset top search bar position")
 
             Button {
@@ -1604,7 +1739,7 @@ private struct TopSearchBarMoveControls: View {
             } label: {
                 Label("Save", systemImage: "checkmark")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
         }
         .font(.system(size: 14, weight: .bold))
         .padding(10)
@@ -1715,7 +1850,7 @@ private struct SearchResultRow: View {
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 28, height: 28)
                     .foregroundStyle(theme.color(.accent))
-                    .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .background(ButtonGradientBackground(cornerRadius: 7, prominence: .quiet))
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(result.title)
@@ -1843,7 +1978,7 @@ private struct PrivateModeAuthView: View {
                         .frame(maxWidth: 420)
                         .frame(height: 52)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
                 .disabled(pin.count < 4)
 
                 Spacer(minLength: 16)
@@ -1943,7 +2078,7 @@ private struct MoreTabButton: View {
             BrowserIcon(slot: .more, systemName: "ellipsis", size: 18, weight: .black)
                 .frame(width: 38, height: 38)
                 .foregroundStyle(theme.color(.text))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(ControlGlassBackground(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.border).opacity(0.62), lineWidth: 1)
@@ -2034,7 +2169,7 @@ private struct AITabButton: View {
             BrowserIcon(slot: .ai, systemName: "sparkles", size: 15, weight: .bold)
                 .frame(width: 38, height: 38)
                 .foregroundStyle(theme.color(.text))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(ControlGlassBackground(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.accent).opacity(0.65), lineWidth: 1)
@@ -2083,7 +2218,7 @@ private struct ContainedBrowserOverlay: View {
                             Button("Create Contained Tab") {
                                 model.openContainedTab()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -2113,7 +2248,7 @@ private struct ContainedBrowserHeader: View {
             BrowserIcon(slot: .containedTabs, systemName: "rectangle.on.rectangle", size: 15, weight: .bold)
                 .frame(width: 34, height: 34)
                 .foregroundStyle(theme.color(.createTab))
-                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(ControlGlassBackground(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Contained Tabs")
@@ -2132,7 +2267,7 @@ private struct ContainedBrowserHeader: View {
                 BrowserIcon(slot: .newTab, systemName: "plus", size: 15, weight: .bold)
                     .frame(width: 34, height: 34)
                     .foregroundStyle(theme.color(.canvas))
-                    .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(ButtonGradientBackground(cornerRadius: 8, prominence: .primary))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New Contained Tab")
@@ -2144,7 +2279,7 @@ private struct ContainedBrowserHeader: View {
                     .font(.system(size: 13, weight: .black))
                     .frame(width: 34, height: 34)
                     .foregroundStyle(theme.color(.text))
-                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(ControlGlassBackground(cornerRadius: 8))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close Contained Tabs")
@@ -2237,7 +2372,7 @@ private struct ContainedControlButton: View {
             BrowserIcon(slot: symbol == "arrow.clockwise" ? .reload : nil, systemName: symbol, size: 14, weight: .bold)
                 .frame(width: 38, height: 42)
                 .foregroundStyle(theme.color(.text))
-                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(ControlGlassBackground(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
@@ -2263,7 +2398,7 @@ private struct ContainedTabStrip: View {
                     BrowserIcon(slot: .newTab, systemName: "plus.circle.fill", size: 20, weight: .bold)
                         .frame(width: 42, height: 38)
                         .foregroundStyle(theme.color(.createTab))
-                        .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(ControlGlassBackground(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("New Contained Tab")
@@ -2447,7 +2582,7 @@ private struct FirstRunTutorialView: View {
                     .frame(maxWidth: 560)
                     .frame(height: 54)
                     .foregroundStyle(theme.color(.canvas))
-                    .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(ButtonGradientBackground(cornerRadius: 14, prominence: .primary))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(step == 0 ? "Next" : "Start browsing")
@@ -2490,7 +2625,7 @@ private struct TutorialQuickCustomization: View {
                 }
             }
             .font(.system(size: 13, weight: .bold))
-            .buttonStyle(.bordered)
+            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
         }
         .padding(14)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -2514,7 +2649,7 @@ private struct TutorialFeatureRow: View {
                 .font(.system(size: 16, weight: .bold))
                 .frame(width: 34, height: 34)
                 .foregroundStyle(theme.color(tint))
-                .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(ButtonGradientBackground(cornerRadius: 8, prominence: .quiet))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -2691,7 +2826,7 @@ private struct TabFinderRow: View {
                                     .foregroundStyle(theme.color(.canvas))
                                     .padding(.horizontal, 5)
                                     .padding(.vertical, 3)
-                                    .background(theme.color(.createTab), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                    .background(ButtonGradientBackground(cornerRadius: 5, prominence: .primary))
                             }
                         }
 
@@ -2764,7 +2899,7 @@ private struct BrowserDownloadsView: View {
                         } label: {
                             Label("Download Current Tab", systemImage: "arrow.down.doc")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
                     }
                     .foregroundStyle(theme.color(.mutedText))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2830,14 +2965,14 @@ private struct BrowserDownloadsView: View {
                                         } label: {
                                             Label("Open", systemImage: "doc.text.magnifyingglass")
                                         }
-                                        .buttonStyle(.bordered)
+                                        .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                                         Button {
                                             requestExport(item, intent: .share)
                                         } label: {
                                             Label("Share", systemImage: "square.and.arrow.up")
                                         }
-                                        .buttonStyle(.bordered)
+                                        .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                                     }
 
                                     if item.sourceURLString.isEmpty == false {
@@ -2846,7 +2981,7 @@ private struct BrowserDownloadsView: View {
                                         } label: {
                                             Label(item.state == .failed ? "Retry" : "Download Again", systemImage: "arrow.clockwise")
                                         }
-                                        .buttonStyle(.bordered)
+                                        .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                                     }
 
                                     Button(role: .destructive) {
@@ -2854,7 +2989,7 @@ private struct BrowserDownloadsView: View {
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                                 }
                                 .font(.caption.weight(.bold))
                             }
@@ -3340,7 +3475,7 @@ private struct NewTabActions: View {
                     .padding(.horizontal, 12)
                     .frame(width: layout == .strip ? 136 : nil, height: 44)
                     .frame(maxWidth: layout == .sidebar ? .infinity : nil)
-                    .background(theme.color(.createTab).opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? max(theme.controlOpacity, 0.9) : theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(ButtonGradientBackground(cornerRadius: 8, prominence: .primary))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
@@ -3437,7 +3572,7 @@ private struct EssentialPill: View {
                 BrowserIcon(slot: .essentials, systemName: "sparkle", size: 12, weight: .bold)
                     .frame(width: 28, height: 28)
                     .foregroundStyle(theme.color(.canvas))
-                    .background(theme.color(.createTab).opacity(0.9), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .background(ButtonGradientBackground(cornerRadius: 7, prominence: .primary))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
@@ -3560,7 +3695,11 @@ private struct TabPill: View {
         .padding(.leading, 10)
         .padding(.trailing, 6)
         .frame(width: layout == .horizontal ? 210 : nil, height: 46)
-        .background(isSelected ? theme.color(.surface).opacity(theme.controlOpacity) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background {
+            if isSelected {
+                ButtonGradientBackground(cornerRadius: 8, prominence: .quiet)
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(isSelected ? theme.color(.accent).opacity(0.72) : theme.color(.border).opacity(0.35), lineWidth: 1)
@@ -3905,6 +4044,14 @@ private struct BrowserSettingsView: View {
                             }
                         }
                     }
+                    Button {
+                        model.setDarkReaderEnabled(true)
+                        model.setDarkReaderTheme(.catppuccinMochaDark)
+                    } label: {
+                        Label("Use Catppuccin Dark", systemImage: BrowserDarkReaderTheme.catppuccinMochaDark.symbolName)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 42))
                     Toggle("Stylus Catppuccin styles", isOn: stylusCatppuccinBinding)
                     Toggle("FPS forcer", isOn: fpsForcerBinding)
                     if model.isFPSForcerEnabled {
@@ -4170,14 +4317,14 @@ private struct BrowserSettingsView: View {
                         } label: {
                             Label("Export current", systemImage: "square.and.arrow.up")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                         Button {
                             isThemeImporterPresented = true
                         } label: {
                             Label("Import from Files", systemImage: "square.and.arrow.down")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                     }
 
                     if themeImportMessage.isEmpty == false {
@@ -4205,19 +4352,19 @@ private struct BrowserSettingsView: View {
                                 Button("Export") {
                                     exportTheme(savedTheme)
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                                 Button("Apply") {
                                     theme.applySavedTheme(savedTheme)
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                                 Button(role: .destructive) {
                                     theme.deleteSavedTheme(savedTheme)
                                 } label: {
                                     Image(systemName: "trash")
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                                 .accessibilityLabel("Delete \(savedTheme.name)")
                             }
                         }
@@ -4393,7 +4540,7 @@ private struct AddOnsLibraryView: View {
                                     .font(.system(size: 17, weight: .bold))
                                     .frame(width: 34, height: 34)
                                     .foregroundStyle(theme.color(.accent))
-                                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .background(ControlGlassBackground(cornerRadius: 8))
 
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(library.title)
@@ -4465,19 +4612,19 @@ private struct AdvancedConfigView: View {
                     Button("Discard") {
                         reloadConfig()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                     Spacer()
 
                     Button("Apply") {
                         applyConfig(shouldDismiss: false)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
 
                     Button("Save") {
                         applyConfig(shouldDismiss: true)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
                 }
             }
             .padding(16)
@@ -4537,7 +4684,7 @@ private struct CustomIconsView: View {
                                 BrowserIcon(slot: slot, systemName: slot.defaultSymbol, size: 17, weight: .semibold)
                                     .frame(width: 34, height: 34)
                                     .foregroundStyle(theme.color(.accent))
-                                    .background(theme.color(.field).opacity(theme.controlOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .background(ControlGlassBackground(cornerRadius: 8))
                                     .overlay {
                                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                                             .stroke(theme.color(.border).opacity(0.52), lineWidth: 1)
@@ -4565,19 +4712,19 @@ private struct CustomIconsView: View {
                                     importingSlot = slot
                                     isIconImporterPresented = true
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
 
                                 Button("Clear Image") {
                                     model.clearCustomIconImage(for: slot)
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                                 .disabled(model.hasCustomIconImage(for: slot) == false)
 
                                 Button("Default") {
                                     model.setCustomIconName("", for: slot)
                                     model.clearCustomIconImage(for: slot)
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                             }
                         }
                         .padding(.vertical, 4)

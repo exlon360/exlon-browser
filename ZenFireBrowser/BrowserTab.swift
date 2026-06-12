@@ -1340,6 +1340,19 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                 visited: "#cba6f7",
                 selection: "#45475a"
             )
+        case .catppuccinMochaDark:
+            return pageDarkCSS(
+                background: "#0b0d16",
+                mantle: "#06070d",
+                surface: "#11111b",
+                surfaceRaised: "#1e1e2e",
+                text: "#e6e9ff",
+                mutedText: "#a6adc8",
+                border: "#313244",
+                accent: "#89b4fa",
+                visited: "#f5c2e7",
+                selection: "#45475a"
+            )
         }
     }
 
