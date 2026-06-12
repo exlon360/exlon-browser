@@ -1031,7 +1031,39 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           };
 
           const internalHosts = new Set(["glide.local", "browser.local"]);
-          const isInternalPage = () => internalHosts.has(String(location.hostname || "").toLowerCase());
+          const mediaSelector = "img,picture,video,canvas,svg,iframe,object,embed";
+          const emptyMarker = "__glide_empty__";
+
+          const hostFrom = (value) => {
+            try {
+              if (!value) { return ""; }
+              return new URL(value, location.href || document.baseURI || "https://invalid.local/").hostname.toLowerCase();
+            } catch (_) {
+              return "";
+            }
+          };
+
+          const isInternalPage = () => {
+            const hosts = [
+              String(location.hostname || "").toLowerCase(),
+              hostFrom(location.href),
+              hostFrom(document.URL),
+              hostFrom(document.baseURI)
+            ];
+            if (hosts.some((host) => internalHosts.has(host))) { return true; }
+            return location.protocol !== "file:" && hosts.every((host) => !host);
+          };
+
+          const toggleRootFlags = (state) => {
+            const root = document.documentElement;
+            if (!root) { return; }
+            const internal = isInternalPage();
+            const hasDarkReader = !internal && !!state.config.darkReaderCSS;
+            const hasStylus = !internal && !!state.config.stylusCSS;
+            root.toggleAttribute("data-glide-internal-page", internal);
+            root.toggleAttribute("data-glide-dark-reader", hasDarkReader);
+            root.toggleAttribute("data-glide-stylus-catppuccin", hasStylus);
+          };
 
           const installStyle = (id, css) => {
             let style = document.getElementById(id);
@@ -1054,6 +1086,117 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             const target = document.head || document.documentElement || document.body;
             if (target && style.parentNode !== target) {
               target.appendChild(style);
+            }
+          };
+
+          const runtimeKey = (property) => "glideOriginal" + property.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+
+          const rememberProperty = (element, property) => {
+            const key = runtimeKey(property);
+            if (key in element.dataset) { return; }
+            const value = element.style.getPropertyValue(property);
+            const priority = element.style.getPropertyPriority(property);
+            element.dataset[key] = value || emptyMarker;
+            element.dataset[key + "Priority"] = priority || emptyMarker;
+          };
+
+          const restoreProperty = (element, property) => {
+            const key = runtimeKey(property);
+            if (!(key in element.dataset)) { return; }
+            const value = element.dataset[key];
+            const priority = element.dataset[key + "Priority"];
+            if (!value || value === emptyMarker) {
+              element.style.removeProperty(property);
+            } else {
+              element.style.setProperty(property, value, priority === emptyMarker ? "" : priority);
+            }
+            delete element.dataset[key];
+            delete element.dataset[key + "Priority"];
+          };
+
+          const setRuntimeProperty = (state, element, property, value) => {
+            rememberProperty(element, property);
+            element.style.setProperty(property, value, "important");
+            state.darkenedElements.add(element);
+          };
+
+          const parseColor = (value) => {
+            if (!value || value === "transparent") { return null; }
+            const match = String(value).match(/rgba?\\(([^)]+)\\)/i);
+            if (!match) { return null; }
+            const parts = match[1]
+              .replace(/,/g, " ")
+              .replace("/", " ")
+              .trim()
+              .split(/\\s+/)
+              .map(Number);
+            if (parts.length < 3 || parts.slice(0, 3).some((part) => Number.isNaN(part))) {
+              return null;
+            }
+            return {
+              r: Math.max(0, Math.min(255, parts[0])),
+              g: Math.max(0, Math.min(255, parts[1])),
+              b: Math.max(0, Math.min(255, parts[2])),
+              a: Number.isFinite(parts[3]) ? Math.max(0, Math.min(1, parts[3])) : 1
+            };
+          };
+
+          const luminance = (color) => ((0.2126 * color.r) + (0.7152 * color.g) + (0.0722 * color.b)) / 255;
+
+          const shouldSkipRuntimeElement = (element) => {
+            if (!(element instanceof Element)) { return true; }
+            if (element.matches(mediaSelector)) { return true; }
+            if (element.closest("[data-glide-page-style]")) { return true; }
+            return false;
+          };
+
+          const restoreRuntimeDarkening = (state) => {
+            for (const element of state.darkenedElements) {
+              if (!(element instanceof Element)) { continue; }
+              restoreProperty(element, "background-color");
+              restoreProperty(element, "color");
+              restoreProperty(element, "border-top-color");
+              restoreProperty(element, "border-right-color");
+              restoreProperty(element, "border-bottom-color");
+              restoreProperty(element, "border-left-color");
+            }
+            state.darkenedElements.clear();
+          };
+
+          const applyRuntimeDarkening = (state) => {
+            if (isInternalPage() || !state.config.darkReaderCSS || !document.body) {
+              restoreRuntimeDarkening(state);
+              return;
+            }
+
+            const elements = [document.documentElement, document.body, ...document.body.querySelectorAll("*")];
+            const count = Math.min(elements.length, 2400);
+            for (let index = 0; index < count; index += 1) {
+              const element = elements[index];
+              if (shouldSkipRuntimeElement(element)) { continue; }
+
+              const computed = getComputedStyle(element);
+              const background = parseColor(computed.backgroundColor);
+              if (background && background.a > 0.05) {
+                const bgLuminance = luminance(background);
+                if (bgLuminance > 0.72) {
+                  setRuntimeProperty(state, element, "background-color", "var(--glide-dark-surface)");
+                } else if (bgLuminance > 0.48) {
+                  setRuntimeProperty(state, element, "background-color", "var(--glide-dark-surface-raised)");
+                }
+              }
+
+              const foreground = parseColor(computed.color);
+              if (foreground && foreground.a > 0.05 && luminance(foreground) < 0.38) {
+                setRuntimeProperty(state, element, "color", "var(--glide-dark-text)");
+              }
+
+              for (const property of ["border-top-color", "border-right-color", "border-bottom-color", "border-left-color"]) {
+                const border = parseColor(computed.getPropertyValue(property));
+                if (border && border.a > 0.05 && luminance(border) > 0.5) {
+                  setRuntimeProperty(state, element, property, "var(--glide-dark-border)");
+                }
+              }
             }
           };
 
@@ -1112,8 +1255,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           const applyAll = () => {
             const state = window.__glidePageControls;
             if (!state) { return; }
+            toggleRootFlags(state);
             installStyle("glide-dark-reader", state.config.darkReaderCSS);
             installStyle("glide-stylus-catppuccin", state.config.stylusCSS);
+            applyRuntimeDarkening(state);
             applyFPS(state);
           };
 
@@ -1126,6 +1271,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               lastFrameTime: 0,
               minFrameInterval: 0,
               pendingFrameTimeouts: new Map(),
+              darkenedElements: new Set(),
               observer: null,
               observerTimer: 0
             };
@@ -1225,51 +1371,105 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           --glide-dark-selection: \(selection);
         }
 
-        html,
-        body {
+        html[data-glide-dark-reader="true"],
+        html[data-glide-dark-reader="true"] body,
+        html[data-glide-dark-reader="true"] body > * {
           background-color: var(--glide-dark-bg) !important;
           color: var(--glide-dark-text) !important;
         }
 
-        body,
-        main,
-        article,
-        section,
-        nav,
-        aside,
-        header,
-        footer,
-        dialog {
+        html[data-glide-dark-reader="true"] :where(
+          body,
+          main,
+          article,
+          section,
+          nav,
+          aside,
+          header,
+          footer,
+          dialog,
+          form,
+          [role="main"],
+          [role="navigation"],
+          [role="dialog"],
+          [class*="page" i],
+          [class*="layout" i],
+          [class*="wrapper" i],
+          [class*="container" i],
+          [class*="content" i],
+          [class*="card" i],
+          [class*="panel" i],
+          [class*="modal" i],
+          [class*="popover" i],
+          [class*="menu" i],
+          [class*="sidebar" i],
+          [class*="toolbar" i]
+        ) {
+          background-color: var(--glide-dark-bg) !important;
           color: var(--glide-dark-text) !important;
           border-color: var(--glide-dark-border) !important;
         }
 
-        div,
-        span,
-        p,
-        li,
-        label,
-        summary,
-        td,
-        th {
+        html[data-glide-dark-reader="true"] :where(
+          div,
+          span,
+          p,
+          li,
+          label,
+          summary,
+          td,
+          th,
+          dd,
+          dt
+        ) {
           color: inherit;
           border-color: var(--glide-dark-border) !important;
         }
 
-        a,
-        a:link {
+        html[data-glide-dark-reader="true"] :where(
+          div,
+          section,
+          article,
+          aside,
+          header,
+          footer,
+          nav,
+          form,
+          ul,
+          ol,
+          li,
+          table,
+          tr,
+          td,
+          th,
+          [style*="background" i],
+          [bgcolor],
+          [class*="surface" i],
+          [class*="box" i],
+          [class*="tile" i],
+          [class*="item" i],
+          [class*="result" i]
+        ) {
+          box-shadow: none !important;
+          text-shadow: none !important;
+        }
+
+        html[data-glide-dark-reader="true"] a,
+        html[data-glide-dark-reader="true"] a:link {
           color: var(--glide-dark-accent) !important;
         }
 
-        a:visited {
+        html[data-glide-dark-reader="true"] a:visited {
           color: var(--glide-dark-visited) !important;
         }
 
-        input,
-        textarea,
-        select,
-        button,
-        [contenteditable="true"] {
+        html[data-glide-dark-reader="true"] :where(
+          input,
+          textarea,
+          select,
+          button,
+          [contenteditable="true"]
+        ) {
           color-scheme: dark !important;
           background-color: var(--glide-dark-surface) !important;
           color: var(--glide-dark-text) !important;
@@ -1277,52 +1477,58 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           caret-color: var(--glide-dark-accent) !important;
         }
 
-        button,
-        input[type="button"],
-        input[type="submit"],
-        input[type="reset"],
-        [role="button"] {
+        html[data-glide-dark-reader="true"] :where(
+          button,
+          input[type="button"],
+          input[type="submit"],
+          input[type="reset"],
+          [role="button"]
+        ) {
           background-color: var(--glide-dark-surface-raised) !important;
           color: var(--glide-dark-text) !important;
         }
 
-        table,
-        thead,
-        tbody,
-        tfoot,
-        tr,
-        pre,
-        code,
-        kbd,
-        samp,
-        blockquote {
+        html[data-glide-dark-reader="true"] :where(
+          table,
+          thead,
+          tbody,
+          tfoot,
+          tr,
+          pre,
+          code,
+          kbd,
+          samp,
+          blockquote
+        ) {
           background-color: var(--glide-dark-mantle) !important;
           color: var(--glide-dark-text) !important;
           border-color: var(--glide-dark-border) !important;
         }
 
-        hr {
+        html[data-glide-dark-reader="true"] hr {
           border-color: var(--glide-dark-border) !important;
           background-color: var(--glide-dark-border) !important;
         }
 
-        ::selection {
+        html[data-glide-dark-reader="true"] ::selection {
           background-color: var(--glide-dark-selection) !important;
           color: var(--glide-dark-text) !important;
         }
 
-        ::placeholder {
+        html[data-glide-dark-reader="true"] ::placeholder {
           color: var(--glide-dark-muted) !important;
           opacity: 0.82 !important;
         }
 
-        img,
-        picture,
-        video,
-        canvas,
-        svg,
-        iframe,
-        [style*="background-image"] {
+        html[data-glide-dark-reader="true"] :where(
+          img,
+          picture,
+          video,
+          canvas,
+          svg,
+          iframe,
+          [style*="background-image" i]
+        ) {
           filter: none !important;
         }
         """

@@ -520,10 +520,14 @@ private struct BrowserContent: View {
 
     var body: some View {
         ZStack {
-            theme.color(.canvas)
-                .opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.18 : 1)
-
             if let tab = model.selectedTab {
+                if shouldUseNeutralStartBackdrop(for: tab) {
+                    Color(red: 0.027, green: 0.035, blue: 0.051)
+                } else if shouldShowPageBackdrop(for: tab) {
+                    theme.color(.canvas)
+                        .opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.18 : 1)
+                }
+
                 BrowserWebView(tab: tab)
                     .id(tab.id)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -543,6 +547,14 @@ private struct BrowserContent: View {
         model.chromePlacement == .floating
             ? EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
             : EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+    }
+
+    private func shouldShowPageBackdrop(for tab: BrowserTab) -> Bool {
+        BrowserTab.isStartPageURL(tab.url) == false
+    }
+
+    private func shouldUseNeutralStartBackdrop(for tab: BrowserTab) -> Bool {
+        BrowserTab.isStartPageURL(tab.url) && (theme.isUserBackgroundEnabled && theme.hasUserBackground) == false
     }
 }
 
