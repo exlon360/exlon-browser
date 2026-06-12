@@ -2141,6 +2141,6 @@ extension BrowserTab: UIGestureRecognizerDelegate {
         if gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer {
             return false
         }
-        true
+        return true
     }
 }
