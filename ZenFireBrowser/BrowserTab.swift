@@ -32,7 +32,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
     var onDownloadUpdated: (@MainActor (BrowserDownloadItem) -> Void)?
-    var onTwoFingerSwipe: (@MainActor (CGFloat) -> Void)?
+    var onTwoFingerSwipe: (@MainActor (CGFloat, CGFloat) -> Void)?
     var onThreeFingerSwipe: (@MainActor (CGFloat) -> Void)?
     var onFilePickerRequested: (@MainActor (Bool, @escaping ([URL]?) -> Void) -> Void)?
 
@@ -43,7 +43,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     init(
         startURL: URL = BrowserDefaults.homeURL,
         isPrivate: Bool = false,
-        usesPersistentStorage: Bool = false,
+        usesPersistentStorage: Bool = true,
         isContainedBrowser: Bool = false,
         isDarkReaderEnabled: Bool = false,
         darkReaderTheme: BrowserDarkReaderTheme = .zenCopy,
@@ -1841,19 +1841,29 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         threeFingerPan.cancelsTouchesInView = false
         threeFingerPan.delegate = self
 
+        if let pinchGestureRecognizer = webView.scrollView.pinchGestureRecognizer {
+            twoFingerPan.require(toFail: pinchGestureRecognizer)
+            threeFingerPan.require(toFail: pinchGestureRecognizer)
+        }
+
         webView.addGestureRecognizer(twoFingerPan)
         webView.addGestureRecognizer(threeFingerPan)
     }
 
     @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
         guard recognizer.state == .ended else { return }
+        guard webView.scrollView.isZooming == false,
+              webView.scrollView.isZoomBouncing == false else { return }
         let translation = recognizer.translation(in: webView)
-        guard abs(translation.x) > 72, abs(translation.x) > abs(translation.y) else { return }
-        onTwoFingerSwipe?(translation.x)
+        let dominantDistance = max(abs(translation.x), abs(translation.y))
+        guard dominantDistance > 72 else { return }
+        onTwoFingerSwipe?(translation.x, translation.y)
     }
 
     @objc private func handleThreeFingerPan(_ recognizer: UIPanGestureRecognizer) {
         guard recognizer.state == .ended else { return }
+        guard webView.scrollView.isZooming == false,
+              webView.scrollView.isZoomBouncing == false else { return }
         let translation = recognizer.translation(in: webView)
         guard abs(translation.x) > 72, abs(translation.x) > abs(translation.y) else { return }
         onThreeFingerSwipe?(translation.x)
@@ -2128,6 +2138,9 @@ extension BrowserTab: UIGestureRecognizerDelegate {
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
+        if gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer {
+            return false
+        }
         true
     }
 }

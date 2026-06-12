@@ -46,6 +46,7 @@ enum BrowserChromePlacement: String, CaseIterable, Identifiable {
 }
 
 enum BrowserToolbarAction: String, CaseIterable, Identifiable {
+    case back
     case forward
     case reload
     case tabFinder
@@ -62,6 +63,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .back:
+            return "Back"
         case .forward:
             return "Forward"
         case .reload:
@@ -100,6 +103,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
 
     var symbolName: String {
         switch self {
+        case .back:
+            return "chevron.left"
         case .forward:
             return "chevron.right"
         case .reload:
@@ -137,6 +142,7 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case essentials
     case ai
     case more
+    case back
     case forward
     case reload
     case tabFinder
@@ -172,6 +178,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "AI"
         case .more:
             return "More"
+        case .back:
+            return "Back"
         case .forward:
             return "Forward"
         case .reload:
@@ -217,6 +225,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "sparkles"
         case .more:
             return "ellipsis"
+        case .back:
+            return "chevron.left"
         case .forward:
             return "chevron.right"
         case .reload:
@@ -349,6 +359,8 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
 extension BrowserToolbarAction {
     var customIconSlot: BrowserCustomIconSlot {
         switch self {
+        case .back:
+            return .back
         case .forward:
             return .forward
         case .reload:
@@ -945,7 +957,7 @@ final class BrowserViewModel: ObservableObject {
         let tab = BrowserTab(
             startURL: startURL,
             isPrivate: shouldOpenPrivate,
-            usesPersistentStorage: false,
+            usesPersistentStorage: shouldOpenPrivate == false,
             isDarkReaderEnabled: isDarkReaderEnabled,
             darkReaderTheme: darkReaderTheme,
             isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
@@ -1183,12 +1195,18 @@ final class BrowserViewModel: ObservableObject {
         setTabBarCollapsed(!areSideTabsCollapsed)
     }
 
-    func handleTwoFingerSwipe(deltaX: CGFloat) {
-        if deltaX < 0 {
-            setTabBarCollapsed(true)
-        } else {
-            setTabBarCollapsed(false)
+    func handleTwoFingerSwipe(deltaX: CGFloat, deltaY: CGFloat) {
+        if abs(deltaY) > abs(deltaX) {
+            if deltaY < 0 {
+                isTopSearchBarEnabled = false
+                setTabBarCollapsed(true)
+            } else {
+                setTabBarCollapsed(false)
+            }
+            return
         }
+
+        setTabBarCollapsed(deltaX < 0)
     }
 
     func completeTutorial() {
@@ -1421,7 +1439,8 @@ final class BrowserViewModel: ObservableObject {
             tabBarTransparencyEnabled: theme.isTabBarTransparencyEnabled,
             tabBarTransparency: theme.tabBarTransparency,
             userBackgroundEnabled: theme.isUserBackgroundEnabled,
-            colors: theme.colorConfig
+            colors: theme.colorConfig,
+            gradientColors: theme.gradientColorConfig
         )
 
         let encoder = JSONEncoder()
@@ -1489,6 +1508,7 @@ final class BrowserViewModel: ObservableObject {
         setAdBlockerEnabled(config.adBlockerEnabled)
         theme.applyAdvancedConfig(
             colors: config.colors,
+            gradientColors: config.gradientColors,
             tabBarTransparencyEnabled: config.tabBarTransparencyEnabled,
             tabBarTransparency: config.tabBarTransparency,
             userBackgroundEnabled: config.userBackgroundEnabled
@@ -1497,6 +1517,8 @@ final class BrowserViewModel: ObservableObject {
 
     func performToolbarAction(_ action: BrowserToolbarAction) {
         switch action {
+        case .back:
+            goBack()
         case .forward:
             goForward()
         case .reload:
@@ -1840,8 +1862,8 @@ final class BrowserViewModel: ObservableObject {
         tab.onDownloadUpdated = { [weak self] item in
             self?.updateDownload(item)
         }
-        tab.onTwoFingerSwipe = { [weak self] deltaX in
-            self?.handleTwoFingerSwipe(deltaX: deltaX)
+        tab.onTwoFingerSwipe = { [weak self] deltaX, deltaY in
+            self?.handleTwoFingerSwipe(deltaX: deltaX, deltaY: deltaY)
         }
         tab.onThreeFingerSwipe = { [weak self] deltaX in
             self?.handleThreeFingerSwipe(deltaX: deltaX)
@@ -1855,8 +1877,8 @@ final class BrowserViewModel: ObservableObject {
         tab.onDownloadUpdated = { [weak self] item in
             self?.updateDownload(item)
         }
-        tab.onTwoFingerSwipe = { [weak self] deltaX in
-            self?.handleTwoFingerSwipe(deltaX: deltaX)
+        tab.onTwoFingerSwipe = { [weak self] deltaX, deltaY in
+            self?.handleTwoFingerSwipe(deltaX: deltaX, deltaY: deltaY)
         }
         tab.onThreeFingerSwipe = { [weak tab] deltaX in
             if deltaX > 0 {
@@ -2171,7 +2193,7 @@ final class BrowserViewModel: ObservableObject {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
             let firstTab = BrowserTab(
-                usesPersistentStorage: false,
+                usesPersistentStorage: true,
                 isDarkReaderEnabled: isDarkReaderEnabled,
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
@@ -2189,7 +2211,7 @@ final class BrowserViewModel: ObservableObject {
             guard let url = URL(string: savedTab.urlString) else { continue }
             let tab = BrowserTab(
                 startURL: url,
-                usesPersistentStorage: false,
+                usesPersistentStorage: true,
                 isDarkReaderEnabled: isDarkReaderEnabled,
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
@@ -2205,7 +2227,7 @@ final class BrowserViewModel: ObservableObject {
 
         if restoredTabs.isEmpty {
             let firstTab = BrowserTab(
-                usesPersistentStorage: false,
+                usesPersistentStorage: true,
                 isDarkReaderEnabled: isDarkReaderEnabled,
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,

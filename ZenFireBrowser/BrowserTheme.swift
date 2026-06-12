@@ -66,12 +66,38 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
             return "#8D96A8"
         }
     }
+
+    var defaultGradientHex: String {
+        switch self {
+        case .canvas:
+            return "#111827"
+        case .chrome:
+            return "#1A2230"
+        case .surface:
+            return "#232936"
+        case .field:
+            return "#2D3442"
+        case .border:
+            return "#4C5667"
+        case .accent:
+            return "#D6E2FF"
+        case .createTab:
+            return "#A9B4C8"
+        case .privateAccent:
+            return "#C4B5FD"
+        case .text:
+            return "#FFFFFF"
+        case .mutedText:
+            return "#BAC2D1"
+        }
+    }
 }
 
 struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     var id: UUID
     var name: String
     var colorHexByToken: [String: String]
+    var gradientColorHexByToken: [String: String]?
     var isTabBarTransparencyEnabled: Bool
     var tabBarTransparency: Double
     var isUserBackgroundEnabled: Bool
@@ -85,6 +111,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         name: String,
         colorHexByToken: [String: String],
+        gradientColorHexByToken: [String: String]? = nil,
         isTabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
         isUserBackgroundEnabled: Bool,
@@ -97,6 +124,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         self.id = id
         self.name = name
         self.colorHexByToken = colorHexByToken
+        self.gradientColorHexByToken = gradientColorHexByToken
         self.isTabBarTransparencyEnabled = isTabBarTransparencyEnabled
         self.tabBarTransparency = tabBarTransparency
         self.isUserBackgroundEnabled = isUserBackgroundEnabled
@@ -115,6 +143,7 @@ extension UTType {
 @MainActor
 final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
+    @Published private var gradientColorHexByToken: [BrowserThemeToken: String]
     @Published var isTabBarTransparencyEnabled: Bool {
         didSet {
             vault.save(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
@@ -162,10 +191,17 @@ final class BrowserTheme: ObservableObject {
     init(vault: SecureBrowserVault) {
         self.vault = vault
         var values: [BrowserThemeToken: String] = [:]
+        var gradientValues: [BrowserThemeToken: String] = [:]
         for token in BrowserThemeToken.allCases {
             values[token] = vault.load(String.self, forKey: Self.storageKey(for: token), default: token.defaultHex)
+            gradientValues[token] = vault.load(
+                String.self,
+                forKey: Self.gradientStorageKey(for: token),
+                default: token.defaultGradientHex
+            )
         }
         self.colorHexByToken = values
+        self.gradientColorHexByToken = gradientValues
         self.isTabBarTransparencyEnabled = vault.load(Bool.self, forKey: Self.tabBarTransparencyEnabledKey, default: true)
         self.tabBarTransparency = vault.load(Double.self, forKey: Self.tabBarTransparencyKey, default: 0.82)
         self.isUserBackgroundEnabled = vault.load(Bool.self, forKey: Self.userBackgroundEnabledKey, default: false)
@@ -183,13 +219,27 @@ final class BrowserTheme: ObservableObject {
         Color(hex: colorHexByToken[token] ?? token.defaultHex)
     }
 
+    func gradientColor(_ token: BrowserThemeToken) -> Color {
+        Color(hex: gradientColorHexByToken[token] ?? token.defaultGradientHex)
+    }
+
     func hex(for token: BrowserThemeToken) -> String {
         colorHexByToken[token] ?? token.defaultHex
+    }
+
+    func gradientHex(for token: BrowserThemeToken) -> String {
+        gradientColorHexByToken[token] ?? token.defaultGradientHex
     }
 
     var colorConfig: [String: String] {
         Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
             (token.rawValue, hex(for: token))
+        })
+    }
+
+    var gradientColorConfig: [String: String] {
+        Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
+            (token.rawValue, gradientHex(for: token))
         })
     }
 
@@ -235,19 +285,34 @@ final class BrowserTheme: ObservableObject {
         )
     }
 
+    func gradientBinding(for token: BrowserThemeToken) -> Binding<Color> {
+        Binding(
+            get: { self.gradientColor(token) },
+            set: { self.setGradientColor($0, for: token) }
+        )
+    }
+
     func setColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultHex
         colorHexByToken[token] = hex
         vault.save(hex, forKey: Self.storageKey(for: token))
     }
 
+    func setGradientColor(_ color: Color, for token: BrowserThemeToken) {
+        let hex = color.hexString ?? token.defaultGradientHex
+        gradientColorHexByToken[token] = hex
+        vault.save(hex, forKey: Self.gradientStorageKey(for: token))
+    }
+
     func currentTheme(named rawName: String) -> SavedBrowserTheme {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let themeName = trimmedName.isEmpty ? "Glide Theme" : trimmedName
         let savedColors = Dictionary(uniqueKeysWithValues: colorHexByToken.map { ($0.key.rawValue, $0.value) })
+        let savedGradientColors = Dictionary(uniqueKeysWithValues: gradientColorHexByToken.map { ($0.key.rawValue, $0.value) })
         return SavedBrowserTheme(
             name: themeName,
             colorHexByToken: savedColors,
+            gradientColorHexByToken: savedGradientColors,
             isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
             tabBarTransparency: tabBarTransparency,
             isUserBackgroundEnabled: isUserBackgroundEnabled,
@@ -261,7 +326,9 @@ final class BrowserTheme: ObservableObject {
     func resetToZenDefaults() {
         for token in BrowserThemeToken.allCases {
             colorHexByToken[token] = token.defaultHex
+            gradientColorHexByToken[token] = token.defaultGradientHex
             vault.save(token.defaultHex, forKey: Self.storageKey(for: token))
+            vault.save(token.defaultGradientHex, forKey: Self.gradientStorageKey(for: token))
         }
 
         isTabBarTransparencyEnabled = true
@@ -281,6 +348,7 @@ final class BrowserTheme: ObservableObject {
 
     func applyAdvancedConfig(
         colors: [String: String],
+        gradientColors: [String: String]?,
         tabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
         userBackgroundEnabled: Bool
@@ -290,6 +358,14 @@ final class BrowserTheme: ObservableObject {
                   Color.isValidHex(hex) else { continue }
             colorHexByToken[token] = hex
             vault.save(hex, forKey: Self.storageKey(for: token))
+        }
+        if let gradientColors {
+            for token in BrowserThemeToken.allCases {
+                guard let hex = gradientColors[token.rawValue],
+                      Color.isValidHex(hex) else { continue }
+                gradientColorHexByToken[token] = hex
+                vault.save(hex, forKey: Self.gradientStorageKey(for: token))
+            }
         }
 
         isTabBarTransparencyEnabled = tabBarTransparencyEnabled
@@ -410,8 +486,11 @@ final class BrowserTheme: ObservableObject {
     func applySavedTheme(_ savedTheme: SavedBrowserTheme) {
         for token in BrowserThemeToken.allCases {
             let value = savedTheme.colorHexByToken[token.rawValue] ?? token.defaultHex
+            let gradientValue = savedTheme.gradientColorHexByToken?[token.rawValue] ?? token.defaultGradientHex
             colorHexByToken[token] = value
+            gradientColorHexByToken[token] = gradientValue
             vault.save(value, forKey: Self.storageKey(for: token))
+            vault.save(gradientValue, forKey: Self.gradientStorageKey(for: token))
         }
 
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
@@ -496,6 +575,10 @@ final class BrowserTheme: ObservableObject {
     private func migrateLoadedThemeToEncryptedVault() {
         for token in BrowserThemeToken.allCases {
             vault.save(colorHexByToken[token] ?? token.defaultHex, forKey: Self.storageKey(for: token))
+            vault.save(
+                gradientColorHexByToken[token] ?? token.defaultGradientHex,
+                forKey: Self.gradientStorageKey(for: token)
+            )
         }
         vault.save(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
         vault.save(tabBarTransparency, forKey: Self.tabBarTransparencyKey)
@@ -643,6 +726,10 @@ final class BrowserTheme: ObservableObject {
 
     private static func storageKey(for token: BrowserThemeToken) -> String {
         "\(storagePrefix)\(token.rawValue)"
+    }
+
+    private static func gradientStorageKey(for token: BrowserThemeToken) -> String {
+        "\(storagePrefix)\(token.rawValue).gradient"
     }
 
     private static func safeThemeFilename(_ filename: String) -> String {

@@ -356,6 +356,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var tabBarTransparency: Double
     var userBackgroundEnabled: Bool
     var colors: [String: String]
+    var gradientColors: [String: String]?
 }
 
 struct CustomVPNProfile: Codable, Equatable {

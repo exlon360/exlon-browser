@@ -557,7 +557,8 @@ private struct ButtonGradientBackground: View {
             return LinearGradient(
                 colors: [
                     theme.color(.createTab).opacity(0.98),
-                    theme.color(.accent).opacity(0.92),
+                    theme.gradientColor(.createTab).opacity(0.94),
+                    theme.gradientColor(.accent).opacity(0.84),
                     theme.color(.surface).opacity(0.76)
                 ],
                 startPoint: .topLeading,
@@ -567,8 +568,8 @@ private struct ButtonGradientBackground: View {
             return LinearGradient(
                 colors: [
                     theme.color(.field).opacity(controlOpacity),
-                    theme.color(.surface).opacity(max(controlOpacity, 0.62)),
-                    theme.color(.accent).opacity(0.22)
+                    theme.gradientColor(.field).opacity(max(controlOpacity, 0.64)),
+                    theme.gradientColor(.accent).opacity(0.28)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -577,8 +578,8 @@ private struct ButtonGradientBackground: View {
             return LinearGradient(
                 colors: [
                     theme.color(.surface).opacity(max(controlOpacity, 0.48)),
-                    theme.color(.field).opacity(max(controlOpacity, 0.42)),
-                    theme.color(.accent).opacity(0.14)
+                    theme.gradientColor(.surface).opacity(max(controlOpacity, 0.42)),
+                    theme.gradientColor(.accent).opacity(0.16)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -830,6 +831,13 @@ private struct FloatingChrome: View {
                         model.openFloatingSearch()
                     }
 
+                    if model.isInMoreMenu(.back) == false {
+                        ChromeButton(slot: .back, symbol: "chevron.left", label: "Back") {
+                            model.goBack()
+                        }
+                        .disabled(model.selectedTab?.canGoBack != true)
+                    }
+
                     if model.isInMoreMenu(.forward) == false {
                         ChromeButton(slot: .forward, symbol: "chevron.right", label: "Forward") {
                             model.goForward()
@@ -943,6 +951,13 @@ private struct ChromeFooter: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                if model.isInMoreMenu(.back) == false {
+                    ChromeButton(slot: .back, symbol: "chevron.left", label: "Back") {
+                        model.goBack()
+                    }
+                    .disabled(model.selectedTab?.canGoBack != true)
+                }
+
                 if model.isInMoreMenu(.forward) == false {
                     ChromeButton(slot: .forward, symbol: "chevron.right", label: "Forward") {
                         model.goForward()
@@ -1110,7 +1125,7 @@ private struct ControlGlassBackground: View {
                         LinearGradient(
                             colors: [
                                 theme.color(.accent).opacity(0.20),
-                                theme.color(.surface).opacity(max(controlOpacity, 0.42)),
+                                theme.gradientColor(.field).opacity(max(controlOpacity, 0.46)),
                                 theme.color(.field).opacity(controlOpacity)
                             ],
                             startPoint: .topLeading,
@@ -2111,7 +2126,8 @@ private struct MoreTabButton: View {
             } label: {
                 Label(menuTitle(for: action), systemImage: menuSymbol(for: action))
             }
-            .disabled(action == .forward && model.selectedTab?.canGoForward != true)
+            .disabled((action == .back && model.selectedTab?.canGoBack != true) ||
+                      (action == .forward && model.selectedTab?.canGoForward != true))
         }
     }
 
@@ -4294,7 +4310,22 @@ private struct BrowserSettingsView: View {
 
                 Section("Colors") {
                     ForEach(BrowserThemeToken.allCases) { token in
-                        ColorPicker(token.title, selection: theme.binding(for: token), supportsOpacity: false)
+                        HStack(spacing: 12) {
+                            ColorPicker(token.title, selection: theme.binding(for: token), supportsOpacity: false)
+
+                            Spacer(minLength: 8)
+
+                            Text("Gradient")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(theme.color(.mutedText))
+
+                            ColorPicker(
+                                "\(token.title) gradient color",
+                                selection: theme.gradientBinding(for: token),
+                                supportsOpacity: false
+                            )
+                            .labelsHidden()
+                        }
                     }
 
                     Button("Reset to Zen dark defaults") {
