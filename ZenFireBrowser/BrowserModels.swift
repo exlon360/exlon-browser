@@ -84,6 +84,31 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserDarkReaderTheme: String, CaseIterable, Identifiable {
+    case zenCopy
+    case catppuccinMocha
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .zenCopy:
+            return "Zen Copy"
+        case .catppuccinMocha:
+            return "Catppuccin Mocha"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .zenCopy:
+            return "moon"
+        case .catppuccinMocha:
+            return "cup.and.saucer"
+        }
+    }
+}
+
 enum BrowserMusicTrack: String, CaseIterable, Identifiable {
     case focus
     case rain
@@ -311,6 +336,8 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var searchEngine: String
     var customSearchTemplate: String
     var newTabOpensSearch: Bool?
+    var darkReaderTheme: String?
+    var stylusCatppuccinEnabled: Bool?
     var browserMusicEnabled: Bool?
     var browserMusicTrack: String?
     var browserMusicVolume: Double?

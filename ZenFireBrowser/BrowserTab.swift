@@ -24,6 +24,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var isDarkReaderEnabled: Bool
+    @Published var darkReaderTheme: BrowserDarkReaderTheme
+    @Published var isStylusCatppuccinEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
 
     var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
@@ -42,11 +44,15 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         usesPersistentStorage: Bool = false,
         isContainedBrowser: Bool = false,
         isDarkReaderEnabled: Bool = false,
+        darkReaderTheme: BrowserDarkReaderTheme = .zenCopy,
+        isStylusCatppuccinEnabled: Bool = false,
         isAdBlockerEnabled: Bool = true
     ) {
         self.isPrivate = isPrivate
         self.isContainedBrowser = isContainedBrowser
         self.isDarkReaderEnabled = isDarkReaderEnabled
+        self.darkReaderTheme = darkReaderTheme
+        self.isStylusCatppuccinEnabled = isStylusCatppuccinEnabled
         self.isAdBlockerEnabled = isAdBlockerEnabled
         self.title = isContainedBrowser ? "Contained Browser" : (isPrivate ? "Private Start" : "Start")
         self.url = startURL
@@ -140,7 +146,17 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     func setDarkReaderEnabled(_ enabled: Bool) {
         isDarkReaderEnabled = enabled
-        applyDarkReaderStyle()
+        applyPageStyleOverrides()
+    }
+
+    func setDarkReaderTheme(_ theme: BrowserDarkReaderTheme) {
+        darkReaderTheme = theme
+        applyPageStyleOverrides()
+    }
+
+    func setStylusCatppuccinEnabled(_ enabled: Bool) {
+        isStylusCatppuccinEnabled = enabled
+        applyPageStyleOverrides()
     }
 
     func setAdBlockerEnabled(_ enabled: Bool, reloadAfterChange: Bool = true) {
@@ -153,43 +169,28 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         }
     }
 
-    private func applyDarkReaderStyle() {
-        let script: String
-
-        if isDarkReaderEnabled {
-            script = """
-            (() => {
-              const existing = document.getElementById('zenfire-dark-reader');
-              if (existing) { existing.remove(); }
-              const style = document.createElement('style');
-              style.id = 'zenfire-dark-reader';
-              style.textContent = `
-                html, body {
-                  background: #0b0d12 !important;
-                  color: #dfe6f3 !important;
-                }
-                html {
-                  filter: invert(0.88) hue-rotate(180deg) brightness(0.86) contrast(0.92) !important;
-                }
-                img, picture, video, canvas, svg, iframe, [style*="background-image"] {
-                  filter: invert(1) hue-rotate(180deg) brightness(1.08) contrast(1.08) !important;
-                }
-                input, textarea, select, button {
-                  color-scheme: dark !important;
-                }
-              `;
-              document.head.appendChild(style);
-            })();
-            """
-        } else {
-            script = """
-            (() => {
-              const existing = document.getElementById('zenfire-dark-reader');
-              if (existing) { existing.remove(); }
-              document.documentElement.style.filter = '';
-            })();
-            """
-        }
+    private func applyPageStyleOverrides() {
+        let darkReaderCSS = isDarkReaderEnabled ? Self.darkReaderCSS(for: darkReaderTheme) : ""
+        let stylusCSS = isStylusCatppuccinEnabled ? Self.stylusCatppuccinCSS() : ""
+        let script = """
+        (() => {
+          const setStyle = (id, css) => {
+            let style = document.getElementById(id);
+            if (!css) {
+              if (style) { style.remove(); }
+              return;
+            }
+            if (!style) {
+              style = document.createElement('style');
+              style.id = id;
+              (document.head || document.documentElement).appendChild(style);
+            }
+            style.textContent = css;
+          };
+          setStyle('glide-dark-reader', "\(Self.javaScriptEscaped(darkReaderCSS))");
+          setStyle('glide-stylus-catppuccin', "\(Self.javaScriptEscaped(stylusCSS))");
+        })();
+        """
 
         webView.evaluateJavaScript(script)
     }
@@ -968,6 +969,332 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             .replacingOccurrences(of: "\r", with: "\\r")
     }
 
+    private static func darkReaderCSS(for theme: BrowserDarkReaderTheme) -> String {
+        switch theme {
+        case .zenCopy:
+            return pageDarkCSS(
+                background: "#1e1e2e",
+                mantle: "#181825",
+                surface: "#313244",
+                surfaceRaised: "#45475a",
+                text: "#e8e6e3",
+                mutedText: "#bac2de",
+                border: "#585b70",
+                accent: "#89b4fa",
+                visited: "#cba6f7",
+                selection: "#585b70"
+            )
+        case .catppuccinMocha:
+            return pageDarkCSS(
+                background: "#1e1e2e",
+                mantle: "#181825",
+                surface: "#313244",
+                surfaceRaised: "#45475a",
+                text: "#cdd6f4",
+                mutedText: "#bac2de",
+                border: "#585b70",
+                accent: "#89b4fa",
+                visited: "#cba6f7",
+                selection: "#45475a"
+            )
+        }
+    }
+
+    private static func pageDarkCSS(
+        background: String,
+        mantle: String,
+        surface: String,
+        surfaceRaised: String,
+        text: String,
+        mutedText: String,
+        border: String,
+        accent: String,
+        visited: String,
+        selection: String
+    ) -> String {
+        """
+        :root {
+          color-scheme: dark !important;
+          accent-color: \(accent) !important;
+          --glide-dark-bg: \(background);
+          --glide-dark-mantle: \(mantle);
+          --glide-dark-surface: \(surface);
+          --glide-dark-surface-raised: \(surfaceRaised);
+          --glide-dark-text: \(text);
+          --glide-dark-muted: \(mutedText);
+          --glide-dark-border: \(border);
+          --glide-dark-accent: \(accent);
+          --glide-dark-visited: \(visited);
+          --glide-dark-selection: \(selection);
+        }
+
+        html,
+        body {
+          background-color: var(--glide-dark-bg) !important;
+          color: var(--glide-dark-text) !important;
+        }
+
+        body,
+        main,
+        article,
+        section,
+        nav,
+        aside,
+        header,
+        footer,
+        dialog {
+          color: var(--glide-dark-text) !important;
+          border-color: var(--glide-dark-border) !important;
+        }
+
+        div,
+        span,
+        p,
+        li,
+        label,
+        summary,
+        td,
+        th {
+          color: inherit;
+          border-color: var(--glide-dark-border) !important;
+        }
+
+        a,
+        a:link {
+          color: var(--glide-dark-accent) !important;
+        }
+
+        a:visited {
+          color: var(--glide-dark-visited) !important;
+        }
+
+        input,
+        textarea,
+        select,
+        button,
+        [contenteditable="true"] {
+          color-scheme: dark !important;
+          background-color: var(--glide-dark-surface) !important;
+          color: var(--glide-dark-text) !important;
+          border-color: var(--glide-dark-border) !important;
+          caret-color: var(--glide-dark-accent) !important;
+        }
+
+        button,
+        input[type="button"],
+        input[type="submit"],
+        input[type="reset"],
+        [role="button"] {
+          background-color: var(--glide-dark-surface-raised) !important;
+          color: var(--glide-dark-text) !important;
+        }
+
+        table,
+        thead,
+        tbody,
+        tfoot,
+        tr,
+        pre,
+        code,
+        kbd,
+        samp,
+        blockquote {
+          background-color: var(--glide-dark-mantle) !important;
+          color: var(--glide-dark-text) !important;
+          border-color: var(--glide-dark-border) !important;
+        }
+
+        hr {
+          border-color: var(--glide-dark-border) !important;
+          background-color: var(--glide-dark-border) !important;
+        }
+
+        ::selection {
+          background-color: var(--glide-dark-selection) !important;
+          color: var(--glide-dark-text) !important;
+        }
+
+        ::placeholder {
+          color: var(--glide-dark-muted) !important;
+          opacity: 0.82 !important;
+        }
+
+        img,
+        picture,
+        video,
+        canvas,
+        svg,
+        iframe,
+        [style*="background-image"] {
+          filter: none !important;
+        }
+        """
+    }
+
+    private static func stylusCatppuccinCSS() -> String {
+        """
+        :root {
+          --ctp-rosewater: #f5e0dc;
+          --ctp-flamingo: #f2cdcd;
+          --ctp-pink: #f5c2e7;
+          --ctp-mauve: #cba6f7;
+          --ctp-red: #f38ba8;
+          --ctp-peach: #fab387;
+          --ctp-yellow: #f9e2af;
+          --ctp-green: #a6e3a1;
+          --ctp-teal: #94e2d5;
+          --ctp-sky: #89dceb;
+          --ctp-sapphire: #74c7ec;
+          --ctp-blue: #89b4fa;
+          --ctp-lavender: #b4befe;
+          --ctp-text: #cdd6f4;
+          --ctp-subtext: #bac2de;
+          --ctp-overlay: #6c7086;
+          --ctp-surface2: #585b70;
+          --ctp-surface1: #45475a;
+          --ctp-surface0: #313244;
+          --ctp-base: #1e1e2e;
+          --ctp-mantle: #181825;
+          --ctp-crust: #11111b;
+        }
+
+        html {
+          background: var(--ctp-base) !important;
+        }
+
+        body {
+          background:
+            radial-gradient(circle at top right, rgba(203, 166, 247, 0.08), transparent 28rem),
+            radial-gradient(circle at bottom left, rgba(137, 180, 250, 0.07), transparent 24rem),
+            var(--ctp-base) !important;
+          color: var(--ctp-text) !important;
+        }
+
+        main,
+        article,
+        section,
+        nav,
+        aside,
+        header,
+        footer,
+        form,
+        [class*="card"],
+        [class*="panel"],
+        [class*="modal"],
+        [class*="dialog"],
+        [class*="popover"],
+        [class*="menu"],
+        [class*="sidebar"],
+        [class*="toolbar"],
+        [class*="container"] {
+          border-color: var(--ctp-surface1) !important;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6,
+        strong,
+        b {
+          color: var(--ctp-text) !important;
+        }
+
+        small,
+        time,
+        figcaption,
+        [class*="muted"],
+        [class*="secondary"],
+        [class*="subtitle"],
+        [class*="description"] {
+          color: var(--ctp-subtext) !important;
+        }
+
+        a,
+        a:link,
+        [role="link"] {
+          color: var(--ctp-blue) !important;
+        }
+
+        a:visited {
+          color: var(--ctp-mauve) !important;
+        }
+
+        input,
+        textarea,
+        select,
+        button,
+        [role="button"],
+        [contenteditable="true"] {
+          border-color: var(--ctp-surface2) !important;
+          box-shadow: none !important;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus,
+        button:focus,
+        [tabindex]:focus {
+          outline-color: var(--ctp-mauve) !important;
+        }
+
+        pre,
+        code,
+        kbd,
+        samp,
+        blockquote {
+          background-color: var(--ctp-mantle) !important;
+          color: var(--ctp-text) !important;
+          border-color: var(--ctp-surface1) !important;
+        }
+
+        mark,
+        [aria-selected="true"],
+        [class*="selected"],
+        [class*="active"] {
+          background-color: rgba(203, 166, 247, 0.22) !important;
+          color: var(--ctp-text) !important;
+        }
+
+        [class*="success"],
+        [class*="online"] {
+          color: var(--ctp-green) !important;
+        }
+
+        [class*="warning"],
+        [class*="notice"] {
+          color: var(--ctp-yellow) !important;
+        }
+
+        [class*="danger"],
+        [class*="error"] {
+          color: var(--ctp-red) !important;
+        }
+
+        [data-testid*="sidebar"],
+        [aria-label*="sidebar" i],
+        [class*="sidebar"] {
+          background-color: rgba(24, 24, 37, 0.88) !important;
+        }
+
+        [data-testid*="conversation"],
+        [class*="message"],
+        [class*="chat"] {
+          border-color: rgba(88, 91, 112, 0.72) !important;
+        }
+
+        .g,
+        [data-sokoban-container],
+        #search,
+        #links,
+        #results,
+        [class*="result"] {
+          border-color: var(--ctp-surface1) !important;
+        }
+        """
+    }
+
     private static func startPageHTML() -> String {
         """
         <!doctype html>
@@ -1248,7 +1575,7 @@ extension BrowserTab: WKNavigationDelegate {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             self.isLoading = false
-            self.applyDarkReaderStyle()
+            self.applyPageStyleOverrides()
             self.onNavigationFinished?(self)
         }
     }

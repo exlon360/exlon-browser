@@ -603,6 +603,28 @@ final class BrowserViewModel: ObservableObject {
     @Published var isLocalAIImporterPresented = false
     @Published var isTutorialPresented: Bool
     @Published var isDarkReaderEnabled: Bool
+    @Published var darkReaderTheme: BrowserDarkReaderTheme {
+        didSet {
+            vault.save(darkReaderTheme.rawValue, forKey: Self.StorageKey.darkReaderTheme)
+            for tab in tabs {
+                tab.setDarkReaderTheme(darkReaderTheme)
+            }
+            for tab in containedTabs {
+                tab.setDarkReaderTheme(darkReaderTheme)
+            }
+        }
+    }
+    @Published var isStylusCatppuccinEnabled: Bool {
+        didSet {
+            vault.save(isStylusCatppuccinEnabled, forKey: Self.StorageKey.stylusCatppuccinEnabled)
+            for tab in tabs {
+                tab.setStylusCatppuccinEnabled(isStylusCatppuccinEnabled)
+            }
+            for tab in containedTabs {
+                tab.setStylusCatppuccinEnabled(isStylusCatppuccinEnabled)
+            }
+        }
+    }
     @Published var isAdBlockerEnabled: Bool
     @Published var isBrowserMusicEnabled: Bool {
         didSet {
@@ -722,6 +744,10 @@ final class BrowserViewModel: ObservableObject {
     init(vault: SecureBrowserVault) {
         self.vault = vault
         let darkReaderEnabled = vault.load(Bool.self, forKey: Self.StorageKey.darkReaderEnabled, default: false)
+        let savedDarkReaderTheme = BrowserDarkReaderTheme(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.darkReaderTheme, default: "")
+        ) ?? .zenCopy
+        let stylusCatppuccinEnabled = vault.load(Bool.self, forKey: Self.StorageKey.stylusCatppuccinEnabled, default: false)
         let adBlockerEnabled = vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)
         let placement = BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
@@ -736,7 +762,13 @@ final class BrowserViewModel: ObservableObject {
         let savedBrowserMusicTrack = BrowserMusicTrack(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.browserMusicTrack, default: "")
         ) ?? .focus
-        let restoredTabs = Self.loadTabs(vault: vault, isDarkReaderEnabled: darkReaderEnabled, isAdBlockerEnabled: adBlockerEnabled)
+        let restoredTabs = Self.loadTabs(
+            vault: vault,
+            isDarkReaderEnabled: darkReaderEnabled,
+            darkReaderTheme: savedDarkReaderTheme,
+            isStylusCatppuccinEnabled: stylusCatppuccinEnabled,
+            isAdBlockerEnabled: adBlockerEnabled
+        )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
         ) ?? .top
@@ -769,6 +801,8 @@ final class BrowserViewModel: ObservableObject {
         self.downloads = savedDownloads
         self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
+        self.darkReaderTheme = savedDarkReaderTheme
+        self.isStylusCatppuccinEnabled = stylusCatppuccinEnabled
         self.isAdBlockerEnabled = adBlockerEnabled
         self.isBrowserMusicEnabled = vault.load(Bool.self, forKey: Self.StorageKey.browserMusicEnabled, default: false)
         self.browserMusicTrack = savedBrowserMusicTrack
@@ -870,6 +904,8 @@ final class BrowserViewModel: ObservableObject {
             isPrivate: shouldOpenPrivate,
             usesPersistentStorage: false,
             isDarkReaderEnabled: isDarkReaderEnabled,
+            darkReaderTheme: darkReaderTheme,
+            isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
             isAdBlockerEnabled: isAdBlockerEnabled
         )
         configure(tab)
@@ -902,6 +938,8 @@ final class BrowserViewModel: ObservableObject {
             usesPersistentStorage: false,
             isContainedBrowser: true,
             isDarkReaderEnabled: isDarkReaderEnabled,
+            darkReaderTheme: darkReaderTheme,
+            isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
             isAdBlockerEnabled: isAdBlockerEnabled
         )
         configureContained(tab)
@@ -1043,6 +1081,14 @@ final class BrowserViewModel: ObservableObject {
         for tab in containedTabs {
             tab.setDarkReaderEnabled(enabled)
         }
+    }
+
+    func setDarkReaderTheme(_ theme: BrowserDarkReaderTheme) {
+        darkReaderTheme = theme
+    }
+
+    func setStylusCatppuccinEnabled(_ enabled: Bool) {
+        isStylusCatppuccinEnabled = enabled
     }
 
     func setAdBlockerEnabled(_ enabled: Bool) {
@@ -1304,6 +1350,8 @@ final class BrowserViewModel: ObservableObject {
             searchEngine: searchEngine.rawValue,
             customSearchTemplate: customSearchTemplate,
             newTabOpensSearch: newTabOpensSearch,
+            darkReaderTheme: darkReaderTheme.rawValue,
+            stylusCatppuccinEnabled: isStylusCatppuccinEnabled,
             browserMusicEnabled: isBrowserMusicEnabled,
             browserMusicTrack: browserMusicTrack.rawValue,
             browserMusicVolume: browserMusicVolume,
@@ -1363,6 +1411,11 @@ final class BrowserViewModel: ObservableObject {
         areSideTabsCollapsed = config.sideTabsCollapsed
         customSearchTemplate = config.customSearchTemplate
         newTabOpensSearch = config.newTabOpensSearch ?? true
+        if let darkReaderThemeValue = config.darkReaderTheme,
+           let theme = BrowserDarkReaderTheme(rawValue: darkReaderThemeValue) {
+            darkReaderTheme = theme
+        }
+        isStylusCatppuccinEnabled = config.stylusCatppuccinEnabled ?? false
         isBrowserMusicEnabled = config.browserMusicEnabled ?? false
         if let browserMusicTrackValue = config.browserMusicTrack,
            let track = BrowserMusicTrack(rawValue: browserMusicTrackValue) {
@@ -1712,6 +1765,8 @@ final class BrowserViewModel: ObservableObject {
         localAIURLText = ""
         setAdBlockerEnabled(true)
         setDarkReaderEnabled(false)
+        darkReaderTheme = .zenCopy
+        isStylusCatppuccinEnabled = false
         essentials = []
         saveEssentials()
         saveVPNProfile(.empty)
@@ -2030,6 +2085,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
         vault.save(isAdBlockerEnabled, forKey: Self.StorageKey.adBlockerEnabled)
         vault.save(isDarkReaderEnabled, forKey: Self.StorageKey.darkReaderEnabled)
+        vault.save(darkReaderTheme.rawValue, forKey: Self.StorageKey.darkReaderTheme)
+        vault.save(isStylusCatppuccinEnabled, forKey: Self.StorageKey.stylusCatppuccinEnabled)
         vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
         vault.save(browserMusicTrack.rawValue, forKey: Self.StorageKey.browserMusicTrack)
         vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
@@ -2042,11 +2099,19 @@ final class BrowserViewModel: ObservableObject {
     private static func loadTabs(
         vault: SecureBrowserVault,
         isDarkReaderEnabled: Bool,
+        darkReaderTheme: BrowserDarkReaderTheme,
+        isStylusCatppuccinEnabled: Bool,
         isAdBlockerEnabled: Bool
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
-            let firstTab = BrowserTab(usesPersistentStorage: false, isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
+            let firstTab = BrowserTab(
+                usesPersistentStorage: false,
+                isDarkReaderEnabled: isDarkReaderEnabled,
+                darkReaderTheme: darkReaderTheme,
+                isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
+                isAdBlockerEnabled: isAdBlockerEnabled
+            )
             return ([firstTab], firstTab.id)
         }
 
@@ -2059,6 +2124,8 @@ final class BrowserViewModel: ObservableObject {
                 startURL: url,
                 usesPersistentStorage: false,
                 isDarkReaderEnabled: isDarkReaderEnabled,
+                darkReaderTheme: darkReaderTheme,
+                isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
                 isAdBlockerEnabled: isAdBlockerEnabled
             )
             restoredTabs.append(tab)
@@ -2068,7 +2135,13 @@ final class BrowserViewModel: ObservableObject {
         }
 
         if restoredTabs.isEmpty {
-            let firstTab = BrowserTab(usesPersistentStorage: false, isDarkReaderEnabled: isDarkReaderEnabled, isAdBlockerEnabled: isAdBlockerEnabled)
+            let firstTab = BrowserTab(
+                usesPersistentStorage: false,
+                isDarkReaderEnabled: isDarkReaderEnabled,
+                darkReaderTheme: darkReaderTheme,
+                isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
+                isAdBlockerEnabled: isAdBlockerEnabled
+            )
             return ([firstTab], firstTab.id)
         }
 
@@ -2162,6 +2235,8 @@ final class BrowserViewModel: ObservableObject {
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
         static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
+        static let darkReaderTheme = "ZenFireBrowser.darkReaderTheme"
+        static let stylusCatppuccinEnabled = "ZenFireBrowser.stylusCatppuccinEnabled"
         static let browserMusicEnabled = "ZenFireBrowser.browserMusicEnabled"
         static let browserMusicTrack = "ZenFireBrowser.browserMusicTrack"
         static let browserMusicVolume = "ZenFireBrowser.browserMusicVolume"

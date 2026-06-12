@@ -3885,6 +3885,15 @@ private struct BrowserSettingsView: View {
             Form {
                 Section("Browsing") {
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
+                    if model.isDarkReaderEnabled {
+                        Picker("Dark Reader theme", selection: $model.darkReaderTheme) {
+                            ForEach(BrowserDarkReaderTheme.allCases) { readerTheme in
+                                Label(readerTheme.title, systemImage: readerTheme.symbolName)
+                                    .tag(readerTheme)
+                            }
+                        }
+                    }
+                    Toggle("Stylus Catppuccin styles", isOn: stylusCatppuccinBinding)
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
                     Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
@@ -4232,6 +4241,13 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isDarkReaderEnabled },
             set: { model.setDarkReaderEnabled($0) }
+        )
+    }
+
+    private var stylusCatppuccinBinding: Binding<Bool> {
+        Binding(
+            get: { model.isStylusCatppuccinEnabled },
+            set: { model.setStylusCatppuccinEnabled($0) }
         )
     }
 
