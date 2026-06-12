@@ -71,7 +71,7 @@ final class SecureBrowserVault {
 
     static func prepareLaunchPrivacy() {
         URLCache.shared = URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
-        purgePersistentWebKitData()
+        purgeWebKitCacheData()
         removeUnencryptedCacheFiles()
     }
 
@@ -329,12 +329,14 @@ final class SecureBrowserVault {
         ]
     }
 
-    private static func purgePersistentWebKitData() {
+    private static func purgeWebKitCacheData() {
         let store = WKWebsiteDataStore.default()
-        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
-        store.fetchDataRecords(ofTypes: dataTypes) { records in
-            store.removeData(ofTypes: dataTypes, for: records) {}
-        }
+        let cacheTypes: Set<String> = [
+            WKWebsiteDataTypeDiskCache,
+            WKWebsiteDataTypeMemoryCache,
+            WKWebsiteDataTypeOfflineWebApplicationCache
+        ]
+        store.removeData(ofTypes: cacheTypes, modifiedSince: .distantPast) {}
     }
 
     private static func removeUnencryptedCacheFiles() {
@@ -350,13 +352,7 @@ final class SecureBrowserVault {
             }
         }
 
-        guard let libraryURL = fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first else {
-            return
-        }
-
-        for relativePath in ["WebKit", "Cookies"] {
-            try? fileManager.removeItem(at: libraryURL.appendingPathComponent(relativePath, isDirectory: true))
-        }
+        // Leave Library/WebKit and Library/Cookies intact so normal tabs keep signed-in sessions.
     }
 }
 

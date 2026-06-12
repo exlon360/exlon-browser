@@ -39,6 +39,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private var observations: [NSKeyValueObservation] = []
     private var activeDownloads: [ObjectIdentifier: BrowserDownloadItem] = [:]
     private static let sharedProcessPool = WKProcessPool()
+    private static let customPanMinimumDistance: CGFloat = 128
+    private static let customPanDirectionRatio: CGFloat = 1.35
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -1852,21 +1854,45 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        guard webView.scrollView.isZooming == false,
-              webView.scrollView.isZoomBouncing == false else { return }
+        guard shouldIgnoreCustomPanGestures() == false else { return }
         let translation = recognizer.translation(in: webView)
-        let dominantDistance = max(abs(translation.x), abs(translation.y))
-        guard dominantDistance > 72 else { return }
-        onTwoFingerSwipe?(translation.x, translation.y)
+        let absX = abs(translation.x)
+        let absY = abs(translation.y)
+        let dominantDistance = max(absX, absY)
+        guard dominantDistance >= Self.customPanMinimumDistance else { return }
+
+        if absY >= absX * Self.customPanDirectionRatio {
+            onTwoFingerSwipe?(0, translation.y)
+        } else if absX >= absY * Self.customPanDirectionRatio {
+            onTwoFingerSwipe?(translation.x, 0)
+        }
     }
 
     @objc private func handleThreeFingerPan(_ recognizer: UIPanGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        guard webView.scrollView.isZooming == false,
-              webView.scrollView.isZoomBouncing == false else { return }
+        guard shouldIgnoreCustomPanGestures() == false else { return }
         let translation = recognizer.translation(in: webView)
-        guard abs(translation.x) > 72, abs(translation.x) > abs(translation.y) else { return }
+        guard abs(translation.x) >= Self.customPanMinimumDistance,
+              abs(translation.x) >= abs(translation.y) * Self.customPanDirectionRatio else { return }
         onThreeFingerSwipe?(translation.x)
+    }
+
+    private func shouldIgnoreCustomPanGestures() -> Bool {
+        let scrollView = webView.scrollView
+        if scrollView.isZooming || scrollView.isZoomBouncing {
+            return true
+        }
+
+        if let pinch = scrollView.pinchGestureRecognizer {
+            switch pinch.state {
+            case .began, .changed, .ended, .cancelled:
+                return true
+            default:
+                break
+            }
+        }
+
+        return abs(scrollView.zoomScale - scrollView.minimumZoomScale) > 0.01
     }
 
     private func registerDownload(_ item: BrowserDownloadItem, for identifier: ObjectIdentifier) {
