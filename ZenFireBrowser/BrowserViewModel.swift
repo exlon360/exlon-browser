@@ -1199,10 +1199,8 @@ final class BrowserViewModel: ObservableObject {
         if abs(deltaY) > abs(deltaX) {
             if deltaY < 0 {
                 isTopSearchBarEnabled = false
-                setTabBarCollapsed(true)
             } else {
                 isTopSearchBarEnabled = true
-                setTabBarCollapsed(false)
             }
             return
         }
