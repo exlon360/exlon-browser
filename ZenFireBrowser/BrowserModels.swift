@@ -378,6 +378,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var upgradeHTTPS: Bool?
     var fingerprintProtection: Bool?
     var blockSocialMedia: Bool?
+    var blockPopupAds: Bool?
     var stripTrackingParameters: Bool?
     var blockBounceTracking: Bool?
     var webRTCProtection: Bool?

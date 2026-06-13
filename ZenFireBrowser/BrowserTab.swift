@@ -32,6 +32,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var isHTTPSUpgradeEnabled: Bool
     @Published var isFingerprintProtectionEnabled: Bool
     @Published var isSocialBlockingEnabled: Bool
+    @Published var isPopupBlockingEnabled: Bool
     @Published var isTrackingParameterStrippingEnabled: Bool
     @Published var isBounceTrackingProtectionEnabled: Bool
     @Published var isWebRTCProtectionEnabled: Bool
@@ -68,6 +69,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         isHTTPSUpgradeEnabled: Bool = true,
         isFingerprintProtectionEnabled: Bool = true,
         isSocialBlockingEnabled: Bool = true,
+        isPopupBlockingEnabled: Bool = true,
         isTrackingParameterStrippingEnabled: Bool = true,
         isBounceTrackingProtectionEnabled: Bool = true,
         isWebRTCProtectionEnabled: Bool = true,
@@ -85,6 +87,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.isHTTPSUpgradeEnabled = isHTTPSUpgradeEnabled
         self.isFingerprintProtectionEnabled = isFingerprintProtectionEnabled
         self.isSocialBlockingEnabled = isSocialBlockingEnabled
+        self.isPopupBlockingEnabled = isPopupBlockingEnabled
         self.isTrackingParameterStrippingEnabled = isTrackingParameterStrippingEnabled
         self.isBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
         self.isWebRTCProtectionEnabled = isWebRTCProtectionEnabled
@@ -242,6 +245,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         applyPrivacyOverrides(forceCleanup: true)
     }
 
+    func setPopupBlockingEnabled(_ enabled: Bool) {
+        isPopupBlockingEnabled = enabled
+        rebuildWebKitUserContent()
+        applyPrivacyOverrides(forceCleanup: true)
+    }
+
     func setTrackingParameterStrippingEnabled(_ enabled: Bool) {
         isTrackingParameterStrippingEnabled = enabled
         navigationTrackingParameterStrippingEnabled = enabled
@@ -272,6 +281,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         webView.evaluateJavaScript(Self.privacyProtectionScript(
             fingerprintProtection: isFingerprintProtectionEnabled,
             socialBlocking: isSocialBlockingEnabled,
+            popupBlocking: isPopupBlockingEnabled,
             webRTCProtection: isWebRTCProtectionEnabled
         ))
     }
@@ -330,6 +340,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                     source: Self.privacyProtectionScript(
                         fingerprintProtection: isFingerprintProtectionEnabled,
                         socialBlocking: isSocialBlockingEnabled,
+                        popupBlocking: isPopupBlockingEnabled,
                         webRTCProtection: isWebRTCProtectionEnabled
                     ),
                     injectionTime: .atDocumentStart,
@@ -375,7 +386,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     private var hasActivePrivacyOverrides: Bool {
-        isFingerprintProtectionEnabled || isSocialBlockingEnabled || isWebRTCProtectionEnabled
+        isFingerprintProtectionEnabled || isSocialBlockingEnabled || isPopupBlockingEnabled || isWebRTCProtectionEnabled
     }
 
     private func loadInitialContent(_ startURL: URL) {
@@ -1232,10 +1243,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private static func privacyProtectionScript(
         fingerprintProtection: Bool,
         socialBlocking: Bool,
+        popupBlocking: Bool,
         webRTCProtection: Bool
     ) -> String {
         let fingerprintLiteral = fingerprintProtection ? "true" : "false"
         let socialLiteral = socialBlocking ? "true" : "false"
+        let popupLiteral = popupBlocking ? "true" : "false"
         let webRTCLiteral = webRTCProtection ? "true" : "false"
 
         return """
@@ -1243,6 +1256,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           const config = {
             fingerprintProtection: \(fingerprintLiteral),
             socialBlocking: \(socialLiteral),
+            popupBlocking: \(popupLiteral),
             webRTCProtection: \(webRTCLiteral)
           };
 
@@ -1332,6 +1346,179 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             install();
             window.addEventListener("DOMContentLoaded", install);
             window.addEventListener("load", install);
+          }
+
+          if (!config.popupBlocking && window.__glidePopupBlocking) {
+            try { window.__glidePopupObserver?.disconnect(); } catch (_) {}
+            try {
+              if (window.__glideNativeOpen) {
+                window.open = window.__glideNativeOpen;
+              }
+            } catch (_) {}
+            try { document.getElementById("glide-popup-blocking")?.remove(); } catch (_) {}
+            window.__glidePopupBlocking = false;
+            window.__glidePopupCleanup = undefined;
+          }
+
+          if (config.popupBlocking) {
+            const selectors = [
+              "[class*='ad-modal']",
+              "[class*='ad_modal']",
+              "[class*='ad-popup']",
+              "[class*='ad_popup']",
+              "[class*='ad-overlay']",
+              "[class*='ad_overlay']",
+              "[class*='advert-modal']",
+              "[class*='advert_popup']",
+              "[class*='sponsor-modal']",
+              "[class*='promo-modal']",
+              "[class*='promo-popup']",
+              "[class*='interstitial']",
+              "[id*='ad-modal']",
+              "[id*='ad_popup']",
+              "[id*='ad-overlay']",
+              "[id*='advert-modal']",
+              "[id*='promo-popup']",
+              "[id*='interstitial']",
+              "[aria-label*='Close ad']",
+              "[aria-label*='close ad']",
+              "[aria-label*='Advertisement']",
+              "[aria-label*='advertisement']",
+              "iframe[src*='doubleclick']",
+              "iframe[src*='googlesyndication']",
+              "iframe[src*='googleadservices']"
+            ];
+            const popupWords = [
+              "ads", "advert", "advertisement", "sponsor", "sponsored",
+              "promo", "promotion", "popup", "pop-up", "modal", "overlay",
+              "interstitial", "newsletter", "subscribe", "signup", "sign-up",
+              "survey", "offer", "deal"
+            ];
+            const safeWords = [
+              "login", "log in", "signin", "sign in", "sign-in", "auth",
+              "account", "checkout", "payment", "cart", "password", "2fa",
+              "verification", "captcha", "cookie", "consent"
+            ];
+            const textOf = (element) => {
+              try {
+                return [
+                  element.id,
+                  element.className,
+                  element.getAttribute("aria-label"),
+                  element.getAttribute("role"),
+                  element.textContent
+                ].join(" ").toLowerCase().slice(0, 900);
+              } catch (_) {
+                return "";
+              }
+            };
+            const hasAny = (text, words) => words.some((word) => text.includes(word));
+            const hasCloseAdControl = (element) => {
+              try {
+                return Array.from(element.querySelectorAll("button,a,[role='button'],[aria-label]")).some((control) => {
+                  const label = [
+                    control.getAttribute("aria-label"),
+                    control.getAttribute("title"),
+                    control.textContent
+                  ].join(" ").toLowerCase();
+                  return label.includes("close ad") ||
+                    label.includes("close advertisement") ||
+                    label.includes("skip ad") ||
+                    label.includes("dismiss ad") ||
+                    (label.includes("close") && hasAny(textOf(element), popupWords));
+                });
+              } catch (_) {
+                return false;
+              }
+            };
+            const looksLikePopupAd = (element) => {
+              if (!element || element === document.documentElement || element === document.body) { return false; }
+              const text = textOf(element);
+              if (!text || hasAny(text, safeWords)) { return false; }
+              const hasPopupSignal = hasAny(text, popupWords) || hasCloseAdControl(element);
+              if (!hasPopupSignal) { return false; }
+              try {
+                const style = window.getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                const zIndex = Number.parseInt(style.zIndex || "0", 10);
+                const fixed = style.position === "fixed" || style.position === "sticky";
+                const largeEnough = rect.width >= window.innerWidth * 0.22 && rect.height >= window.innerHeight * 0.14;
+                const centeredOrCovering = rect.width >= window.innerWidth * 0.55 ||
+                  rect.height >= window.innerHeight * 0.35 ||
+                  (rect.left <= window.innerWidth * 0.12 && rect.right >= window.innerWidth * 0.88);
+                return fixed && largeEnough && (centeredOrCovering || zIndex >= 900 || hasCloseAdControl(element));
+              } catch (_) {
+                return false;
+              }
+            };
+            const removeElement = (element) => {
+              try {
+                element.setAttribute("data-glide-popup-blocked", "true");
+                element.remove();
+              } catch (_) {}
+            };
+            let cleanupScheduled = false;
+            const unlockScroll = () => {
+              try {
+                document.documentElement.style.overflow = "";
+                document.documentElement.style.position = "";
+                if (document.body) {
+                  document.body.style.overflow = "";
+                  document.body.style.position = "";
+                }
+              } catch (_) {}
+            };
+            const cleanup = () => {
+              try {
+                document.querySelectorAll(selectors.join(",")).forEach(removeElement);
+              } catch (_) {}
+              try {
+                let checked = 0;
+                for (const element of document.querySelectorAll("body *")) {
+                  checked += 1;
+                  if (checked > 900) { break; }
+                  if (looksLikePopupAd(element)) {
+                    removeElement(element);
+                  }
+                }
+              } catch (_) {}
+              unlockScroll();
+            };
+            const scheduleCleanup = () => {
+              if (cleanupScheduled) { return; }
+              cleanupScheduled = true;
+              requestAnimationFrame(() => {
+                cleanupScheduled = false;
+                cleanup();
+              });
+            };
+
+            if (!window.__glidePopupBlocking) {
+              window.__glidePopupBlocking = true;
+              try {
+                window.__glideNativeOpen = window.__glideNativeOpen || window.open;
+                window.open = () => null;
+              } catch (_) {}
+              try {
+                const style = document.createElement("style");
+                style.id = "glide-popup-blocking";
+                style.textContent = selectors.join(",") + "{display:none!important;visibility:hidden!important;pointer-events:none!important;}";
+                (document.head || document.documentElement || document.body)?.appendChild(style);
+              } catch (_) {}
+              try {
+                window.__glidePopupObserver = new MutationObserver(() => scheduleCleanup());
+                window.__glidePopupObserver.observe(document.documentElement || document, {
+                  childList: true,
+                  subtree: true,
+                  attributes: true,
+                  attributeFilter: ["class", "style", "aria-label", "id"]
+                });
+              } catch (_) {}
+              window.addEventListener("DOMContentLoaded", cleanup);
+              window.addEventListener("load", cleanup);
+            }
+            window.__glidePopupCleanup = cleanup;
+            cleanup();
           }
         })();
         """

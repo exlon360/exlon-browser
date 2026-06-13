@@ -788,6 +788,17 @@ final class BrowserViewModel: ObservableObject {
             }
         }
     }
+    @Published var isPopupBlockingEnabled: Bool {
+        didSet {
+            vault.save(isPopupBlockingEnabled, forKey: Self.StorageKey.popupBlockingEnabled)
+            for tab in tabs {
+                tab.setPopupBlockingEnabled(isPopupBlockingEnabled)
+            }
+            for tab in containedTabs {
+                tab.setPopupBlockingEnabled(isPopupBlockingEnabled)
+            }
+        }
+    }
     @Published var isTrackingParameterStrippingEnabled: Bool {
         didSet {
             vault.save(isTrackingParameterStrippingEnabled, forKey: Self.StorageKey.trackingParameterStrippingEnabled)
@@ -962,6 +973,7 @@ final class BrowserViewModel: ObservableObject {
         let httpsUpgradeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.httpsUpgradeEnabled, default: true)
         let fingerprintProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.fingerprintProtectionEnabled, default: true)
         let socialBlockingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.socialBlockingEnabled, default: true)
+        let popupBlockingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.popupBlockingEnabled, default: true)
         let trackingParameterStrippingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.trackingParameterStrippingEnabled, default: true)
         let bounceTrackingProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.bounceTrackingProtectionEnabled, default: true)
         let webRTCProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.webRTCProtectionEnabled, default: true)
@@ -991,6 +1003,7 @@ final class BrowserViewModel: ObservableObject {
             isHTTPSUpgradeEnabled: httpsUpgradeEnabled,
             isFingerprintProtectionEnabled: fingerprintProtectionEnabled,
             isSocialBlockingEnabled: socialBlockingEnabled,
+            isPopupBlockingEnabled: popupBlockingEnabled,
             isTrackingParameterStrippingEnabled: trackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: bounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: webRTCProtectionEnabled
@@ -1037,6 +1050,7 @@ final class BrowserViewModel: ObservableObject {
         self.isHTTPSUpgradeEnabled = httpsUpgradeEnabled
         self.isFingerprintProtectionEnabled = fingerprintProtectionEnabled
         self.isSocialBlockingEnabled = socialBlockingEnabled
+        self.isPopupBlockingEnabled = popupBlockingEnabled
         self.isTrackingParameterStrippingEnabled = trackingParameterStrippingEnabled
         self.isBounceTrackingProtectionEnabled = bounceTrackingProtectionEnabled
         self.isWebRTCProtectionEnabled = webRTCProtectionEnabled
@@ -1153,6 +1167,7 @@ final class BrowserViewModel: ObservableObject {
             isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
             isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
             isSocialBlockingEnabled: isSocialBlockingEnabled,
+            isPopupBlockingEnabled: isPopupBlockingEnabled,
             isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
@@ -1197,6 +1212,7 @@ final class BrowserViewModel: ObservableObject {
             isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
             isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
             isSocialBlockingEnabled: isSocialBlockingEnabled,
+            isPopupBlockingEnabled: isPopupBlockingEnabled,
             isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
@@ -1697,6 +1713,7 @@ final class BrowserViewModel: ObservableObject {
             upgradeHTTPS: isHTTPSUpgradeEnabled,
             fingerprintProtection: isFingerprintProtectionEnabled,
             blockSocialMedia: isSocialBlockingEnabled,
+            blockPopupAds: isPopupBlockingEnabled,
             stripTrackingParameters: isTrackingParameterStrippingEnabled,
             blockBounceTracking: isBounceTrackingProtectionEnabled,
             webRTCProtection: isWebRTCProtectionEnabled,
@@ -1776,6 +1793,7 @@ final class BrowserViewModel: ObservableObject {
         isHTTPSUpgradeEnabled = config.upgradeHTTPS ?? true
         isFingerprintProtectionEnabled = config.fingerprintProtection ?? true
         isSocialBlockingEnabled = config.blockSocialMedia ?? true
+        isPopupBlockingEnabled = config.blockPopupAds ?? true
         isTrackingParameterStrippingEnabled = config.stripTrackingParameters ?? true
         isBounceTrackingProtectionEnabled = config.blockBounceTracking ?? true
         isWebRTCProtectionEnabled = config.webRTCProtection ?? true
@@ -2130,6 +2148,7 @@ final class BrowserViewModel: ObservableObject {
         isHTTPSUpgradeEnabled = true
         isFingerprintProtectionEnabled = true
         isSocialBlockingEnabled = true
+        isPopupBlockingEnabled = true
         isTrackingParameterStrippingEnabled = true
         isBounceTrackingProtectionEnabled = true
         isWebRTCProtectionEnabled = true
@@ -2518,6 +2537,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(isHTTPSUpgradeEnabled, forKey: Self.StorageKey.httpsUpgradeEnabled)
         vault.save(isFingerprintProtectionEnabled, forKey: Self.StorageKey.fingerprintProtectionEnabled)
         vault.save(isSocialBlockingEnabled, forKey: Self.StorageKey.socialBlockingEnabled)
+        vault.save(isPopupBlockingEnabled, forKey: Self.StorageKey.popupBlockingEnabled)
         vault.save(isTrackingParameterStrippingEnabled, forKey: Self.StorageKey.trackingParameterStrippingEnabled)
         vault.save(isBounceTrackingProtectionEnabled, forKey: Self.StorageKey.bounceTrackingProtectionEnabled)
         vault.save(isWebRTCProtectionEnabled, forKey: Self.StorageKey.webRTCProtectionEnabled)
@@ -2549,6 +2569,7 @@ final class BrowserViewModel: ObservableObject {
         isHTTPSUpgradeEnabled: Bool,
         isFingerprintProtectionEnabled: Bool,
         isSocialBlockingEnabled: Bool,
+        isPopupBlockingEnabled: Bool,
         isTrackingParameterStrippingEnabled: Bool,
         isBounceTrackingProtectionEnabled: Bool,
         isWebRTCProtectionEnabled: Bool
@@ -2566,6 +2587,7 @@ final class BrowserViewModel: ObservableObject {
                 isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
                 isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
                 isSocialBlockingEnabled: isSocialBlockingEnabled,
+                isPopupBlockingEnabled: isPopupBlockingEnabled,
                 isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
@@ -2592,6 +2614,7 @@ final class BrowserViewModel: ObservableObject {
                 isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
                 isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
                 isSocialBlockingEnabled: isSocialBlockingEnabled,
+                isPopupBlockingEnabled: isPopupBlockingEnabled,
                 isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
@@ -2616,6 +2639,7 @@ final class BrowserViewModel: ObservableObject {
                 isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
                 isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
                 isSocialBlockingEnabled: isSocialBlockingEnabled,
+                isPopupBlockingEnabled: isPopupBlockingEnabled,
                 isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
@@ -2725,6 +2749,7 @@ final class BrowserViewModel: ObservableObject {
         static let httpsUpgradeEnabled = "ZenFireBrowser.httpsUpgradeEnabled"
         static let fingerprintProtectionEnabled = "ZenFireBrowser.fingerprintProtectionEnabled"
         static let socialBlockingEnabled = "ZenFireBrowser.socialBlockingEnabled"
+        static let popupBlockingEnabled = "ZenFireBrowser.popupBlockingEnabled"
         static let trackingParameterStrippingEnabled = "ZenFireBrowser.trackingParameterStrippingEnabled"
         static let bounceTrackingProtectionEnabled = "ZenFireBrowser.bounceTrackingProtectionEnabled"
         static let webRTCProtectionEnabled = "ZenFireBrowser.webRTCProtectionEnabled"

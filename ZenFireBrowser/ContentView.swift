@@ -4065,6 +4065,7 @@ private struct BrowserSettingsView: View {
                         Toggle("Block scripts", isOn: $model.isScriptBlockingEnabled)
                         Toggle("Fingerprint protection", isOn: $model.isFingerprintProtectionEnabled)
                         Toggle("Block social trackers", isOn: $model.isSocialBlockingEnabled)
+                        Toggle("Block pop-up ads", isOn: $model.isPopupBlockingEnabled)
                         Toggle("Strip tracking links", isOn: $model.isTrackingParameterStrippingEnabled)
                         Toggle("Block bounce tracking", isOn: $model.isBounceTrackingProtectionEnabled)
                         Toggle("Protect WebRTC IP", isOn: $model.isWebRTCProtectionEnabled)
