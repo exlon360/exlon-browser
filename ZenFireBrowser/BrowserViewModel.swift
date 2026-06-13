@@ -2300,7 +2300,12 @@ final class BrowserViewModel: ObservableObject {
                 throw Self.downloadError("The temporary download file is missing.")
             }
 
-            let presentationURL = displayURL ?? (try BrowserTab.downloadDestination(for: item.filename))
+            let presentationURL: URL
+            if let displayURL {
+                presentationURL = displayURL
+            } else {
+                presentationURL = try BrowserTab.downloadDestination(for: item.filename)
+            }
             if FileManager.default.fileExists(atPath: presentationURL.path) {
                 try FileManager.default.removeItem(at: presentationURL)
             }
