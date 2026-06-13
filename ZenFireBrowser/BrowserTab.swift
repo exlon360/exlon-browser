@@ -213,7 +213,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private func pageControlUserScripts() -> [WKUserScript] {
         guard hasActivePageStyleOverrides else { return [] }
-        [
+        return [
             WKUserScript(
                 source: Self.pageControlsScript(
                     darkReaderCSS: activeDarkReaderCSS,
