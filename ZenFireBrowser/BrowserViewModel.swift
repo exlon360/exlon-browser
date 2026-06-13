@@ -783,7 +783,6 @@ final class BrowserViewModel: ObservableObject {
     private let vault: SecureBrowserVault
     private let browserMusicPlayer = BrowserMusicPlayer()
     private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
-    private var didGestureHideTopSearchBar = false
 
     init(vault: SecureBrowserVault) {
         self.vault = vault
@@ -1197,23 +1196,17 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func handleTwoFingerSwipe(deltaX: CGFloat, deltaY: CGFloat) {
+        let placement: BrowserChromePlacement
         if abs(deltaY) > abs(deltaX) {
-            if deltaY < 0 {
-                didGestureHideTopSearchBar = isTopSearchBarEnabled
-                isTopSearchBarEnabled = false
-                setTabBarCollapsed(true)
-            } else {
-                if didGestureHideTopSearchBar {
-                    isTopSearchBarEnabled = true
-                    didGestureHideTopSearchBar = false
-                }
-                setTabBarCollapsed(false)
-            }
-            return
+            placement = deltaY < 0 ? .top : .bottom
+        } else {
+            placement = deltaX < 0 ? .left : .right
         }
 
-        didGestureHideTopSearchBar = false
-        setTabBarCollapsed(deltaX < 0)
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            chromePlacement = placement
+            areSideTabsCollapsed = false
+        }
     }
 
     func completeTutorial() {

@@ -340,6 +340,7 @@ private struct BrowserShell: View {
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
+            .animation(.spring(response: 0.30, dampingFraction: 0.86), value: model.chromePlacement)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView()
