@@ -149,31 +149,31 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     func setDarkReaderEnabled(_ enabled: Bool) {
         isDarkReaderEnabled = enabled
         rebuildWebKitUserContent()
-        applyPageStyleOverrides()
+        applyPageStyleOverrides(forceCleanup: true)
     }
 
     func setDarkReaderTheme(_ theme: BrowserDarkReaderTheme) {
         darkReaderTheme = theme
         rebuildWebKitUserContent()
-        applyPageStyleOverrides()
+        applyPageStyleOverrides(forceCleanup: true)
     }
 
     func setStylusCatppuccinEnabled(_ enabled: Bool) {
         isStylusCatppuccinEnabled = enabled
         rebuildWebKitUserContent()
-        applyPageStyleOverrides()
+        applyPageStyleOverrides(forceCleanup: true)
     }
 
     func setFPSForcerEnabled(_ enabled: Bool) {
         isFPSForcerEnabled = enabled
         rebuildWebKitUserContent()
-        applyPageStyleOverrides()
+        applyPageStyleOverrides(forceCleanup: true)
     }
 
     func setForcedFPS(_ fps: Double) {
         forcedFPS = fps
         rebuildWebKitUserContent()
-        applyPageStyleOverrides()
+        applyPageStyleOverrides(forceCleanup: true)
     }
 
     func setAdBlockerEnabled(_ enabled: Bool, reloadAfterChange: Bool = true) {
@@ -181,7 +181,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)
     }
 
-    private func applyPageStyleOverrides() {
+    private func applyPageStyleOverrides(forceCleanup: Bool = false) {
+        guard forceCleanup || hasActivePageStyleOverrides else { return }
         webView.evaluateJavaScript(Self.pageControlsScript(
             darkReaderCSS: activeDarkReaderCSS,
             stylusCSS: activeStylusCSS,
@@ -211,6 +212,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     private func pageControlUserScripts() -> [WKUserScript] {
+        guard hasActivePageStyleOverrides else { return [] }
         [
             WKUserScript(
                 source: Self.pageControlsScript(
@@ -236,6 +238,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         guard isFPSForcerEnabled,
               forcedFPS < BrowserViewModel.infiniteForcedFPSValue else { return nil }
         return max(BrowserViewModel.minimumForcedFPS, min(BrowserViewModel.maximumFiniteForcedFPS, forcedFPS))
+    }
+
+    private var hasActivePageStyleOverrides: Bool {
+        isDarkReaderEnabled || isStylusCatppuccinEnabled || activeFPSLimit != nil
     }
 
     private func loadInitialContent(_ startURL: URL) {

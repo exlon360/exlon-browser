@@ -1918,7 +1918,7 @@ private struct BrowserMusicToolbarButton: View {
         ) {
             model.toggleBrowserMusic()
         }
-        .accessibilityValue(model.browserMusicTrack.title)
+        .accessibilityValue(model.selectedBrowserMusicTitle)
     }
 }
 
@@ -4043,6 +4043,7 @@ private struct BrowserSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isBackgroundImporterPresented = false
     @State private var isThemeImporterPresented = false
+    @State private var isBrowserMusicImporterPresented = false
     @State private var themeExportItem: ThemeExportItem?
     @State private var themeImportMessage = ""
     @State private var savedThemeName = ""
@@ -4147,6 +4148,7 @@ private struct BrowserSettingsView: View {
                         ForEach(BrowserMusicTrack.allCases) { track in
                             Label(track.title, systemImage: track.symbolName)
                                 .tag(track)
+                                .disabled(track == .imported && model.hasImportedBrowserMusic == false)
                         }
                     }
 
@@ -4161,8 +4163,40 @@ private struct BrowserSettingsView: View {
                     }
 
                     LabeledContent("Now selected") {
-                        Label(model.browserMusicTrack.title, systemImage: model.browserMusicTrack.symbolName)
+                        Label(model.selectedBrowserMusicTitle, systemImage: model.browserMusicTrack.symbolName)
                             .foregroundStyle(theme.color(.accent))
+                    }
+
+                    Button {
+                        isBrowserMusicImporterPresented = true
+                    } label: {
+                        Label("Import Audio File", systemImage: "square.and.arrow.down")
+                    }
+
+                    if model.hasImportedBrowserMusic {
+                        LabeledContent("Imported audio") {
+                            Text(model.importedBrowserMusicDisplayName)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        Button {
+                            model.browserMusicTrack = .imported
+                            model.isBrowserMusicEnabled = true
+                        } label: {
+                            Label("Use Imported Audio", systemImage: "music.note.list")
+                        }
+
+                        Button(role: .destructive) {
+                            model.clearImportedBrowserMusic()
+                        } label: {
+                            Label("Clear Imported Audio", systemImage: "trash")
+                        }
+                    }
+
+                    if model.browserMusicImportMessage.isEmpty == false {
+                        Label(model.browserMusicImportMessage, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(theme.color(.mutedText))
                     }
                 }
 
@@ -4436,6 +4470,13 @@ private struct BrowserSettingsView: View {
                 allowsMultipleSelection: false
             ) { result in
                 importTheme(result)
+            }
+            .fileImporter(
+                isPresented: $isBrowserMusicImporterPresented,
+                allowedContentTypes: [.audio],
+                allowsMultipleSelection: false
+            ) { result in
+                model.importBrowserMusic(from: result)
             }
             .sheet(item: $themeExportItem) { item in
                 ThemeFileExportController(url: item.url) {

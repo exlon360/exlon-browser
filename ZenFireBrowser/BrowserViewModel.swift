@@ -399,6 +399,9 @@ final class BrowserMusicPlayer {
     }
 
     private let engine = AVAudioEngine()
+    private var filePlayer: AVPlayer?
+    private var fileEndObserver: NSObjectProtocol?
+    private var currentFileURL: URL?
     private var sourceNode: AVAudioSourceNode?
     private var sampleTime = 0.0
     private var noiseSeed: UInt64 = 0x1234ABCD
@@ -419,15 +422,25 @@ final class BrowserMusicPlayer {
         stop()
     }
 
-    func update(isEnabled: Bool, track: BrowserMusicTrack, volume: Double) {
+    func update(isEnabled: Bool, track: BrowserMusicTrack, volume: Double, importedAudioURL: URL?) {
         currentVolume = Float(max(0, min(1, volume)))
         engine.mainMixerNode.outputVolume = currentVolume
+        filePlayer?.volume = currentVolume
+
+        if track == .imported, let importedAudioURL {
+            stopEngineOnly()
+            updateFilePlayer(url: importedAudioURL, isEnabled: isEnabled)
+            return
+        }
+
+        stopFilePlayer()
 
         if track != currentTrack || sourceNode == nil {
             let wasRunning = engine.isRunning
             stopEngineOnly()
-            currentTrack = track
-            parameters = Self.parameters(for: track)
+            let generatedTrack = track == .imported ? .focus : track
+            currentTrack = generatedTrack
+            parameters = Self.parameters(for: generatedTrack)
             configureSourceNode()
             if wasRunning || isEnabled {
                 start()
@@ -443,6 +456,7 @@ final class BrowserMusicPlayer {
     }
 
     func stop() {
+        stopFilePlayer()
         stopEngineOnly()
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
@@ -477,6 +491,54 @@ final class BrowserMusicPlayer {
         }
 
         sourceNode = nil
+    }
+
+    private func updateFilePlayer(url: URL, isEnabled: Bool) {
+        if currentFileURL != url || filePlayer == nil {
+            configureFilePlayer(url: url)
+        }
+
+        guard isEnabled else {
+            filePlayer?.pause()
+            return
+        }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+            filePlayer?.play()
+        } catch {
+            stopFilePlayer()
+        }
+    }
+
+    private func configureFilePlayer(url: URL) {
+        stopFilePlayer()
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        player.volume = currentVolume
+        player.actionAtItemEnd = .none
+        fileEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.filePlayer?.seek(to: .zero)
+            self?.filePlayer?.play()
+        }
+        filePlayer = player
+        currentFileURL = url
+    }
+
+    private func stopFilePlayer() {
+        filePlayer?.pause()
+        filePlayer = nil
+        currentFileURL = nil
+        if let fileEndObserver {
+            NotificationCenter.default.removeObserver(fileEndObserver)
+        }
+        fileEndObserver = nil
     }
 
     private func configureSourceNode() {
@@ -578,6 +640,8 @@ final class BrowserMusicPlayer {
                 toneLevel: 0.12,
                 shimmerLevel: 0.026
             )
+        case .imported:
+            return parameters(for: .focus)
         }
     }
 }
@@ -692,6 +756,13 @@ final class BrowserViewModel: ObservableObject {
             updateBrowserMusicPlayer()
         }
     }
+    @Published var importedBrowserMusicFilename: String {
+        didSet {
+            vault.save(importedBrowserMusicFilename, forKey: Self.StorageKey.importedBrowserMusicFilename)
+            updateBrowserMusicPlayer()
+        }
+    }
+    @Published var browserMusicImportMessage = ""
     @Published var newTabOpensSearch: Bool {
         didSet {
             vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
@@ -858,6 +929,7 @@ final class BrowserViewModel: ObservableObject {
         self.isBrowserMusicEnabled = vault.load(Bool.self, forKey: Self.StorageKey.browserMusicEnabled, default: false)
         self.browserMusicTrack = savedBrowserMusicTrack
         self.browserMusicVolume = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.browserMusicVolume, default: 0.34))
+        self.importedBrowserMusicFilename = vault.load(String.self, forKey: Self.StorageKey.importedBrowserMusicFilename, default: "")
         self.newTabOpensSearch = vault.load(Bool.self, forKey: Self.StorageKey.newTabOpensSearch, default: true)
         self.localAIName = vault.load(String.self, forKey: Self.StorageKey.localAIName, default: "Local AI")
         self.localAIURLText = vault.load(String.self, forKey: Self.StorageKey.localAIURLText, default: "")
@@ -1177,12 +1249,66 @@ final class BrowserViewModel: ObservableObject {
         isBrowserMusicEnabled.toggle()
     }
 
+    var hasImportedBrowserMusic: Bool {
+        importedBrowserMusicURL != nil
+    }
+
+    var importedBrowserMusicDisplayName: String {
+        Self.displayName(forImportedBrowserMusicFilename: importedBrowserMusicFilename)
+    }
+
+    var selectedBrowserMusicTitle: String {
+        if browserMusicTrack == .imported {
+            return hasImportedBrowserMusic ? importedBrowserMusicDisplayName : "Imported Audio"
+        }
+        return browserMusicTrack.title
+    }
+
+    func importBrowserMusic(from result: Result<[URL], Error>) {
+        do {
+            guard let sourceURL = try result.get().first else { return }
+            browserMusicImportMessage = "Importing \(sourceURL.lastPathComponent)..."
+            Task {
+                do {
+                    let filename = try await Task.detached(priority: .utility) {
+                        try Self.copyImportedBrowserMusicFile(from: sourceURL)
+                    }.value
+                    let previousFilename = importedBrowserMusicFilename
+                    importedBrowserMusicFilename = filename
+                    browserMusicTrack = .imported
+                    isBrowserMusicEnabled = true
+                    browserMusicImportMessage = "Imported \(Self.displayName(forImportedBrowserMusicFilename: filename))."
+                    Self.removeImportedBrowserMusicFile(named: previousFilename)
+                } catch {
+                    browserMusicImportMessage = error.localizedDescription
+                }
+            }
+        } catch {
+            browserMusicImportMessage = error.localizedDescription
+        }
+    }
+
+    func clearImportedBrowserMusic() {
+        let previousFilename = importedBrowserMusicFilename
+        importedBrowserMusicFilename = ""
+        if browserMusicTrack == .imported {
+            browserMusicTrack = .focus
+        }
+        Self.removeImportedBrowserMusicFile(named: previousFilename)
+        browserMusicImportMessage = "Imported audio cleared."
+    }
+
     private func updateBrowserMusicPlayer() {
         browserMusicPlayer.update(
             isEnabled: isBrowserMusicEnabled,
             track: browserMusicTrack,
-            volume: browserMusicVolume
+            volume: browserMusicVolume,
+            importedAudioURL: importedBrowserMusicURL
         )
+    }
+
+    private var importedBrowserMusicURL: URL? {
+        Self.importedBrowserMusicURL(for: importedBrowserMusicFilename)
     }
 
     func setTabBarCollapsed(_ collapsed: Bool) {
@@ -1839,6 +1965,7 @@ final class BrowserViewModel: ObservableObject {
         isBrowserMusicEnabled = false
         browserMusicTrack = .focus
         browserMusicVolume = 0.34
+        browserMusicImportMessage = ""
         moreMenuActionIDs = []
         resetCustomIcons()
         localAIName = "Local AI"
@@ -2079,13 +2206,69 @@ final class BrowserViewModel: ObservableObject {
         return directory.appendingPathComponent("\(UUID().uuidString)-\(safeDownloadFilename(filename))")
     }
 
-    private static func safeDownloadFilename(_ filename: String) -> String {
+    nonisolated private static func safeDownloadFilename(_ filename: String) -> String {
         let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = trimmed.isEmpty ? "download" : trimmed
         let illegal = CharacterSet(charactersIn: "/\\?%*|\"<>:")
         return fallback
             .components(separatedBy: illegal)
             .joined(separator: "-")
+    }
+
+    nonisolated private static func importedBrowserMusicURL(for filename: String) -> URL? {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false,
+              let directory = try? browserMusicImportsDirectory() else { return nil }
+        let url = directory.appendingPathComponent(trimmed, isDirectory: false)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    nonisolated private static func copyImportedBrowserMusicFile(from sourceURL: URL) throws -> String {
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let directory = try browserMusicImportsDirectory()
+        let fileManager = FileManager.default
+        let baseName = safeDownloadFilename(sourceURL.deletingPathExtension().lastPathComponent)
+        let extensionText = safeDownloadFilename(sourceURL.pathExtension)
+        let filename = extensionText.isEmpty
+            ? "\(UUID().uuidString)-\(baseName)"
+            : "\(UUID().uuidString)-\(baseName).\(extensionText)"
+        let destination = directory.appendingPathComponent(filename, isDirectory: false)
+
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: destination)
+        }
+        try fileManager.copyItem(at: sourceURL, to: destination)
+        return filename
+    }
+
+    nonisolated private static func removeImportedBrowserMusicFile(named filename: String) {
+        guard let url = importedBrowserMusicURL(for: filename) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    nonisolated private static func browserMusicImportsDirectory() throws -> URL {
+        let fileManager = FileManager.default
+        let root = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let directory = root.appendingPathComponent("BrowserMusic", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    nonisolated private static func displayName(forImportedBrowserMusicFilename filename: String) -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return "No imported audio" }
+        return trimmed.replacingOccurrences(
+            of: #"^[0-9A-Fa-f-]{36}-"#,
+            with: "",
+            options: .regularExpression
+        )
     }
 
     private static func downloadError(_ message: String) -> NSError {
@@ -2174,6 +2357,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
         vault.save(browserMusicTrack.rawValue, forKey: Self.StorageKey.browserMusicTrack)
         vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
+        vault.save(importedBrowserMusicFilename, forKey: Self.StorageKey.importedBrowserMusicFilename)
         vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
         vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
         vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
@@ -2339,6 +2523,7 @@ final class BrowserViewModel: ObservableObject {
         static let browserMusicEnabled = "ZenFireBrowser.browserMusicEnabled"
         static let browserMusicTrack = "ZenFireBrowser.browserMusicTrack"
         static let browserMusicVolume = "ZenFireBrowser.browserMusicVolume"
+        static let importedBrowserMusicFilename = "ZenFireBrowser.importedBrowserMusicFilename"
         static let newTabOpensSearch = "ZenFireBrowser.newTabOpensSearch"
         static let hasCompletedTutorial = "ZenFireBrowser.hasCompletedTutorial"
         static let downloads = "ZenFireBrowser.downloads"

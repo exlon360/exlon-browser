@@ -119,6 +119,7 @@ enum BrowserMusicTrack: String, CaseIterable, Identifiable {
     case rain
     case midnight
     case drift
+    case imported
 
     var id: String { rawValue }
 
@@ -132,6 +133,8 @@ enum BrowserMusicTrack: String, CaseIterable, Identifiable {
             return "Midnight Synth"
         case .drift:
             return "Soft Drift"
+        case .imported:
+            return "Imported Audio"
         }
     }
 
@@ -145,6 +148,8 @@ enum BrowserMusicTrack: String, CaseIterable, Identifiable {
             return "Dark synthetic pad"
         case .drift:
             return "Light ambient motion"
+        case .imported:
+            return "A local audio file"
         }
     }
 
@@ -158,6 +163,8 @@ enum BrowserMusicTrack: String, CaseIterable, Identifiable {
             return "moon.stars"
         case .drift:
             return "waveform"
+        case .imported:
+            return "music.note.list"
         }
     }
 }
