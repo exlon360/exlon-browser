@@ -1200,7 +1200,7 @@ final class BrowserViewModel: ObservableObject {
         if abs(deltaY) > abs(deltaX) {
             placement = deltaY < 0 ? .top : .bottom
         } else {
-            placement = deltaX < 0 ? .left : .right
+            placement = deltaX < 0 ? .right : .left
         }
 
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
