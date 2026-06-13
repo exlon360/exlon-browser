@@ -733,6 +733,94 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var isAdBlockerEnabled: Bool
+    @Published var trackerBlockingLevel: BrowserTrackerBlockingLevel {
+        didSet {
+            vault.save(trackerBlockingLevel.rawValue, forKey: Self.StorageKey.trackerBlockingLevel)
+            for tab in tabs {
+                tab.setTrackerBlockingLevel(trackerBlockingLevel)
+            }
+            for tab in containedTabs {
+                tab.setTrackerBlockingLevel(trackerBlockingLevel)
+            }
+        }
+    }
+    @Published var isScriptBlockingEnabled: Bool {
+        didSet {
+            vault.save(isScriptBlockingEnabled, forKey: Self.StorageKey.scriptBlockingEnabled)
+            for tab in tabs {
+                tab.setScriptBlockingEnabled(isScriptBlockingEnabled)
+            }
+            for tab in containedTabs {
+                tab.setScriptBlockingEnabled(isScriptBlockingEnabled)
+            }
+        }
+    }
+    @Published var isHTTPSUpgradeEnabled: Bool {
+        didSet {
+            vault.save(isHTTPSUpgradeEnabled, forKey: Self.StorageKey.httpsUpgradeEnabled)
+            for tab in tabs {
+                tab.setHTTPSUpgradeEnabled(isHTTPSUpgradeEnabled)
+            }
+            for tab in containedTabs {
+                tab.setHTTPSUpgradeEnabled(isHTTPSUpgradeEnabled)
+            }
+        }
+    }
+    @Published var isFingerprintProtectionEnabled: Bool {
+        didSet {
+            vault.save(isFingerprintProtectionEnabled, forKey: Self.StorageKey.fingerprintProtectionEnabled)
+            for tab in tabs {
+                tab.setFingerprintProtectionEnabled(isFingerprintProtectionEnabled)
+            }
+            for tab in containedTabs {
+                tab.setFingerprintProtectionEnabled(isFingerprintProtectionEnabled)
+            }
+        }
+    }
+    @Published var isSocialBlockingEnabled: Bool {
+        didSet {
+            vault.save(isSocialBlockingEnabled, forKey: Self.StorageKey.socialBlockingEnabled)
+            for tab in tabs {
+                tab.setSocialBlockingEnabled(isSocialBlockingEnabled)
+            }
+            for tab in containedTabs {
+                tab.setSocialBlockingEnabled(isSocialBlockingEnabled)
+            }
+        }
+    }
+    @Published var isTrackingParameterStrippingEnabled: Bool {
+        didSet {
+            vault.save(isTrackingParameterStrippingEnabled, forKey: Self.StorageKey.trackingParameterStrippingEnabled)
+            for tab in tabs {
+                tab.setTrackingParameterStrippingEnabled(isTrackingParameterStrippingEnabled)
+            }
+            for tab in containedTabs {
+                tab.setTrackingParameterStrippingEnabled(isTrackingParameterStrippingEnabled)
+            }
+        }
+    }
+    @Published var isBounceTrackingProtectionEnabled: Bool {
+        didSet {
+            vault.save(isBounceTrackingProtectionEnabled, forKey: Self.StorageKey.bounceTrackingProtectionEnabled)
+            for tab in tabs {
+                tab.setBounceTrackingProtectionEnabled(isBounceTrackingProtectionEnabled)
+            }
+            for tab in containedTabs {
+                tab.setBounceTrackingProtectionEnabled(isBounceTrackingProtectionEnabled)
+            }
+        }
+    }
+    @Published var isWebRTCProtectionEnabled: Bool {
+        didSet {
+            vault.save(isWebRTCProtectionEnabled, forKey: Self.StorageKey.webRTCProtectionEnabled)
+            for tab in tabs {
+                tab.setWebRTCProtectionEnabled(isWebRTCProtectionEnabled)
+            }
+            for tab in containedTabs {
+                tab.setWebRTCProtectionEnabled(isWebRTCProtectionEnabled)
+            }
+        }
+    }
     @Published var isBrowserMusicEnabled: Bool {
         didSet {
             vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
@@ -867,6 +955,16 @@ final class BrowserViewModel: ObservableObject {
             vault.load(Double.self, forKey: Self.StorageKey.forcedFPS, default: 60)
         )
         let adBlockerEnabled = vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)
+        let savedTrackerBlockingLevel = BrowserTrackerBlockingLevel(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.trackerBlockingLevel, default: "")
+        ) ?? .aggressive
+        let scriptBlockingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.scriptBlockingEnabled, default: false)
+        let httpsUpgradeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.httpsUpgradeEnabled, default: true)
+        let fingerprintProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.fingerprintProtectionEnabled, default: true)
+        let socialBlockingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.socialBlockingEnabled, default: true)
+        let trackingParameterStrippingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.trackingParameterStrippingEnabled, default: true)
+        let bounceTrackingProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.bounceTrackingProtectionEnabled, default: true)
+        let webRTCProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.webRTCProtectionEnabled, default: true)
         let placement = BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
@@ -887,7 +985,15 @@ final class BrowserViewModel: ObservableObject {
             isStylusCatppuccinEnabled: stylusCatppuccinEnabled,
             isFPSForcerEnabled: fpsForcerEnabled,
             forcedFPS: savedForcedFPS,
-            isAdBlockerEnabled: adBlockerEnabled
+            isAdBlockerEnabled: adBlockerEnabled,
+            trackerBlockingLevel: savedTrackerBlockingLevel,
+            isScriptBlockingEnabled: scriptBlockingEnabled,
+            isHTTPSUpgradeEnabled: httpsUpgradeEnabled,
+            isFingerprintProtectionEnabled: fingerprintProtectionEnabled,
+            isSocialBlockingEnabled: socialBlockingEnabled,
+            isTrackingParameterStrippingEnabled: trackingParameterStrippingEnabled,
+            isBounceTrackingProtectionEnabled: bounceTrackingProtectionEnabled,
+            isWebRTCProtectionEnabled: webRTCProtectionEnabled
         )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
@@ -926,6 +1032,14 @@ final class BrowserViewModel: ObservableObject {
         self.isFPSForcerEnabled = fpsForcerEnabled
         self.forcedFPS = savedForcedFPS
         self.isAdBlockerEnabled = adBlockerEnabled
+        self.trackerBlockingLevel = savedTrackerBlockingLevel
+        self.isScriptBlockingEnabled = scriptBlockingEnabled
+        self.isHTTPSUpgradeEnabled = httpsUpgradeEnabled
+        self.isFingerprintProtectionEnabled = fingerprintProtectionEnabled
+        self.isSocialBlockingEnabled = socialBlockingEnabled
+        self.isTrackingParameterStrippingEnabled = trackingParameterStrippingEnabled
+        self.isBounceTrackingProtectionEnabled = bounceTrackingProtectionEnabled
+        self.isWebRTCProtectionEnabled = webRTCProtectionEnabled
         self.isBrowserMusicEnabled = vault.load(Bool.self, forKey: Self.StorageKey.browserMusicEnabled, default: false)
         self.browserMusicTrack = savedBrowserMusicTrack
         self.browserMusicVolume = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.browserMusicVolume, default: 0.34))
@@ -1034,6 +1148,14 @@ final class BrowserViewModel: ObservableObject {
             darkReaderTheme: darkReaderTheme,
             isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
             isAdBlockerEnabled: isAdBlockerEnabled,
+            trackerBlockingLevel: trackerBlockingLevel,
+            isScriptBlockingEnabled: isScriptBlockingEnabled,
+            isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
+            isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
+            isSocialBlockingEnabled: isSocialBlockingEnabled,
+            isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
+            isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
+            isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS
         )
@@ -1070,6 +1192,14 @@ final class BrowserViewModel: ObservableObject {
             darkReaderTheme: darkReaderTheme,
             isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
             isAdBlockerEnabled: isAdBlockerEnabled,
+            trackerBlockingLevel: trackerBlockingLevel,
+            isScriptBlockingEnabled: isScriptBlockingEnabled,
+            isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
+            isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
+            isSocialBlockingEnabled: isSocialBlockingEnabled,
+            isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
+            isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
+            isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS
         )
@@ -1418,6 +1548,11 @@ final class BrowserViewModel: ObservableObject {
             throw Self.downloadError("That download has not finished yet.")
         }
 
+        if FileManager.default.fileExists(atPath: item.localPath) {
+            downloadStatusMessage = "Ready to open \(item.filename)."
+            return item.localURL
+        }
+
         let exportURL = try Self.temporaryExportURL(for: item.filename)
         if FileManager.default.fileExists(atPath: exportURL.path) {
             try FileManager.default.removeItem(at: exportURL)
@@ -1557,6 +1692,14 @@ final class BrowserViewModel: ObservableObject {
             browserMusicVolume: browserMusicVolume,
             darkReaderEnabled: isDarkReaderEnabled,
             adBlockerEnabled: isAdBlockerEnabled,
+            trackerBlockingLevel: trackerBlockingLevel.rawValue,
+            blockScripts: isScriptBlockingEnabled,
+            upgradeHTTPS: isHTTPSUpgradeEnabled,
+            fingerprintProtection: isFingerprintProtectionEnabled,
+            blockSocialMedia: isSocialBlockingEnabled,
+            stripTrackingParameters: isTrackingParameterStrippingEnabled,
+            blockBounceTracking: isBounceTrackingProtectionEnabled,
+            webRTCProtection: isWebRTCProtectionEnabled,
             moreMenuActions: BrowserToolbarAction.allCases
                 .map(\.rawValue)
                 .filter { moreMenuActionIDs.contains($0) },
@@ -1625,6 +1768,17 @@ final class BrowserViewModel: ObservableObject {
             browserMusicTrack = track
         }
         browserMusicVolume = Self.clampedUnit(config.browserMusicVolume ?? 0.34)
+        if let trackerBlockingValue = config.trackerBlockingLevel,
+           let level = BrowserTrackerBlockingLevel(rawValue: trackerBlockingValue) {
+            trackerBlockingLevel = level
+        }
+        isScriptBlockingEnabled = config.blockScripts ?? false
+        isHTTPSUpgradeEnabled = config.upgradeHTTPS ?? true
+        isFingerprintProtectionEnabled = config.fingerprintProtection ?? true
+        isSocialBlockingEnabled = config.blockSocialMedia ?? true
+        isTrackingParameterStrippingEnabled = config.stripTrackingParameters ?? true
+        isBounceTrackingProtectionEnabled = config.blockBounceTracking ?? true
+        isWebRTCProtectionEnabled = config.webRTCProtection ?? true
         moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
             BrowserToolbarAction(rawValue: actionID) != nil
         })
@@ -1971,6 +2125,14 @@ final class BrowserViewModel: ObservableObject {
         localAIName = "Local AI"
         localAIURLText = ""
         setAdBlockerEnabled(true)
+        trackerBlockingLevel = .aggressive
+        isScriptBlockingEnabled = false
+        isHTTPSUpgradeEnabled = true
+        isFingerprintProtectionEnabled = true
+        isSocialBlockingEnabled = true
+        isTrackingParameterStrippingEnabled = true
+        isBounceTrackingProtectionEnabled = true
+        isWebRTCProtectionEnabled = true
         setDarkReaderEnabled(false)
         darkReaderTheme = .zenCopy
         isStylusCatppuccinEnabled = false
@@ -2072,7 +2234,9 @@ final class BrowserViewModel: ObservableObject {
     }
 
     private func updateDownload(_ item: BrowserDownloadItem) {
-        if item.state == .finished, item.isEncrypted == false {
+        if item.state == .finished,
+           item.isEncrypted == false,
+           item.localURL.deletingLastPathComponent().lastPathComponent == "GlideIncomingDownloads" {
             finalizeDownloadedFile(item, plaintextURL: item.localURL)
             return
         }
@@ -2136,33 +2300,28 @@ final class BrowserViewModel: ObservableObject {
                 throw Self.downloadError("The temporary download file is missing.")
             }
 
-            let plaintextData = try Data(contentsOf: plaintextURL)
-            let encryptedData = try vault.encryptData(plaintextData)
-            let encryptedURL = try encryptedDownloadURL(for: item)
-
-            if FileManager.default.fileExists(atPath: encryptedURL.path) {
-                try FileManager.default.removeItem(at: encryptedURL)
+            let presentationURL = displayURL ?? (try BrowserTab.downloadDestination(for: item.filename))
+            if FileManager.default.fileExists(atPath: presentationURL.path) {
+                try FileManager.default.removeItem(at: presentationURL)
             }
-
-            try encryptedData.write(to: encryptedURL, options: [.atomic])
+            try FileManager.default.moveItem(at: plaintextURL, to: presentationURL)
             #if os(iOS)
-            try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: encryptedURL.path)
+            try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: presentationURL.path)
             #endif
-            try? FileManager.default.removeItem(at: plaintextURL)
 
-            let presentationURL = displayURL ?? (try? BrowserTab.downloadDestination(for: item.filename))
-            finished.localPath = presentationURL?.path ?? item.localPath
+            let attributes = try? FileManager.default.attributesOfItem(atPath: presentationURL.path)
+            let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
+            finished.localPath = presentationURL.path
             finished.state = .finished
             finished.errorMessage = nil
-            finished.encryptedLocalPath = encryptedURL.path
-            finished.originalByteCount = Int64(plaintextData.count)
+            finished.originalByteCount = byteCount
 
-            downloadStatusMessage = "Saved encrypted \(finished.filename)."
+            downloadStatusMessage = "Saved \(finished.filename) to Downloads."
             upsertDownload(finished)
         } catch {
             try? FileManager.default.removeItem(at: plaintextURL)
             finished.state = .failed
-            finished.errorMessage = "Download could not be encrypted: \(error.localizedDescription)"
+            finished.errorMessage = "Download could not be saved: \(error.localizedDescription)"
             downloadStatusMessage = finished.errorMessage ?? error.localizedDescription
             upsertDownload(finished)
         }
@@ -2349,6 +2508,14 @@ final class BrowserViewModel: ObservableObject {
         vault.save(localAIName, forKey: Self.StorageKey.localAIName)
         vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
         vault.save(isAdBlockerEnabled, forKey: Self.StorageKey.adBlockerEnabled)
+        vault.save(trackerBlockingLevel.rawValue, forKey: Self.StorageKey.trackerBlockingLevel)
+        vault.save(isScriptBlockingEnabled, forKey: Self.StorageKey.scriptBlockingEnabled)
+        vault.save(isHTTPSUpgradeEnabled, forKey: Self.StorageKey.httpsUpgradeEnabled)
+        vault.save(isFingerprintProtectionEnabled, forKey: Self.StorageKey.fingerprintProtectionEnabled)
+        vault.save(isSocialBlockingEnabled, forKey: Self.StorageKey.socialBlockingEnabled)
+        vault.save(isTrackingParameterStrippingEnabled, forKey: Self.StorageKey.trackingParameterStrippingEnabled)
+        vault.save(isBounceTrackingProtectionEnabled, forKey: Self.StorageKey.bounceTrackingProtectionEnabled)
+        vault.save(isWebRTCProtectionEnabled, forKey: Self.StorageKey.webRTCProtectionEnabled)
         vault.save(isDarkReaderEnabled, forKey: Self.StorageKey.darkReaderEnabled)
         vault.save(darkReaderTheme.rawValue, forKey: Self.StorageKey.darkReaderTheme)
         vault.save(isStylusCatppuccinEnabled, forKey: Self.StorageKey.stylusCatppuccinEnabled)
@@ -2371,7 +2538,15 @@ final class BrowserViewModel: ObservableObject {
         isStylusCatppuccinEnabled: Bool,
         isFPSForcerEnabled: Bool,
         forcedFPS: Double,
-        isAdBlockerEnabled: Bool
+        isAdBlockerEnabled: Bool,
+        trackerBlockingLevel: BrowserTrackerBlockingLevel,
+        isScriptBlockingEnabled: Bool,
+        isHTTPSUpgradeEnabled: Bool,
+        isFingerprintProtectionEnabled: Bool,
+        isSocialBlockingEnabled: Bool,
+        isTrackingParameterStrippingEnabled: Bool,
+        isBounceTrackingProtectionEnabled: Bool,
+        isWebRTCProtectionEnabled: Bool
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
@@ -2381,6 +2556,14 @@ final class BrowserViewModel: ObservableObject {
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
                 isAdBlockerEnabled: isAdBlockerEnabled,
+                trackerBlockingLevel: trackerBlockingLevel,
+                isScriptBlockingEnabled: isScriptBlockingEnabled,
+                isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
+                isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
+                isSocialBlockingEnabled: isSocialBlockingEnabled,
+                isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
+                isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
+                isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS
             )
@@ -2399,6 +2582,14 @@ final class BrowserViewModel: ObservableObject {
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
                 isAdBlockerEnabled: isAdBlockerEnabled,
+                trackerBlockingLevel: trackerBlockingLevel,
+                isScriptBlockingEnabled: isScriptBlockingEnabled,
+                isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
+                isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
+                isSocialBlockingEnabled: isSocialBlockingEnabled,
+                isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
+                isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
+                isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS
             )
@@ -2415,6 +2606,14 @@ final class BrowserViewModel: ObservableObject {
                 darkReaderTheme: darkReaderTheme,
                 isStylusCatppuccinEnabled: isStylusCatppuccinEnabled,
                 isAdBlockerEnabled: isAdBlockerEnabled,
+                trackerBlockingLevel: trackerBlockingLevel,
+                isScriptBlockingEnabled: isScriptBlockingEnabled,
+                isHTTPSUpgradeEnabled: isHTTPSUpgradeEnabled,
+                isFingerprintProtectionEnabled: isFingerprintProtectionEnabled,
+                isSocialBlockingEnabled: isSocialBlockingEnabled,
+                isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
+                isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
+                isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS
             )
@@ -2516,6 +2715,14 @@ final class BrowserViewModel: ObservableObject {
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
         static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
+        static let trackerBlockingLevel = "ZenFireBrowser.trackerBlockingLevel"
+        static let scriptBlockingEnabled = "ZenFireBrowser.scriptBlockingEnabled"
+        static let httpsUpgradeEnabled = "ZenFireBrowser.httpsUpgradeEnabled"
+        static let fingerprintProtectionEnabled = "ZenFireBrowser.fingerprintProtectionEnabled"
+        static let socialBlockingEnabled = "ZenFireBrowser.socialBlockingEnabled"
+        static let trackingParameterStrippingEnabled = "ZenFireBrowser.trackingParameterStrippingEnabled"
+        static let bounceTrackingProtectionEnabled = "ZenFireBrowser.bounceTrackingProtectionEnabled"
+        static let webRTCProtectionEnabled = "ZenFireBrowser.webRTCProtectionEnabled"
         static let darkReaderTheme = "ZenFireBrowser.darkReaderTheme"
         static let stylusCatppuccinEnabled = "ZenFireBrowser.stylusCatppuccinEnabled"
         static let fpsForcerEnabled = "ZenFireBrowser.fpsForcerEnabled"

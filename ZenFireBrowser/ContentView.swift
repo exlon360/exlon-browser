@@ -3064,7 +3064,7 @@ private struct BrowserDownloadsView: View {
                 pendingExportRequest = nil
             }
         } message: {
-            Text("Glide keeps downloads encrypted at rest. Continuing creates a temporary decrypted copy outside the vault so iOS can open or share it.")
+            Text("Real downloads open from Glide's Downloads folder. Older encrypted downloads create a temporary decrypted copy before opening or sharing.")
         }
         .sheet(item: $preparedExport, onDismiss: cleanupPreparedExport) { export in
             switch export.intent {
@@ -4051,7 +4051,38 @@ private struct BrowserSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Privacy") {
+                    DisclosureGroup {
+                        Toggle("Shields", isOn: adBlockerBinding)
+                        Picker("Tracker blocking", selection: $model.trackerBlockingLevel) {
+                            ForEach(BrowserTrackerBlockingLevel.allCases) { level in
+                                Text(level.title)
+                                    .tag(level)
+                            }
+                        }
+                        .disabled(model.isAdBlockerEnabled == false)
+                        Toggle("Upgrade connections to HTTPS", isOn: $model.isHTTPSUpgradeEnabled)
+                        Toggle("Block scripts", isOn: $model.isScriptBlockingEnabled)
+                        Toggle("Fingerprint protection", isOn: $model.isFingerprintProtectionEnabled)
+                        Toggle("Block social trackers", isOn: $model.isSocialBlockingEnabled)
+                        Toggle("Strip tracking links", isOn: $model.isTrackingParameterStrippingEnabled)
+                        Toggle("Block bounce tracking", isOn: $model.isBounceTrackingProtectionEnabled)
+                        Toggle("Protect WebRTC IP", isOn: $model.isWebRTCProtectionEnabled)
+
+                        Button {
+                            model.clearHistory()
+                            model.clearDownloads()
+                            security.clearCrashLogs()
+                        } label: {
+                            Label("Clear Private Data", systemImage: "trash")
+                        }
+                    } label: {
+                        Label("Privacy", systemImage: "hand.raised.fill")
+                    }
+                }
+
                 Section("Browsing") {
+                    DisclosureGroup {
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
                     if model.isDarkReaderEnabled {
                         Picker("Dark Reader theme", selection: $model.darkReaderTheme) {
@@ -4139,9 +4170,45 @@ private struct BrowserSettingsView: View {
                             model.isVPNPresented = true
                         }
                     }
+                    } label: {
+                        Label("Browsing", systemImage: "safari")
+                    }
                 }
 
-                Section("Browser Music") {
+                Section {
+                    DisclosureGroup {
+                        LabeledContent("Saved files") {
+                            Text("\(model.downloads.count)")
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        Button {
+                            model.downloadSelectedTab()
+                        } label: {
+                            Label("Download Current Tab", systemImage: "arrow.down.doc")
+                        }
+
+                        Button {
+                            presentAfterDismiss {
+                                model.isDownloadsPresented = true
+                            }
+                        } label: {
+                            Label("Open Downloads", systemImage: "folder")
+                        }
+
+                        Button(role: .destructive) {
+                            model.clearDownloads()
+                        } label: {
+                            Label("Clear Downloads", systemImage: "trash")
+                        }
+                        .disabled(model.downloads.isEmpty)
+                    } label: {
+                        Label("Downloads", systemImage: "arrow.down.circle")
+                    }
+                }
+
+                Section {
+                    DisclosureGroup {
                     Toggle("Play browser music", isOn: $model.isBrowserMusicEnabled)
 
                     Picker("Track", selection: $model.browserMusicTrack) {
@@ -4198,9 +4265,13 @@ private struct BrowserSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(theme.color(.mutedText))
                     }
+                    } label: {
+                        Label("Browser Music", systemImage: "music.note")
+                    }
                 }
 
-                Section("Advanced") {
+                Section {
+                    DisclosureGroup {
                     Button {
                         presentAfterDismiss {
                             model.isAddOnsPresented = true
@@ -4224,17 +4295,25 @@ private struct BrowserSettingsView: View {
                     } label: {
                         Label("Custom Icons", systemImage: "app.badge")
                     }
+                    } label: {
+                        Label("Advanced", systemImage: "slider.horizontal.3")
+                    }
                 }
 
                 Section("Three-Dot Menu") {
+                    DisclosureGroup {
                     ForEach(BrowserToolbarAction.allCases) { action in
                         Toggle(isOn: moreMenuBinding(for: action)) {
                             Label(action.title, systemImage: action.symbolName)
                         }
                     }
+                    } label: {
+                        Label("Three-Dot Menu", systemImage: "ellipsis.circle")
+                    }
                 }
 
-                Section("Privacy Lock") {
+                Section {
+                    DisclosureGroup {
                     LabeledContent("Encrypted vault") {
                         Label("Unlocked", systemImage: "checkmark.shield")
                             .foregroundStyle(theme.color(.accent))
@@ -4251,9 +4330,13 @@ private struct BrowserSettingsView: View {
                     } label: {
                         Label("Lock Glide Now", systemImage: "lock.fill")
                     }
+                    } label: {
+                        Label("Privacy Lock", systemImage: "lock.shield")
+                    }
                 }
 
-                Section("Crash Logs") {
+                Section {
+                    DisclosureGroup {
                     LabeledContent("Status") {
                         Text(security.hasUnreadCrashLogs ? "New crash detected" : "\(security.crashLogs.count) saved")
                             .foregroundStyle(security.hasUnreadCrashLogs ? .yellow : theme.color(.mutedText))
@@ -4267,9 +4350,13 @@ private struct BrowserSettingsView: View {
                     } label: {
                         Label("Open Crash Logs", systemImage: "waveform.path.ecg.rectangle")
                     }
+                    } label: {
+                        Label("Safety", systemImage: "waveform.path.ecg.rectangle")
+                    }
                 }
 
-                Section("Backgrounds & Tab Bar") {
+                Section {
+                    DisclosureGroup {
                     Toggle("Transparent tab bar", isOn: $theme.isTabBarTransparencyEnabled)
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -4328,9 +4415,13 @@ private struct BrowserSettingsView: View {
                         theme.clearUserBackground()
                     }
                     .disabled(theme.hasUserBackground == false)
+                    } label: {
+                        Label("Customizing", systemImage: "paintpalette")
+                    }
                 }
 
-                Section("Local AI") {
+                Section {
+                    DisclosureGroup {
                     TextField("Name", text: $model.localAIName)
                     TextField("URL or host", text: $model.localAIURLText)
                         .textInputAutocapitalization(.never)
@@ -4340,9 +4431,13 @@ private struct BrowserSettingsView: View {
                     Button("Import Local AI") {
                         model.isLocalAIImporterPresented = true
                     }
+                    } label: {
+                        Label("Local AI", systemImage: "cpu")
+                    }
                 }
 
-                Section("Colors") {
+                Section {
+                    DisclosureGroup {
                     ForEach(BrowserThemeToken.allCases) { token in
                         HStack(spacing: 12) {
                             ColorPicker(token.title, selection: theme.binding(for: token), supportsOpacity: false)
@@ -4365,9 +4460,13 @@ private struct BrowserSettingsView: View {
                     Button("Reset to Zen dark defaults") {
                         theme.resetToZenDefaults()
                     }
+                    } label: {
+                        Label("Colors", systemImage: "eyedropper")
+                    }
                 }
 
-                Section("Saved Themes") {
+                Section {
+                    DisclosureGroup {
                     TextField("Theme name", text: $savedThemeName)
                         .textInputAutocapitalization(.words)
 
@@ -4434,12 +4533,19 @@ private struct BrowserSettingsView: View {
                             }
                         }
                     }
+                    } label: {
+                        Label("Saved Themes", systemImage: "square.stack.3d.up")
+                    }
                 }
 
-                Section("Reset") {
+                Section {
+                    DisclosureGroup {
                     Button("Reset to default") {
                         model.resetToDefaults()
                         theme.resetToZenDefaults()
+                    }
+                    } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
                     }
                 }
             }

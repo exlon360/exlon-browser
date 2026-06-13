@@ -753,7 +753,7 @@ enum BrowserContentBlocker {
     })();
     """
 
-    private static var rules: String {
+    private static func rules(for level: BrowserTrackerBlockingLevel) -> String {
         let domainPattern = blockedDomains
             .map { NSRegularExpression.escapedPattern(for: $0) }
             .joined(separator: "|")
@@ -795,19 +795,21 @@ enum BrowserContentBlocker {
             ]
         })
 
-        nativeRules.append(contentsOf: blockedURLPatterns.map { pattern in
-            [
-                "trigger": [
-                    "url-filter": pattern,
-                    "resource-type": broadBlockedResourceTypes,
-                    "load-type": ["third-party"],
-                    "unless-domain": compatibilityRuleDomains
-                ],
-                "action": [
-                    "type": "block"
+        if level == .aggressive {
+            nativeRules.append(contentsOf: blockedURLPatterns.map { pattern in
+                [
+                    "trigger": [
+                        "url-filter": pattern,
+                        "resource-type": broadBlockedResourceTypes,
+                        "load-type": ["third-party"],
+                        "unless-domain": compatibilityRuleDomains
+                    ],
+                    "action": [
+                        "type": "block"
+                    ]
                 ]
-            ]
-        })
+            })
+        }
 
         guard let data = try? JSONSerialization.data(withJSONObject: nativeRules, options: []),
               let encodedRules = String(data: data, encoding: .utf8) else {
@@ -819,6 +821,7 @@ enum BrowserContentBlocker {
 
     static func setEnabled(
         _ enabled: Bool,
+        level: BrowserTrackerBlockingLevel = .aggressive,
         on userContentController: WKUserContentController,
         additionalUserScripts: [WKUserScript] = [],
         completion: ((Error?) -> Void)? = nil
@@ -834,20 +837,22 @@ enum BrowserContentBlocker {
             return
         }
 
-        let blockerScript = WKUserScript(
-            source: antiAdBlockScript,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        )
+        if level == .aggressive {
+            let blockerScript = WKUserScript(
+                source: antiAdBlockScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+            userContentController.addUserScript(blockerScript)
+        }
 
         WKContentRuleListStore.default().compileContentRuleList(
             forIdentifier: identifier,
-            encodedContentRuleList: rules
+            encodedContentRuleList: rules(for: level)
         ) { ruleList, error in
             DispatchQueue.main.async {
                 if let ruleList = ruleList {
                     userContentController.add(ruleList)
-                    userContentController.addUserScript(blockerScript)
                 }
                 completion?(error)
             }

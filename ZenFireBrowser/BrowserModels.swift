@@ -291,6 +291,22 @@ enum BrowserDownloadState: String, Codable {
     }
 }
 
+enum BrowserTrackerBlockingLevel: String, CaseIterable, Identifiable, Codable {
+    case standard
+    case aggressive
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard:
+            return "Standard"
+        case .aggressive:
+            return "Aggressive"
+        }
+    }
+}
+
 struct BrowserDownloadItem: Identifiable, Codable, Equatable {
     var id: UUID
     var filename: String
@@ -357,6 +373,14 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var browserMusicVolume: Double?
     var darkReaderEnabled: Bool
     var adBlockerEnabled: Bool
+    var trackerBlockingLevel: String?
+    var blockScripts: Bool?
+    var upgradeHTTPS: Bool?
+    var fingerprintProtection: Bool?
+    var blockSocialMedia: Bool?
+    var stripTrackingParameters: Bool?
+    var blockBounceTracking: Bool?
+    var webRTCProtection: Bool?
     var moreMenuActions: [String]
     var customIcons: [String: String]
     var tabBarTransparencyEnabled: Bool

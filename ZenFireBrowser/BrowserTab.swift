@@ -27,6 +27,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var darkReaderTheme: BrowserDarkReaderTheme
     @Published var isStylusCatppuccinEnabled: Bool
     @Published var isAdBlockerEnabled: Bool
+    @Published var trackerBlockingLevel: BrowserTrackerBlockingLevel
+    @Published var isScriptBlockingEnabled: Bool
+    @Published var isHTTPSUpgradeEnabled: Bool
+    @Published var isFingerprintProtectionEnabled: Bool
+    @Published var isSocialBlockingEnabled: Bool
+    @Published var isTrackingParameterStrippingEnabled: Bool
+    @Published var isBounceTrackingProtectionEnabled: Bool
+    @Published var isWebRTCProtectionEnabled: Bool
     @Published var isFPSForcerEnabled: Bool
     @Published var forcedFPS: Double
 
@@ -41,6 +49,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private static let sharedProcessPool = WKProcessPool()
     private static let customPanMinimumDistance: CGFloat = 172
     private static let customPanDirectionRatio: CGFloat = 1.6
+    private nonisolated(unsafe) var navigationScriptBlockingEnabled: Bool
+    private nonisolated(unsafe) var navigationHTTPSUpgradeEnabled: Bool
+    private nonisolated(unsafe) var navigationTrackingParameterStrippingEnabled: Bool
+    private nonisolated(unsafe) var navigationBounceTrackingProtectionEnabled: Bool
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -51,6 +63,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         darkReaderTheme: BrowserDarkReaderTheme = .zenCopy,
         isStylusCatppuccinEnabled: Bool = false,
         isAdBlockerEnabled: Bool = true,
+        trackerBlockingLevel: BrowserTrackerBlockingLevel = .aggressive,
+        isScriptBlockingEnabled: Bool = false,
+        isHTTPSUpgradeEnabled: Bool = true,
+        isFingerprintProtectionEnabled: Bool = true,
+        isSocialBlockingEnabled: Bool = true,
+        isTrackingParameterStrippingEnabled: Bool = true,
+        isBounceTrackingProtectionEnabled: Bool = true,
+        isWebRTCProtectionEnabled: Bool = true,
         isFPSForcerEnabled: Bool = false,
         forcedFPS: Double = 60
     ) {
@@ -60,6 +80,18 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.darkReaderTheme = darkReaderTheme
         self.isStylusCatppuccinEnabled = isStylusCatppuccinEnabled
         self.isAdBlockerEnabled = isAdBlockerEnabled
+        self.trackerBlockingLevel = trackerBlockingLevel
+        self.isScriptBlockingEnabled = isScriptBlockingEnabled
+        self.isHTTPSUpgradeEnabled = isHTTPSUpgradeEnabled
+        self.isFingerprintProtectionEnabled = isFingerprintProtectionEnabled
+        self.isSocialBlockingEnabled = isSocialBlockingEnabled
+        self.isTrackingParameterStrippingEnabled = isTrackingParameterStrippingEnabled
+        self.isBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
+        self.isWebRTCProtectionEnabled = isWebRTCProtectionEnabled
+        self.navigationScriptBlockingEnabled = isScriptBlockingEnabled
+        self.navigationHTTPSUpgradeEnabled = isHTTPSUpgradeEnabled
+        self.navigationTrackingParameterStrippingEnabled = isTrackingParameterStrippingEnabled
+        self.navigationBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
         self.title = isContainedBrowser ? "Contained Browser" : (isPrivate ? "Private Start" : "Start")
@@ -105,13 +137,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     func load(_ url: URL) {
+        let destination = privacyAdjustedURL(for: url)
         if isContainedBrowser == false,
-           Self.isStartPageURL(url) {
+           Self.isStartPageURL(destination) {
             loadStartPage()
             return
         }
 
-        webView.load(Self.websiteRequest(for: url))
+        webView.load(Self.websiteRequest(for: destination))
     }
 
     func submitAddress(searchEngine: BrowserSearchEngine, customSearchTemplate: String) {
@@ -181,6 +214,50 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)
     }
 
+    func setTrackerBlockingLevel(_ level: BrowserTrackerBlockingLevel) {
+        trackerBlockingLevel = level
+        rebuildWebKitUserContent(reloadAfterChange: true)
+    }
+
+    func setScriptBlockingEnabled(_ enabled: Bool) {
+        isScriptBlockingEnabled = enabled
+        navigationScriptBlockingEnabled = enabled
+        rebuildWebKitUserContent(reloadAfterChange: true)
+    }
+
+    func setHTTPSUpgradeEnabled(_ enabled: Bool) {
+        isHTTPSUpgradeEnabled = enabled
+        navigationHTTPSUpgradeEnabled = enabled
+    }
+
+    func setFingerprintProtectionEnabled(_ enabled: Bool) {
+        isFingerprintProtectionEnabled = enabled
+        rebuildWebKitUserContent()
+        applyPrivacyOverrides(forceCleanup: true)
+    }
+
+    func setSocialBlockingEnabled(_ enabled: Bool) {
+        isSocialBlockingEnabled = enabled
+        rebuildWebKitUserContent()
+        applyPrivacyOverrides(forceCleanup: true)
+    }
+
+    func setTrackingParameterStrippingEnabled(_ enabled: Bool) {
+        isTrackingParameterStrippingEnabled = enabled
+        navigationTrackingParameterStrippingEnabled = enabled
+    }
+
+    func setBounceTrackingProtectionEnabled(_ enabled: Bool) {
+        isBounceTrackingProtectionEnabled = enabled
+        navigationBounceTrackingProtectionEnabled = enabled
+    }
+
+    func setWebRTCProtectionEnabled(_ enabled: Bool) {
+        isWebRTCProtectionEnabled = enabled
+        rebuildWebKitUserContent()
+        applyPrivacyOverrides(forceCleanup: true)
+    }
+
     private func applyPageStyleOverrides(forceCleanup: Bool = false) {
         guard forceCleanup || hasActivePageStyleOverrides else { return }
         webView.evaluateJavaScript(Self.pageControlsScript(
@@ -190,14 +267,33 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         ))
     }
 
+    private func applyPrivacyOverrides(forceCleanup: Bool = false) {
+        guard forceCleanup || hasActivePrivacyOverrides else { return }
+        webView.evaluateJavaScript(Self.privacyProtectionScript(
+            fingerprintProtection: isFingerprintProtectionEnabled,
+            socialBlocking: isSocialBlockingEnabled,
+            webRTCProtection: isWebRTCProtectionEnabled
+        ))
+    }
+
+    private func privacyAdjustedURL(for url: URL) -> URL {
+        Self.privacyAdjustedURL(
+            for: url,
+            upgradeHTTPS: isHTTPSUpgradeEnabled,
+            stripTrackingParameters: isTrackingParameterStrippingEnabled,
+            blockBounceTracking: isBounceTrackingProtectionEnabled
+        )
+    }
+
     private func rebuildWebKitUserContent(
         reloadAfterChange: Bool = false,
         completion: (() -> Void)? = nil
     ) {
         BrowserContentBlocker.setEnabled(
             isAdBlockerEnabled,
+            level: trackerBlockingLevel,
             on: webView.configuration.userContentController,
-            additionalUserScripts: pageControlUserScripts()
+            additionalUserScripts: additionalUserScripts()
         ) { [weak self] _ in
             guard let self = self else {
                 completion?()
@@ -209,6 +305,40 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                 self.webView.reload()
             }
         }
+    }
+
+    private func additionalUserScripts() -> [WKUserScript] {
+        var scripts: [WKUserScript] = []
+
+        if hasActivePageStyleOverrides {
+            scripts.append(
+                WKUserScript(
+                    source: Self.pageControlsScript(
+                        darkReaderCSS: activeDarkReaderCSS,
+                        stylusCSS: activeStylusCSS,
+                        fpsLimit: activeFPSLimit
+                    ),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
+
+        if hasActivePrivacyOverrides {
+            scripts.append(
+                WKUserScript(
+                    source: Self.privacyProtectionScript(
+                        fingerprintProtection: isFingerprintProtectionEnabled,
+                        socialBlocking: isSocialBlockingEnabled,
+                        webRTCProtection: isWebRTCProtectionEnabled
+                    ),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
+
+        return scripts
     }
 
     private func pageControlUserScripts() -> [WKUserScript] {
@@ -242,6 +372,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private var hasActivePageStyleOverrides: Bool {
         isDarkReaderEnabled || isStylusCatppuccinEnabled || activeFPSLimit != nil
+    }
+
+    private var hasActivePrivacyOverrides: Bool {
+        isFingerprintProtectionEnabled || isSocialBlockingEnabled || isWebRTCProtectionEnabled
     }
 
     private func loadInitialContent(_ startURL: URL) {
@@ -1016,6 +1150,191 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
+    }
+
+    private nonisolated static let trackingQueryKeys: Set<String> = [
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id",
+        "utm_name", "utm_cid", "utm_reader", "utm_viz_id", "utm_pubreferrer", "fbclid",
+        "gclid", "gbraid", "wbraid", "dclid", "msclkid", "mc_cid", "mc_eid", "igshid",
+        "twclid", "yclid", "_hsenc", "_hsmi", "mkt_tok", "vero_id", "spm", "scid",
+        "wickedid", "oly_enc_id", "oly_anon_id"
+    ]
+
+    private nonisolated static let bounceRedirectKeys: Set<String> = [
+        "url", "u", "to", "target", "destination", "dest", "redirect", "redirect_url",
+        "redirect_uri", "r", "q"
+    ]
+
+    private nonisolated static func privacyAdjustedURL(
+        for url: URL,
+        upgradeHTTPS: Bool,
+        stripTrackingParameters: Bool,
+        blockBounceTracking: Bool
+    ) -> URL {
+        var destination = url
+
+        if blockBounceTracking,
+           let redirected = redirectedDestinationURL(from: destination) ?? bounceDestinationURL(from: destination) {
+            destination = redirected
+        }
+
+        if stripTrackingParameters,
+           let stripped = strippedTrackingURL(from: destination) {
+            destination = stripped
+        }
+
+        if upgradeHTTPS,
+           destination.scheme?.lowercased() == "http",
+           var components = URLComponents(url: destination, resolvingAgainstBaseURL: false) {
+            components.scheme = "https"
+            destination = components.url ?? destination
+        }
+
+        return destination
+    }
+
+    private nonisolated static func strippedTrackingURL(from url: URL) -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems,
+              queryItems.isEmpty == false else { return nil }
+
+        let filtered = queryItems.filter { trackingQueryKeys.contains($0.name.lowercased()) == false }
+        guard filtered.count != queryItems.count else { return nil }
+        components.queryItems = filtered.isEmpty ? nil : filtered
+        return components.url
+    }
+
+    private nonisolated static func bounceDestinationURL(from url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let host = normalizedHost(for: url)
+        let path = url.path.lowercased()
+        let looksLikeBounce = path.contains("redirect") ||
+            path.contains("outbound") ||
+            path.contains("away") ||
+            path.contains("leave") ||
+            path.contains("go") ||
+            host.contains("link.") ||
+            host.contains("links.")
+        guard looksLikeBounce else { return nil }
+
+        for item in components.queryItems ?? [] where bounceRedirectKeys.contains(item.name.lowercased()) {
+            guard let value = item.value?.removingPercentEncoding ?? item.value,
+                  let destination = URL(string: value),
+                  destination.scheme?.hasPrefix("http") == true else {
+                continue
+            }
+            return destination
+        }
+
+        return nil
+    }
+
+    private static func privacyProtectionScript(
+        fingerprintProtection: Bool,
+        socialBlocking: Bool,
+        webRTCProtection: Bool
+    ) -> String {
+        let fingerprintLiteral = fingerprintProtection ? "true" : "false"
+        let socialLiteral = socialBlocking ? "true" : "false"
+        let webRTCLiteral = webRTCProtection ? "true" : "false"
+
+        return """
+        (() => {
+          const config = {
+            fingerprintProtection: \(fingerprintLiteral),
+            socialBlocking: \(socialLiteral),
+            webRTCProtection: \(webRTCLiteral)
+          };
+
+          if (config.fingerprintProtection && !window.__glideFingerprintProtection) {
+            window.__glideFingerprintProtection = true;
+            const seed = Math.floor(Math.random() * 255);
+            try {
+              Object.defineProperty(navigator, "languages", { configurable: true, get: () => ["en-US", "en"] });
+              Object.defineProperty(navigator, "language", { configurable: true, get: () => "en-US" });
+              Object.defineProperty(navigator, "doNotTrack", { configurable: true, get: () => "1" });
+              Object.defineProperty(navigator, "hardwareConcurrency", { configurable: true, get: () => Math.min(8, navigator.hardwareConcurrency || 4) });
+              Object.defineProperty(navigator, "deviceMemory", { configurable: true, get: () => 4 });
+            } catch (_) {}
+
+            try {
+              const canvasProto = HTMLCanvasElement && HTMLCanvasElement.prototype;
+              const nativeToDataURL = canvasProto && canvasProto.toDataURL;
+              const nativeToBlob = canvasProto && canvasProto.toBlob;
+              const perturb = (canvas) => {
+                try {
+                  const ctx = canvas.getContext("2d");
+                  if (!ctx || canvas.width < 8 || canvas.height < 8) { return; }
+                  const x = seed % Math.max(1, Math.min(canvas.width, 32));
+                  const y = (seed * 3) % Math.max(1, Math.min(canvas.height, 32));
+                  const image = ctx.getImageData(x, y, 1, 1);
+                  image.data[0] = image.data[0] ^ 1;
+                  ctx.putImageData(image, x, y);
+                } catch (_) {}
+              };
+              if (nativeToDataURL) {
+                canvasProto.toDataURL = function(...args) {
+                  perturb(this);
+                  return nativeToDataURL.apply(this, args);
+                };
+              }
+              if (nativeToBlob) {
+                canvasProto.toBlob = function(...args) {
+                  perturb(this);
+                  return nativeToBlob.apply(this, args);
+                };
+              }
+            } catch (_) {}
+
+            try {
+              const nativeGetParameter = WebGLRenderingContext.prototype.getParameter;
+              WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) { return "Apple"; }
+                if (parameter === 37446) { return "Apple GPU"; }
+                return nativeGetParameter.call(this, parameter);
+              };
+            } catch (_) {}
+          }
+
+          if (config.webRTCProtection && !window.__glideWebRTCProtection) {
+            window.__glideWebRTCProtection = true;
+            try {
+              window.RTCPeerConnection = undefined;
+              window.webkitRTCPeerConnection = undefined;
+            } catch (_) {}
+          }
+
+          if (config.socialBlocking && !window.__glideSocialBlocking) {
+            window.__glideSocialBlocking = true;
+            const selectors = [
+              "iframe[src*='facebook.com/plugins']",
+              "iframe[src*='platform.twitter.com']",
+              "iframe[src*='x.com/widgets']",
+              "iframe[src*='linkedin.com/embed']",
+              "iframe[src*='tiktok.com/embed']",
+              "script[src*='connect.facebook.net']",
+              "script[src*='platform.twitter.com']",
+              "script[src*='platform.linkedin.com']",
+              "script[src*='assets.pinterest.com']",
+              ".fb-like,.fb-share-button,.twitter-share-button,.IN-widget,.pinterest-button"
+            ];
+            const style = document.createElement("style");
+            style.id = "glide-social-blocking";
+            style.textContent = selectors.join(",") + "{display:none!important;visibility:hidden!important;}";
+            const install = () => {
+              if (!document.getElementById(style.id)) {
+                (document.head || document.documentElement || document.body)?.appendChild(style);
+              }
+              try {
+                document.querySelectorAll(selectors.join(",")).forEach((element) => element.remove());
+              } catch (_) {}
+            };
+            install();
+            window.addEventListener("DOMContentLoaded", install);
+            window.addEventListener("load", install);
+          }
+        })();
+        """
     }
 
     private static func pageControlsScript(
@@ -1998,10 +2317,28 @@ extension BrowserTab: WKNavigationDelegate {
         preferences: WKWebpagePreferences,
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
-        preferences.allowsContentJavaScript = true
+        preferences.allowsContentJavaScript = !navigationScriptBlockingEnabled
         if let promotedURL = Self.promotedContainedURL(from: navigationAction) {
             decisionHandler(.cancel, preferences)
             webView.load(Self.websiteRequest(for: promotedURL))
+        } else if let requestURL = navigationAction.request.url {
+            let adjustedURL = Self.privacyAdjustedURL(
+                for: requestURL,
+                upgradeHTTPS: navigationHTTPSUpgradeEnabled,
+                stripTrackingParameters: navigationTrackingParameterStrippingEnabled,
+                blockBounceTracking: navigationBounceTrackingProtectionEnabled
+            )
+            if adjustedURL != requestURL {
+                decisionHandler(.cancel, preferences)
+                webView.load(Self.websiteRequest(for: adjustedURL))
+                return
+            }
+
+            if navigationAction.shouldPerformDownload {
+                decisionHandler(.download, preferences)
+            } else {
+                decisionHandler(.allow, preferences)
+            }
         } else if navigationAction.shouldPerformDownload {
             decisionHandler(.download, preferences)
         } else {
@@ -2034,6 +2371,7 @@ extension BrowserTab: WKNavigationDelegate {
             guard let self = self else { return }
             self.isLoading = false
             self.applyPageStyleOverrides()
+            self.applyPrivacyOverrides()
             self.onNavigationFinished?(self)
         }
     }
