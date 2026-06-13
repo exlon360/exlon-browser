@@ -1196,17 +1196,18 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func handleTwoFingerSwipe(deltaX: CGFloat, deltaY: CGFloat) {
-        let placement: BrowserChromePlacement
         if abs(deltaY) > abs(deltaX) {
-            placement = deltaY < 0 ? .top : .bottom
-        } else {
-            placement = deltaX < 0 ? .right : .left
+            if deltaY < 0 {
+                isTopSearchBarEnabled = false
+                setTabBarCollapsed(true)
+            } else {
+                isTopSearchBarEnabled = true
+                setTabBarCollapsed(false)
+            }
+            return
         }
 
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-            chromePlacement = placement
-            areSideTabsCollapsed = false
-        }
+        setTabBarCollapsed(deltaX < 0)
     }
 
     func completeTutorial() {

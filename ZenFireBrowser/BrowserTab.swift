@@ -39,8 +39,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private var observations: [NSKeyValueObservation] = []
     private var activeDownloads: [ObjectIdentifier: BrowserDownloadItem] = [:]
     private static let sharedProcessPool = WKProcessPool()
-    private static let customPanMinimumDistance: CGFloat = 128
-    private static let customPanDirectionRatio: CGFloat = 1.35
+    private static let customPanMinimumDistance: CGFloat = 172
+    private static let customPanDirectionRatio: CGFloat = 1.6
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
