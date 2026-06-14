@@ -1890,11 +1890,15 @@ private struct SearchResultRow: View {
 }
 
 private struct BrowserPageControls: View {
+    @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
         HStack(spacing: 8) {
             AITabButton()
+            if model.isInMoreMenu(.compact) == false {
+                CompactChromeButton()
+            }
             MoreTabButton()
         }
         .padding(6)
@@ -1904,6 +1908,32 @@ private struct BrowserPageControls: View {
                 .stroke(theme.color(.border).opacity(0.42), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.24), radius: 14, y: 7)
+    }
+}
+
+private struct CompactChromeButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    private var symbolName: String {
+        model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : model.customIconName(for: .compact, fallback: "arrow.down.right.and.arrow.up.left")
+    }
+
+    var body: some View {
+        Button {
+            model.toggleCompactMode()
+        } label: {
+            BrowserIcon(slot: .compact, systemName: symbolName, size: 15, weight: .bold)
+                .frame(width: 38, height: 38)
+                .foregroundStyle(theme.color(.text))
+                .background(ControlGlassBackground(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.accent).opacity(model.isCompactModeActive ? 0.78 : 0.48), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.isCompactModeActive ? "Reveal chrome" : "Compact mode")
     }
 }
 
@@ -2138,6 +2168,9 @@ private struct MoreTabButton: View {
         if action == .browserMusic {
             return model.isBrowserMusicEnabled ? "Pause Browser Music" : "Play Browser Music"
         }
+        if action == .compact {
+            return model.isCompactModeActive ? "Reveal Chrome" : "Compact Mode"
+        }
         return action.menuTitle
     }
 
@@ -2147,6 +2180,9 @@ private struct MoreTabButton: View {
         }
         if action == .browserMusic {
             return model.isBrowserMusicEnabled ? "pause.fill" : model.customIconName(for: .browserMusic, fallback: action.symbolName)
+        }
+        if action == .compact {
+            return model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : model.customIconName(for: .compact, fallback: action.symbolName)
         }
         return model.customIconName(for: action.customIconSlot, fallback: action.symbolName)
     }

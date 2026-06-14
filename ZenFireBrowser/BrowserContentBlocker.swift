@@ -88,6 +88,13 @@ enum BrowserContentBlocker {
         "logrocket.com",
         "newrelic.com",
         "nr-data.net",
+        "sentry-cdn.com",
+        "browser.sentry-cdn.com",
+        "js.sentry-cdn.com",
+        "sentry.io",
+        "bugsnag.com",
+        "d2wy8f7a9ursnm.cloudfront.net",
+        "static.cloudflareinsights.com",
         "datadoghq-browser-agent.com",
         "optimizely.com",
         "crazyegg.com",
@@ -471,7 +478,15 @@ enum BrowserContentBlocker {
         "div[id*='google_ads_iframe']",
         "div[class*='OUTBRAIN']",
         "div[id*='taboola']",
-        "div[class*='taboola']"
+        "div[class*='taboola']",
+        "object[type='application/x-shockwave-flash']",
+        "embed[type='application/x-shockwave-flash']",
+        "object[data*='advertising']",
+        "embed[src*='advertising']",
+        "img[src*='/banners/']",
+        "img[src*='ads_banner']",
+        "img[src*='ad_banner']",
+        "img[src*='advertising']"
     ].joined(separator: ", ")
 
     private static let blockedURLPatterns = [
@@ -485,6 +500,14 @@ enum BrowserContentBlocker {
         "^https?://([^/]+\\.)?youtube\\.com/(pagead|api/stats/ads).*",
         "^https?://([^/]+\\.)?googlevideo\\.com/videoplayback.*[?&]oad=.*",
         "^https?://www\\.googletagmanager\\.com/gtag/js.*",
+        "^https?://([^/]+\\.)?googletagmanager\\.com/gtag/js.*",
+        "^https?://([^/]+\\.)?google-analytics\\.com/(analytics|ga|gtag|collect).*",
+        "^https?://([^/]+\\.)?adblock-tester\\.com/banners/.*(ad|ads|advert|advertising|banner).*",
+        "^https?://([^/]+\\.)?sentry-cdn\\.com/.*",
+        "^https?://browser\\.sentry-cdn\\.com/.*",
+        "^https?://js\\.sentry-cdn\\.com/.*",
+        "^https?://d2wy8f7a9ursnm\\.cloudfront\\.net/.*",
+        "^https?://static\\.cloudflareinsights\\.com/.*",
         "^https?://analytics\\.google\\.com/g/collect.*",
         "^https?://stats\\.g\\.doubleclick\\.net/.*",
         "^https?://bat\\.bing\\.com/.*",
@@ -496,6 +519,8 @@ enum BrowserContentBlocker {
         "style-sheet",
         "script",
         "font",
+        "media",
+        "raw",
         "svg-document"
     ]
 

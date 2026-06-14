@@ -51,6 +51,7 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     case reload
     case tabFinder
     case closeAllTabs
+    case compact
     case containedTabs
     case downloadCurrent
     case history
@@ -73,6 +74,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "Tab Finder"
         case .closeAllTabs:
             return "Close All Tabs"
+        case .compact:
+            return "Compact Mode"
         case .containedTabs:
             return "Contained Tabs"
         case .downloadCurrent:
@@ -113,6 +116,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "square.grid.2x2"
         case .closeAllTabs:
             return "xmark.square"
+        case .compact:
+            return "arrow.down.right.and.arrow.up.left"
         case .containedTabs:
             return "rectangle.on.rectangle"
         case .downloadCurrent:
@@ -147,6 +152,7 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case reload
     case tabFinder
     case closeAllTabs
+    case compact
     case downloadCurrent
     case downloads
     case history
@@ -188,6 +194,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "Tab Finder"
         case .closeAllTabs:
             return "Close All Tabs"
+        case .compact:
+            return "Compact"
         case .downloadCurrent:
             return "Download Current"
         case .downloads:
@@ -235,6 +243,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "square.grid.2x2"
         case .closeAllTabs:
             return "xmark.square"
+        case .compact:
+            return "arrow.down.right.and.arrow.up.left"
         case .downloadCurrent:
             return "arrow.down.doc"
         case .downloads:
@@ -369,6 +379,8 @@ extension BrowserToolbarAction {
             return .tabFinder
         case .closeAllTabs:
             return .closeAllTabs
+        case .compact:
+            return .compact
         case .containedTabs:
             return .containedTabs
         case .downloadCurrent:
@@ -1457,6 +1469,10 @@ final class BrowserViewModel: ObservableObject {
         Self.importedBrowserMusicURL(for: importedBrowserMusicFilename)
     }
 
+    var isCompactModeActive: Bool {
+        areSideTabsCollapsed && isTopSearchBarEnabled == false
+    }
+
     func setTabBarCollapsed(_ collapsed: Bool) {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
             areSideTabsCollapsed = collapsed
@@ -1465,6 +1481,22 @@ final class BrowserViewModel: ObservableObject {
 
     func toggleSideTabs() {
         setTabBarCollapsed(!areSideTabsCollapsed)
+    }
+
+    func enterCompactMode() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            isFloatingSearchPresented = false
+            isTopSearchBarEnabled = false
+            areSideTabsCollapsed = true
+        }
+    }
+
+    func toggleCompactMode() {
+        if isCompactModeActive {
+            setTabBarCollapsed(false)
+        } else {
+            enterCompactMode()
+        }
     }
 
     func handleTwoFingerSwipe(deltaX: CGFloat, deltaY: CGFloat) {
@@ -1824,6 +1856,8 @@ final class BrowserViewModel: ObservableObject {
             isTabFinderPresented = true
         case .closeAllTabs:
             requestCloseAllTabs()
+        case .compact:
+            toggleCompactMode()
         case .containedTabs:
             showContainedTabs()
         case .downloadCurrent:
