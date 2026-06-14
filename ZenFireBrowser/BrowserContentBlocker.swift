@@ -2,7 +2,7 @@ import Foundation
 import WebKit
 
 enum BrowserContentBlocker {
-    private static let identifier = "ZenFireBrowser.AdBlocker"
+    private static let identifier = "ZenFireBrowser.AdBlocker.v2"
 
     private static let blockedDomains = [
         "doubleclick.net",
@@ -637,6 +637,201 @@ enum BrowserContentBlocker {
         "[class*='anti-ad']"
       ];
 
+      const trackerHostFragments = [
+        "googlesyndication.com",
+        "googletagmanager.com",
+        "google-analytics.com",
+        "analytics.google.com",
+        "doubleclick.net",
+        "googleadservices.com",
+        "an.yandex.ru",
+        "mc.yandex.ru",
+        "static.hotjar.com",
+        "hotjar.com",
+        "sentry-cdn.com",
+        "bugsnag.com",
+        "d2wy8f7a9ursnm.cloudfront.net",
+        "static.cloudflareinsights.com"
+      ];
+      const adblockTesterHost = currentHost === "adblock-tester.com" || currentHost.endsWith(".adblock-tester.com");
+      const adPathPattern = /\\/(ad|ads|adv|advert|advertising|adserver|adservice|banner|banners|pagead|pubads|gampad|sponsor)(\\/|\\.|-|_|\\?|=|&|$)/i;
+
+      const urlFromInput = (input) => {
+        try {
+          if (typeof input === "string") { return input; }
+          if (input instanceof URL) { return input.href; }
+          if (input && typeof input.url === "string") { return input.url; }
+          if (input && typeof input.src === "string") { return input.src; }
+        } catch (_) {}
+        return "";
+      };
+
+      const shouldBlockRequest = (input) => {
+        const raw = urlFromInput(input);
+        if (!raw) { return false; }
+
+        let url;
+        try {
+          url = new URL(raw, location.href);
+        } catch (_) {
+          return adPathPattern.test(raw);
+        }
+
+        const host = url.hostname.replace(/^www\\./, "").toLowerCase();
+        const href = url.href.toLowerCase();
+        const path = `${url.pathname}${url.search}`.toLowerCase();
+
+        if (trackerHostFragments.some((fragment) => host === fragment || host.endsWith("." + fragment) || href.includes(fragment))) {
+          return true;
+        }
+
+        if (host === "ymatuhin.ru" && path.includes("/ads/")) {
+          return true;
+        }
+
+        if (adblockTesterHost && /\\/banners\\/.*(ad|ads|advert|advertising|banner)/i.test(path)) {
+          return true;
+        }
+
+        return adPathPattern.test(path);
+      };
+
+      const dispatchBlockedScriptError = (script) => {
+        setTimeout(() => {
+          try {
+            script.dispatchEvent(new Event("error"));
+          } catch (_) {}
+        }, 0);
+      };
+
+      const blockScriptElement = (element) => {
+        if (!element || String(element.tagName || "").toLowerCase() !== "script") { return false; }
+        if (element.getAttribute("data-glide-blocked") === "true") {
+          dispatchBlockedScriptError(element);
+          return true;
+        }
+        const src = element.src || element.getAttribute("src") || "";
+        if (!shouldBlockRequest(src)) { return false; }
+        element.type = "javascript/blocked";
+        element.setAttribute("data-glide-blocked", "true");
+        element.removeAttribute("src");
+        dispatchBlockedScriptError(element);
+        return true;
+      };
+
+      try {
+        const nativeFetch = window.fetch?.bind(window);
+        if (nativeFetch) {
+          window.fetch = (input, init) => {
+            if (shouldBlockRequest(input)) {
+              return Promise.reject(new TypeError("Blocked by Glide Shields"));
+            }
+            return nativeFetch(input, init);
+          };
+        }
+      } catch (_) {}
+
+      try {
+        const nativeOpen = XMLHttpRequest.prototype.open;
+        const nativeSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function(method, url) {
+          this.__glideBlockedRequest = shouldBlockRequest(url);
+          if (this.__glideBlockedRequest) { return; }
+          return nativeOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function() {
+          if (this.__glideBlockedRequest) {
+            setTimeout(() => {
+              try {
+                this.dispatchEvent(new ProgressEvent("error"));
+              } catch (_) {}
+            }, 0);
+            return;
+          }
+          return nativeSend.apply(this, arguments);
+        };
+      } catch (_) {}
+
+      try {
+        const nativeAppendChild = Node.prototype.appendChild;
+        Node.prototype.appendChild = function(child) {
+          if (blockScriptElement(child)) { return child; }
+          return nativeAppendChild.call(this, child);
+        };
+
+        const nativeInsertBefore = Node.prototype.insertBefore;
+        Node.prototype.insertBefore = function(child, reference) {
+          if (blockScriptElement(child)) { return child; }
+          return nativeInsertBefore.call(this, child, reference);
+        };
+
+        const nativeReplaceChild = Node.prototype.replaceChild;
+        Node.prototype.replaceChild = function(child, oldChild) {
+          if (blockScriptElement(child)) { return oldChild; }
+          return nativeReplaceChild.call(this, child, oldChild);
+        };
+      } catch (_) {}
+
+      try {
+        const nativeSetAttribute = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function(name, value) {
+          if (String(this.tagName || "").toLowerCase() === "script" &&
+              String(name || "").toLowerCase() === "src" &&
+              shouldBlockRequest(String(value || ""))) {
+            nativeSetAttribute.call(this, "data-glide-blocked", "true");
+            dispatchBlockedScriptError(this);
+            return;
+          }
+          return nativeSetAttribute.call(this, name, value);
+        };
+      } catch (_) {}
+
+      try {
+        const scriptSrcDescriptor = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, "src");
+        if (scriptSrcDescriptor?.set && scriptSrcDescriptor?.get) {
+          Object.defineProperty(HTMLScriptElement.prototype, "src", {
+            configurable: true,
+            get() {
+              return scriptSrcDescriptor.get.call(this);
+            },
+            set(value) {
+              if (shouldBlockRequest(String(value || ""))) {
+                this.setAttribute("data-glide-blocked", "true");
+                dispatchBlockedScriptError(this);
+                return;
+              }
+              return scriptSrcDescriptor.set.call(this, value);
+            }
+          });
+        }
+      } catch (_) {}
+
+      try {
+        [
+          "Sentry",
+          "bugsnag",
+          "google_tag_manager",
+          "google_tag_data",
+          "hjSiteSettings",
+          "hjBootstrap",
+          "hjLazyModules",
+          "Ya",
+          "ya",
+          "yaads"
+        ].forEach((name) => {
+          Object.defineProperty(window, name, {
+            configurable: true,
+            get() { return undefined; },
+            set() {}
+          });
+        });
+        Object.defineProperty(window, "dataLayer", {
+          configurable: true,
+          get() { return []; },
+          set() {}
+        });
+      } catch (_) {}
+
       const style = document.createElement("style");
       style.id = "glide-aggressive-ad-blocker";
       style.textContent = `${selectorList.concat(extraSelectors).join(", ")} {
@@ -811,7 +1006,6 @@ enum BrowserContentBlocker {
             [
                 "trigger": [
                     "url-filter": pattern,
-                    "resource-type": targetedBlockedResourceTypes,
                     "unless-domain": compatibilityRuleDomains
                 ],
                 "action": [
