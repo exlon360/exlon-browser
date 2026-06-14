@@ -982,10 +982,20 @@ final class BrowserViewModel: ObservableObject {
         let savedForcedFPS = Self.clampedForcedFPS(
             vault.load(Double.self, forKey: Self.StorageKey.forcedFPS, default: 60)
         )
-        let adBlockerEnabled = vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)
-        let savedTrackerBlockingLevel = BrowserTrackerBlockingLevel(
-            rawValue: vault.load(String.self, forKey: Self.StorageKey.trackerBlockingLevel, default: "")
-        ) ?? .aggressive
+        let savedShieldEngineVersion = vault.load(Int.self, forKey: Self.StorageKey.shieldEngineVersion, default: 0)
+        let shouldUpgradeShields = savedShieldEngineVersion < BrowserContentBlocker.engineVersion
+        if shouldUpgradeShields {
+            vault.save(true, forKey: Self.StorageKey.adBlockerEnabled)
+            vault.save(BrowserTrackerBlockingLevel.aggressive.rawValue, forKey: Self.StorageKey.trackerBlockingLevel)
+            vault.save(BrowserContentBlocker.engineVersion, forKey: Self.StorageKey.shieldEngineVersion)
+            SecureBrowserVault.prepareLaunchPrivacy()
+        }
+        let adBlockerEnabled = shouldUpgradeShields ? true : vault.load(Bool.self, forKey: Self.StorageKey.adBlockerEnabled, default: true)
+        let savedTrackerBlockingLevel: BrowserTrackerBlockingLevel = shouldUpgradeShields ? .aggressive : (
+            BrowserTrackerBlockingLevel(
+                rawValue: vault.load(String.self, forKey: Self.StorageKey.trackerBlockingLevel, default: "")
+            ) ?? .aggressive
+        )
         let scriptBlockingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.scriptBlockingEnabled, default: false)
         let httpsUpgradeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.httpsUpgradeEnabled, default: true)
         let fingerprintProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.fingerprintProtectionEnabled, default: true)
@@ -2607,6 +2617,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
         vault.save(importedBrowserMusicFilename, forKey: Self.StorageKey.importedBrowserMusicFilename)
         vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
+        vault.save(BrowserContentBlocker.engineVersion, forKey: Self.StorageKey.shieldEngineVersion)
         vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
         vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
         persistOpenTabs()
@@ -2802,6 +2813,7 @@ final class BrowserViewModel: ObservableObject {
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
         static let adBlockerEnabled = "ZenFireBrowser.adBlockerEnabled"
         static let trackerBlockingLevel = "ZenFireBrowser.trackerBlockingLevel"
+        static let shieldEngineVersion = "ZenFireBrowser.shieldEngineVersion"
         static let scriptBlockingEnabled = "ZenFireBrowser.scriptBlockingEnabled"
         static let httpsUpgradeEnabled = "ZenFireBrowser.httpsUpgradeEnabled"
         static let fingerprintProtectionEnabled = "ZenFireBrowser.fingerprintProtectionEnabled"

@@ -2,7 +2,10 @@ import Foundation
 import WebKit
 
 enum BrowserContentBlocker {
-    private static let identifier = "ZenFireBrowser.AdBlocker.v3"
+    static let engineVersion = 4
+
+    private static let identifier = "ZenFireBrowser.AdBlocker.v4"
+    private static let fallbackIdentifier = "ZenFireBrowser.AdBlocker.v4.fallback"
 
     private static let blockedDomains = [
         "doubleclick.net",
@@ -529,6 +532,25 @@ enum BrowserContentBlocker {
         "^https?://stats\\.g\\.doubleclick\\.net/.*",
         "^https?://bat\\.bing\\.com/.*",
         "^https?://([^/]+\\.)?clarity\\.ms/.*"
+    ]
+
+    private static let fallbackBlockedURLPatterns = [
+        "googlesyndication\\.com/pagead/js/adsbygoogle\\.js.*",
+        "pagead2\\.googlesyndication\\.com/.*",
+        "googletagmanager\\.com/gtag/js.*",
+        "google-analytics\\.com/.*",
+        "analytics\\.google\\.com/.*",
+        "doubleclick\\.net/.*",
+        "googleadservices\\.com/.*",
+        "adblock-tester\\.com/banners/.*",
+        "/banners/pr_advertising_ads_banner\\.(swf|gif|png).*",
+        "an\\.yandex\\.ru/system/context\\.js.*",
+        "mc\\.yandex\\.ru/metrika/tag\\.js.*",
+        "static\\.hotjar\\.com/c/hotjar-.*",
+        "sentry-cdn\\.com/.*",
+        "d2wy8f7a9ursnm\\.cloudfront\\.net/v4/bugsnag.*",
+        "ymatuhin\\.ru/ads/ads\\.js.*",
+        "static\\.cloudflareinsights\\.com/.*"
     ]
 
     private static let broadBlockedResourceTypes = [
@@ -1142,6 +1164,26 @@ enum BrowserContentBlocker {
         return encodedRules
     }
 
+    private static func fallbackRules() -> String {
+        let nativeRules: [[String: Any]] = fallbackBlockedURLPatterns.map { pattern in
+            [
+                "trigger": [
+                    "url-filter": pattern
+                ],
+                "action": [
+                    "type": "block"
+                ]
+            ]
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: nativeRules, options: []),
+              let encodedRules = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+
+        return encodedRules
+    }
+
     static func setEnabled(
         _ enabled: Bool,
         level: BrowserTrackerBlockingLevel = .aggressive,
@@ -1178,8 +1220,21 @@ enum BrowserContentBlocker {
             DispatchQueue.main.async {
                 if let ruleList = ruleList {
                     userContentController.add(ruleList)
+                    completion?(nil)
+                    return
                 }
-                completion?(error)
+
+                WKContentRuleListStore.default().compileContentRuleList(
+                    forIdentifier: fallbackIdentifier,
+                    encodedContentRuleList: fallbackRules()
+                ) { fallbackRuleList, fallbackError in
+                    DispatchQueue.main.async {
+                        if let fallbackRuleList = fallbackRuleList {
+                            userContentController.add(fallbackRuleList)
+                        }
+                        completion?(fallbackError ?? error)
+                    }
+                }
             }
         }
     }
