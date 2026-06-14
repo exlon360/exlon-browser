@@ -1895,11 +1895,14 @@ private struct BrowserPageControls: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            AITabButton()
-            if model.isInMoreMenu(.compact) == false {
-                CompactChromeButton()
+            PageControlsCollapseButton()
+            if model.arePageControlsCollapsed == false {
+                AITabButton()
+                if model.isInMoreMenu(.compact) == false {
+                    CompactChromeButton()
+                }
+                MoreTabButton()
             }
-            MoreTabButton()
         }
         .padding(6)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -1908,6 +1911,29 @@ private struct BrowserPageControls: View {
                 .stroke(theme.color(.border).opacity(0.42), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.24), radius: 14, y: 7)
+    }
+}
+
+private struct PageControlsCollapseButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Button {
+            model.togglePageControlsCollapsed()
+        } label: {
+            Image(systemName: model.arePageControlsCollapsed ? "chevron.left" : "chevron.right")
+                .font(.system(size: 15, weight: .black))
+                .frame(width: 34, height: 38)
+                .foregroundStyle(theme.color(.text))
+                .background(ControlGlassBackground(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.58), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.arePageControlsCollapsed ? "Show page controls" : "Hide page controls")
     }
 }
 

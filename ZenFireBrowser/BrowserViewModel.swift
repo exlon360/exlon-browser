@@ -917,6 +917,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         }
     }
+    @Published var arePageControlsCollapsed: Bool {
+        didSet {
+            vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
+        }
+    }
     @Published var searchEngine: BrowserSearchEngine {
         didSet {
             vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
@@ -1036,6 +1041,7 @@ final class BrowserViewModel: ObservableObject {
 
         self.chromePlacement = placement
         self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
+        self.arePageControlsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.pageControlsCollapsed, default: false)
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.moreMenuActionIDs = savedMoreMenuActionIDs
@@ -1491,11 +1497,25 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
+    func revealCompactMode() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            isFloatingSearchPresented = false
+            isTopSearchBarEnabled = true
+            areSideTabsCollapsed = false
+        }
+    }
+
     func toggleCompactMode() {
         if isCompactModeActive {
-            setTabBarCollapsed(false)
+            revealCompactMode()
         } else {
             enterCompactMode()
+        }
+    }
+
+    func togglePageControlsCollapsed() {
+        withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
+            arePageControlsCollapsed.toggle()
         }
     }
 
@@ -2165,6 +2185,7 @@ final class BrowserViewModel: ObservableObject {
         topSearchBarDraftX = topSearchBarPositionX
         topSearchBarDraftY = topSearchBarPositionY
         isTopSearchBarMoveMode = false
+        arePageControlsCollapsed = false
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         newTabOpensSearch = true
@@ -2551,6 +2572,7 @@ final class BrowserViewModel: ObservableObject {
     private func migrateLoadedStateToEncryptedVault() {
         vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
+        vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
         vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
         vault.save(topSearchBarPlacement.rawValue, forKey: Self.StorageKey.topSearchBarPlacement)
         vault.save(topSearchBarPositionX, forKey: Self.StorageKey.topSearchBarPositionX)
@@ -2763,6 +2785,7 @@ final class BrowserViewModel: ObservableObject {
         static let darkReaderEnabled = "ZenFireBrowser.darkReaderEnabled"
         static let chromePlacement = "ZenFireBrowser.chromePlacement"
         static let sideTabsCollapsed = "ZenFireBrowser.sideTabsCollapsed"
+        static let pageControlsCollapsed = "ZenFireBrowser.pageControlsCollapsed"
         static let topSearchBarEnabled = "ZenFireBrowser.topSearchBarEnabled"
         static let topSearchBarPlacement = "ZenFireBrowser.topSearchBarPlacement"
         static let topSearchBarPositionX = "ZenFireBrowser.topSearchBarPositionX"

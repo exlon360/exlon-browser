@@ -2,7 +2,7 @@ import Foundation
 import WebKit
 
 enum BrowserContentBlocker {
-    private static let identifier = "ZenFireBrowser.AdBlocker.v2"
+    private static let identifier = "ZenFireBrowser.AdBlocker.v3"
 
     private static let blockedDomains = [
         "doubleclick.net",
@@ -495,6 +495,11 @@ enum BrowserContentBlocker {
         ".*(doubleclick|googlesyndication|googleadservices|google-analytics|googletagmanager|googletagservices|adnxs|adsrvr|rubicon|pubmatic|openx|criteo|taboola|outbrain|revcontent|mgid|prebid|amazon-adsystem|facebook\\.com/tr|bat\\.bing|clarity\\.ms).*"
     ]
 
+    private static let aggressiveFirstPartyBlockedURLPatterns = [
+        ".*(/|%2F)(ad|ads|adv|advert|advertising|adserver|adservice|banner|banners|gampad|pagead|pubads|sponsor|sponsored)(/|\\.|-|_|\\?|=|&|%2F).*",
+        ".*[?&](ad|ads|adid|ad_id|adunit|ad_unit|adslot|ad_slot|adzone|ad_zone|adserver|ad_server|adtype|ad_type|adsize|ad_size|adpos|ad_pos|iu|sz|cust_params|correlator|output)=.*"
+    ]
+
     private static let targetedBlockedURLPatterns = [
         "^https?://([^/]+\\.)?facebook\\.com/tr.*",
         "^https?://([^/]+\\.)?youtube\\.com/(pagead|api/stats/ads).*",
@@ -508,6 +513,18 @@ enum BrowserContentBlocker {
         "^https?://js\\.sentry-cdn\\.com/.*",
         "^https?://d2wy8f7a9ursnm\\.cloudfront\\.net/.*",
         "^https?://static\\.cloudflareinsights\\.com/.*",
+        "googlesyndication\\.com/pagead/js/adsbygoogle\\.js.*",
+        "googletagmanager\\.com/gtag/js.*",
+        "google-analytics\\.com/(analytics|ga|gtag|collect).*",
+        "adblock-tester\\.com/banners/.*(ad|ads|advert|advertising|banner).*",
+        "/banners/pr_advertising_ads_banner\\.(swf|gif|png).*",
+        "an\\.yandex\\.ru/system/context\\.js.*",
+        "mc\\.yandex\\.ru/metrika/tag\\.js.*",
+        "static\\.hotjar\\.com/c/hotjar-.*",
+        "sentry-cdn\\.com/.*",
+        "d2wy8f7a9ursnm\\.cloudfront\\.net/v4/bugsnag.*",
+        "ymatuhin\\.ru/ads/ads\\.js.*",
+        "static\\.cloudflareinsights\\.com/.*",
         "^https?://analytics\\.google\\.com/g/collect.*",
         "^https?://stats\\.g\\.doubleclick\\.net/.*",
         "^https?://bat\\.bing\\.com/.*",
@@ -720,7 +737,7 @@ enum BrowserContentBlocker {
       };
 
       try {
-        const nativeFetch = window.fetch?.bind(window);
+        const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
         if (nativeFetch) {
           window.fetch = (input, init) => {
             if (shouldBlockRequest(input)) {
@@ -775,11 +792,31 @@ enum BrowserContentBlocker {
       try {
         const nativeSetAttribute = Element.prototype.setAttribute;
         Element.prototype.setAttribute = function(name, value) {
-          if (String(this.tagName || "").toLowerCase() === "script" &&
-              String(name || "").toLowerCase() === "src" &&
-              shouldBlockRequest(String(value || ""))) {
+          const tagName = String(this.tagName || "").toLowerCase();
+          const attributeName = String(name || "").toLowerCase();
+          const blocksURLAttribute = attributeName === "src" || attributeName === "data";
+          const canCarryBlockedResource = tagName === "script" ||
+            tagName === "img" ||
+            tagName === "iframe" ||
+            tagName === "object" ||
+            tagName === "embed" ||
+            tagName === "source";
+
+          if (canCarryBlockedResource && blocksURLAttribute && shouldBlockRequest(String(value || ""))) {
             nativeSetAttribute.call(this, "data-glide-blocked", "true");
-            dispatchBlockedScriptError(this);
+            if (tagName === "script") {
+              dispatchBlockedScriptError(this);
+            } else {
+              try {
+                this.style.setProperty("display", "none", "important");
+                this.style.setProperty("visibility", "hidden", "important");
+              } catch (_) {}
+              setTimeout(() => {
+                try {
+                  this.dispatchEvent(new Event("error"));
+                } catch (_) {}
+              }, 0);
+            }
             return;
           }
           return nativeSetAttribute.call(this, name, value);
@@ -788,7 +825,7 @@ enum BrowserContentBlocker {
 
       try {
         const scriptSrcDescriptor = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, "src");
-        if (scriptSrcDescriptor?.set && scriptSrcDescriptor?.get) {
+        if (scriptSrcDescriptor && scriptSrcDescriptor.set && scriptSrcDescriptor.get) {
           Object.defineProperty(HTMLScriptElement.prototype, "src", {
             configurable: true,
             get() {
@@ -803,6 +840,57 @@ enum BrowserContentBlocker {
               return scriptSrcDescriptor.set.call(this, value);
             }
           });
+        }
+      } catch (_) {}
+
+      try {
+        const hideBlockedElement = (element) => {
+          try {
+            element.setAttribute("data-glide-blocked", "true");
+            element.style.setProperty("display", "none", "important");
+            element.style.setProperty("visibility", "hidden", "important");
+            element.removeAttribute("src");
+            element.removeAttribute("data");
+          } catch (_) {}
+        };
+
+        const protectURLProperty = (prototype, propertyName) => {
+          const descriptor = Object.getOwnPropertyDescriptor(prototype, propertyName);
+          if (!descriptor || !descriptor.set || !descriptor.get) { return; }
+          Object.defineProperty(prototype, propertyName, {
+            configurable: true,
+            get() {
+              return descriptor.get.call(this);
+            },
+            set(value) {
+              if (shouldBlockRequest(String(value || ""))) {
+                hideBlockedElement(this);
+                setTimeout(() => {
+                  try {
+                    this.dispatchEvent(new Event("error"));
+                  } catch (_) {}
+                }, 0);
+                return;
+              }
+              return descriptor.set.call(this, value);
+            }
+          });
+        };
+
+        if (window.HTMLImageElement) {
+          protectURLProperty(HTMLImageElement.prototype, "src");
+        }
+        if (window.HTMLIFrameElement) {
+          protectURLProperty(HTMLIFrameElement.prototype, "src");
+        }
+        if (window.HTMLEmbedElement) {
+          protectURLProperty(HTMLEmbedElement.prototype, "src");
+        }
+        if (window.HTMLObjectElement) {
+          protectURLProperty(HTMLObjectElement.prototype, "data");
+        }
+        if (window.HTMLSourceElement) {
+          protectURLProperty(HTMLSourceElement.prototype, "src");
         }
       } catch (_) {}
 
@@ -843,7 +931,10 @@ enum BrowserContentBlocker {
 
       const appendStyle = () => {
         if (!document.getElementById(style.id)) {
-          (document.documentElement || document.head || document.body)?.appendChild(style);
+          const styleParent = document.documentElement || document.head || document.body;
+          if (styleParent) {
+            styleParent.appendChild(style);
+          }
         }
       };
 
@@ -880,7 +971,7 @@ enum BrowserContentBlocker {
       } catch (_) {}
 
       const isVisible = (element) => {
-        const rect = element.getBoundingClientRect?.();
+        const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
         return !rect || rect.width > 0 || rect.height > 0;
       };
 
@@ -890,7 +981,7 @@ enum BrowserContentBlocker {
         if (!textPattern.test(text)) { return false; }
         const style = window.getComputedStyle(element);
         const classAndId = `${element.id || ""} ${element.className || ""}`.toLowerCase();
-        const rect = element.getBoundingClientRect?.();
+        const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
         const coversPage = rect && rect.width > window.innerWidth * 0.35 && rect.height > window.innerHeight * 0.18;
         return isVisible(element) && (
           style.position === "fixed" ||
@@ -1028,6 +1119,19 @@ enum BrowserContentBlocker {
                     ]
                 ]
             })
+
+            nativeRules.append(contentsOf: aggressiveFirstPartyBlockedURLPatterns.map { pattern in
+                [
+                    "trigger": [
+                        "url-filter": pattern,
+                        "resource-type": broadBlockedResourceTypes,
+                        "unless-domain": compatibilityRuleDomains
+                    ],
+                    "action": [
+                        "type": "block"
+                    ]
+                ]
+            })
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: nativeRules, options: []),
@@ -1047,22 +1151,24 @@ enum BrowserContentBlocker {
     ) {
         userContentController.removeAllContentRuleLists()
         userContentController.removeAllUserScripts()
-        for script in additionalUserScripts {
-            userContentController.addUserScript(script)
-        }
 
         guard enabled else {
+            for script in additionalUserScripts {
+                userContentController.addUserScript(script)
+            }
             completion?(nil)
             return
         }
 
-        if level == .aggressive {
-            let blockerScript = WKUserScript(
-                source: antiAdBlockScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
-            userContentController.addUserScript(blockerScript)
+        let blockerScript = WKUserScript(
+            source: antiAdBlockScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+        userContentController.addUserScript(blockerScript)
+
+        for script in additionalUserScripts {
+            userContentController.addUserScript(script)
         }
 
         WKContentRuleListStore.default().compileContentRuleList(
