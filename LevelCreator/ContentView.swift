@@ -4,7 +4,8 @@ import SwiftUI
 struct ContentView: View {
     @State private var level = EditableLevel.starter()
     @State private var selectedTool: CreatorTool = .block
-    @State private var camera = LevelGridPoint(x: 0, y: 3)
+    @State private var camera = CGPoint(x: 0, y: 3)
+    @State private var zoom: CGFloat = 1.0
     @State private var isPlaying = false
     @State private var playState = LevelPlayState(level: EditableLevel.starter())
     @State private var isPressingLeft = false
@@ -32,6 +33,7 @@ struct ContentView: View {
                     level: level,
                     selectedTool: selectedTool,
                     camera: camera,
+                    zoom: zoom,
                     isPlaying: isPlaying,
                     playState: playState,
                     applyAction: applyTool,
@@ -53,6 +55,9 @@ struct ContentView: View {
                     EditorControls(
                         selectedTool: $selectedTool,
                         camera: camera,
+                        zoom: zoom,
+                        zoomInAction: zoomIn,
+                        zoomOutAction: zoomOut,
                         removeAllAction: removeAll
                     )
                 }
@@ -158,18 +163,29 @@ struct ContentView: View {
         let safeStart = level.clamped(start)
         var safeEnd = level.clamped(end)
         if safeEnd == safeStart {
-            safeEnd = level.clamped(LevelGridPoint(x: safeStart.x + 1, y: safeStart.y))
+            safeEnd = defaultMovingEnd(from: safeStart)
         }
 
         level.tiles[safeStart] = nil
+        level.tiles[safeEnd] = nil
         level.enemies.remove(safeStart)
         level.enemies.remove(safeEnd)
 
-        if let index = level.movingPlatforms.firstIndex(where: { $0.start == safeStart }) {
+        if let index = level.movingPlatforms.firstIndex(where: { $0.start == safeStart || $0.end == safeStart }) {
+            let baseStart = level.movingPlatforms[index].start
+            if safeEnd == baseStart {
+                safeEnd = defaultMovingEnd(from: baseStart)
+            }
+            level.tiles[baseStart] = nil
             level.movingPlatforms[index].end = safeEnd
         } else {
             level.movingPlatforms.append(LevelMovingPlatform(start: safeStart, end: safeEnd))
         }
+    }
+
+    private func defaultMovingEnd(from start: LevelGridPoint) -> LevelGridPoint {
+        let xOffset = start.x < level.width - 1 ? 1 : -1
+        return level.clamped(LevelGridPoint(x: start.x + xOffset, y: start.y))
     }
 
     private func togglePlay() {
@@ -185,36 +201,81 @@ struct ContentView: View {
         playState = LevelPlayState(level: level)
         isPlaying = true
         lastTickDate = nil
-        centerCamera(on: CGPoint(x: playState.playerX, y: playState.playerY))
+        snapCamera(on: CGPoint(x: playState.playerX, y: playState.playerY))
     }
 
     private func removeAll() {
         level = EditableLevel.empty()
         selectedTool = .block
-        camera = clampedCamera(x: 0, y: 3)
+        zoom = 1.0
+        camera = clampedCamera(x: 0, y: 3, atZoom: 1.0)
         playState = LevelPlayState(level: level)
         isPlaying = false
     }
 
-    private func moveCamera(dx: Int, dy: Int) {
+    private func moveCameraByDrag(dx: CGFloat, dy: CGFloat) {
+        guard abs(dx) > 0.001 || abs(dy) > 0.001 else { return }
         camera = clampedCamera(x: camera.x + dx, y: camera.y + dy)
     }
 
-    private func moveCameraByDrag(dx: Int, dy: Int) {
-        guard dx != 0 || dy != 0 else { return }
-        moveCamera(dx: dx, dy: dy)
+    private func zoomIn() {
+        setZoom(zoom * 1.16)
+    }
+
+    private func zoomOut() {
+        setZoom(zoom / 1.16)
+    }
+
+    private func setZoom(_ nextZoom: CGFloat) {
+        let currentVisible = visibleWorldSize(atZoom: zoom)
+        let center = CGPoint(
+            x: camera.x + currentVisible.width / 2,
+            y: camera.y + currentVisible.height / 2
+        )
+        let clampedZoom = min(max(nextZoom, GameConstants.minZoom), GameConstants.maxZoom)
+        let nextVisible = visibleWorldSize(atZoom: clampedZoom)
+        zoom = clampedZoom
+        camera = clampedCamera(
+            x: center.x - nextVisible.width / 2,
+            y: center.y - nextVisible.height / 2,
+            atZoom: clampedZoom
+        )
+    }
+
+    private func snapCamera(on point: CGPoint) {
+        let visible = visibleWorldSize(atZoom: zoom)
+        camera = clampedCamera(
+            x: point.x - visible.width / 2,
+            y: point.y - visible.height / 2
+        )
     }
 
     private func centerCamera(on point: CGPoint) {
-        let targetX = Int(point.x.rounded(.down)) - GameConstants.viewportColumns / 2
-        let targetY = Int(point.y.rounded(.down)) - GameConstants.viewportRows / 2
-        camera = clampedCamera(x: targetX, y: targetY)
+        let visible = visibleWorldSize(atZoom: zoom)
+        let target = clampedCamera(
+            x: point.x - visible.width / 2,
+            y: point.y - visible.height / 2
+        )
+        let follow: CGFloat = 0.18
+        camera = clampedCamera(
+            x: camera.x + (target.x - camera.x) * follow,
+            y: camera.y + (target.y - camera.y) * follow
+        )
     }
 
-    private func clampedCamera(x: Int, y: Int) -> LevelGridPoint {
-        let maxX = max(0, level.width - GameConstants.viewportColumns)
-        let maxY = max(0, level.height - GameConstants.viewportRows)
-        return LevelGridPoint(
+    private func visibleWorldSize(atZoom cameraZoom: CGFloat) -> CGSize {
+        CGSize(
+            width: CGFloat(GameConstants.viewportColumns) / cameraZoom,
+            height: CGFloat(GameConstants.viewportRows) / cameraZoom
+        )
+    }
+
+    private func clampedCamera(x: CGFloat, y: CGFloat, atZoom cameraZoom: CGFloat? = nil) -> CGPoint {
+        let activeZoom = cameraZoom ?? zoom
+        let visible = visibleWorldSize(atZoom: activeZoom)
+        let maxX = max(0, CGFloat(level.width) - visible.width)
+        let maxY = max(0, CGFloat(level.height) - visible.height)
+        return CGPoint(
             x: min(max(x, 0), maxX),
             y: min(max(y, 0), maxY)
         )
@@ -449,19 +510,30 @@ private struct StatusStrip: View {
     let playState: LevelPlayState
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Badge(symbol: isPlaying ? "gamecontroller.fill" : selectedTool.symbolName, text: isPlaying ? "Playtest" : selectedTool.title, tint: isPlaying ? Color.sky : selectedTool.tint)
-                Badge(symbol: "flag.fill", text: "Start \(level.start.x),\(level.start.y)", tint: Color.mintPop)
-                Badge(symbol: "scope", text: "End \(level.end.x),\(level.end.y)", tint: Color.gold)
-                Badge(symbol: "arrow.left.and.right", text: "\(level.movingPlatforms.count) moving", tint: Color.purplePop)
+        HStack(spacing: 8) {
+            Badge(
+                symbol: isPlaying ? "gamecontroller.fill" : selectedTool.symbolName,
+                text: isPlaying ? playState.statusText : selectedTool.title,
+                tint: isPlaying ? Color.sky : selectedTool.tint
+            )
+            .layoutPriority(1)
 
-                if isPlaying {
-                    Badge(symbol: "heart.fill", text: "\(playState.health)", tint: Color.redPop)
-                    Badge(symbol: "bolt.fill", text: "\(playState.enemies.count) foes", tint: Color.violetSoft)
-                }
+            Spacer(minLength: 4)
+
+            if isPlaying {
+                Badge(symbol: "heart.fill", text: "\(playState.health)", tint: Color.redPop)
+                Badge(symbol: "bolt.fill", text: "\(playState.enemies.count)", tint: Color.violetSoft)
+            } else {
+                Badge(symbol: "square.grid.3x3.fill", text: "\(level.tiles.count)", tint: Color.sky)
+                Badge(symbol: "arrow.left.and.right", text: "\(level.movingPlatforms.count)", tint: Color.purplePop)
             }
-            .padding(.horizontal, 1)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 34)
+        .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.09), lineWidth: 1)
         }
     }
 }
@@ -480,6 +552,8 @@ private struct Badge: View {
             Text(text)
                 .font(.caption.weight(.black))
                 .foregroundStyle(.white.opacity(0.82))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
         .padding(.horizontal, 9)
         .frame(height: 28)
@@ -493,20 +567,21 @@ private struct Badge: View {
 
 private struct LevelCanvasView: View {
     @State private var lastPaintedPoint: LevelGridPoint?
-    @State private var lastCameraDrag = LevelGridPoint(x: 0, y: 0)
+    @State private var lastCameraTranslation = CGSize.zero
 
     let level: EditableLevel
     let selectedTool: CreatorTool
-    let camera: LevelGridPoint
+    let camera: CGPoint
+    let zoom: CGFloat
     let isPlaying: Bool
     let playState: LevelPlayState
     let applyAction: (LevelGridPoint) -> Void
     let movingDragAction: (LevelGridPoint, LevelGridPoint) -> Void
-    let cameraDragAction: (Int, Int) -> Void
+    let cameraDragAction: (CGFloat, CGFloat) -> Void
 
     var body: some View {
         GeometryReader { proxy in
-            let metrics = ViewportMetrics(availableSize: proxy.size)
+            let metrics = ViewportMetrics(availableSize: proxy.size, zoom: zoom)
 
             ZStack {
                 board(metrics: metrics)
@@ -528,9 +603,9 @@ private struct LevelCanvasView: View {
                     )
                 )
 
-            ForEach(0..<GameConstants.viewportRows, id: \.self) { row in
-                ForEach(0..<GameConstants.viewportColumns, id: \.self) { column in
-                    let point = LevelGridPoint(x: camera.x + column, y: camera.y + row)
+            ForEach(visibleRows(), id: \.self) { row in
+                ForEach(visibleColumns(), id: \.self) { column in
+                    let point = LevelGridPoint(x: column, y: row)
                     TileCell(
                         point: point,
                         tile: level.tiles[point],
@@ -541,8 +616,8 @@ private struct LevelCanvasView: View {
                     )
                     .frame(width: metrics.cellSize, height: metrics.cellSize)
                     .position(
-                        x: CGFloat(column) * metrics.cellSize + metrics.cellSize / 2,
-                        y: CGFloat(row) * metrics.cellSize + metrics.cellSize / 2
+                        x: pointCenter(point, metrics: metrics).x,
+                        y: pointCenter(point, metrics: metrics).y
                     )
                 }
             }
@@ -557,10 +632,10 @@ private struct LevelCanvasView: View {
                 ForEach(playState.platforms) { platform in
                     if isVisible(x: platform.x, y: platform.y) {
                         MovingPlatformView()
-                            .frame(width: metrics.cellSize * 0.96, height: metrics.cellSize * 0.42)
+                            .frame(width: metrics.cellSize * GameConstants.platformWidth, height: metrics.cellSize * GameConstants.platformHeight)
                             .position(
-                                x: (platform.x - CGFloat(camera.x)) * metrics.cellSize,
-                                y: (platform.y - CGFloat(camera.y)) * metrics.cellSize
+                                x: (platform.x - camera.x) * metrics.cellSize,
+                                y: (platform.y - camera.y) * metrics.cellSize
                             )
                             .animation(.linear(duration: 1.0 / 60.0), value: platform.x)
                             .animation(.linear(duration: 1.0 / 60.0), value: platform.y)
@@ -572,8 +647,8 @@ private struct LevelCanvasView: View {
                         EnemyView(direction: enemy.direction)
                             .frame(width: metrics.cellSize * 0.78, height: metrics.cellSize * 0.78)
                             .position(
-                                x: (enemy.x - CGFloat(camera.x)) * metrics.cellSize,
-                                y: (enemy.y - CGFloat(camera.y)) * metrics.cellSize
+                                x: (enemy.x - camera.x) * metrics.cellSize,
+                                y: (enemy.y - camera.y) * metrics.cellSize
                             )
                             .animation(.linear(duration: 1.0 / 60.0), value: enemy.x)
                             .animation(.linear(duration: 1.0 / 60.0), value: enemy.y)
@@ -588,8 +663,8 @@ private struct LevelCanvasView: View {
                     )
                     .frame(width: metrics.cellSize * 0.78, height: metrics.cellSize * 0.92)
                     .position(
-                        x: (playState.playerX - CGFloat(camera.x)) * metrics.cellSize,
-                        y: (playState.playerY - CGFloat(camera.y)) * metrics.cellSize
+                        x: (playState.playerX - camera.x) * metrics.cellSize,
+                        y: (playState.playerY - camera.y) * metrics.cellSize
                     )
                     .animation(.linear(duration: 1.0 / 60.0), value: playState.playerX)
                     .animation(.linear(duration: 1.0 / 60.0), value: playState.playerY)
@@ -598,7 +673,7 @@ private struct LevelCanvasView: View {
                 ForEach(level.movingPlatforms) { platform in
                     if isVisible(point: platform.start) {
                         MovingPlatformView()
-                            .frame(width: metrics.cellSize * 0.96, height: metrics.cellSize * 0.42)
+                            .frame(width: metrics.cellSize * GameConstants.platformWidth, height: metrics.cellSize * GameConstants.platformHeight)
                             .position(
                                 x: pointCenter(platform.start, metrics: metrics).x,
                                 y: pointCenter(platform.start, metrics: metrics).y
@@ -631,13 +706,11 @@ private struct LevelCanvasView: View {
                     guard isPlaying == false else { return }
 
                     if selectedTool == .move {
-                        let dragX = Int((value.translation.width / max(metrics.cellSize, 1)).rounded())
-                        let dragY = Int((value.translation.height / max(metrics.cellSize, 1)).rounded())
-                        let deltaX = dragX - lastCameraDrag.x
-                        let deltaY = dragY - lastCameraDrag.y
-                        if deltaX != 0 || deltaY != 0 {
-                            cameraDragAction(-deltaX, -deltaY)
-                            lastCameraDrag = LevelGridPoint(x: dragX, y: dragY)
+                        let deltaX = value.translation.width - lastCameraTranslation.width
+                        let deltaY = value.translation.height - lastCameraTranslation.height
+                        if abs(deltaX) > 0.1 || abs(deltaY) > 0.1 {
+                            cameraDragAction(-deltaX / max(metrics.cellSize, 1), -deltaY / max(metrics.cellSize, 1))
+                            lastCameraTranslation = value.translation
                         }
                         return
                     }
@@ -659,7 +732,7 @@ private struct LevelCanvasView: View {
                     guard isPlaying == false else { return }
                     defer {
                         lastPaintedPoint = nil
-                        lastCameraDrag = LevelGridPoint(x: 0, y: 0)
+                        lastCameraTranslation = .zero
                     }
 
                     if selectedTool == .move {
@@ -688,16 +761,39 @@ private struct LevelCanvasView: View {
         )
     }
 
+    private func visibleColumns() -> [Int] {
+        visibleIndices(start: camera.x, span: visibleColumnSpan, count: level.width)
+    }
+
+    private func visibleRows() -> [Int] {
+        visibleIndices(start: camera.y, span: visibleRowSpan, count: level.height)
+    }
+
+    private var visibleColumnSpan: CGFloat {
+        CGFloat(GameConstants.viewportColumns) / zoom
+    }
+
+    private var visibleRowSpan: CGFloat {
+        CGFloat(GameConstants.viewportRows) / zoom
+    }
+
+    private func visibleIndices(start: CGFloat, span: CGFloat, count: Int) -> [Int] {
+        let lower = max(0, Int(start.rounded(.down)) - 1)
+        let upper = min(count - 1, Int((start + span).rounded(.up)) + 1)
+        guard lower <= upper else { return [] }
+        return Array(lower...upper)
+    }
+
     private func point(for location: CGPoint, cellSize: CGFloat) -> LevelGridPoint {
-        let column = min(max(Int((location.x / max(cellSize, 1)).rounded(.down)), 0), GameConstants.viewportColumns - 1)
-        let row = min(max(Int((location.y / max(cellSize, 1)).rounded(.down)), 0), GameConstants.viewportRows - 1)
-        return LevelGridPoint(x: camera.x + column, y: camera.y + row)
+        let x = Int((camera.x + location.x / max(cellSize, 1)).rounded(.down))
+        let y = Int((camera.y + location.y / max(cellSize, 1)).rounded(.down))
+        return level.clamped(LevelGridPoint(x: x, y: y))
     }
 
     private func pointCenter(_ point: LevelGridPoint, metrics: ViewportMetrics) -> CGPoint {
         CGPoint(
-            x: CGFloat(point.x - camera.x) * metrics.cellSize + metrics.cellSize / 2,
-            y: CGFloat(point.y - camera.y) * metrics.cellSize + metrics.cellSize / 2
+            x: (CGFloat(point.x) - camera.x) * metrics.cellSize + metrics.cellSize / 2,
+            y: (CGFloat(point.y) - camera.y) * metrics.cellSize + metrics.cellSize / 2
         )
     }
 
@@ -712,17 +808,17 @@ private struct LevelCanvasView: View {
     }
 
     private func isVisible(point: LevelGridPoint) -> Bool {
-        point.x >= camera.x - 1 &&
-            point.x <= camera.x + GameConstants.viewportColumns &&
-            point.y >= camera.y - 1 &&
-            point.y <= camera.y + GameConstants.viewportRows
+        CGFloat(point.x) >= camera.x - 1 &&
+            CGFloat(point.x) <= camera.x + visibleColumnSpan + 1 &&
+            CGFloat(point.y) >= camera.y - 1 &&
+            CGFloat(point.y) <= camera.y + visibleRowSpan + 1
     }
 
     private func isVisible(x: CGFloat, y: CGFloat) -> Bool {
-        x >= CGFloat(camera.x) - 1 &&
-            x <= CGFloat(camera.x + GameConstants.viewportColumns + 1) &&
-            y >= CGFloat(camera.y) - 1 &&
-            y <= CGFloat(camera.y + GameConstants.viewportRows + 1)
+        x >= camera.x - 1 &&
+            x <= camera.x + visibleColumnSpan + 1 &&
+            y >= camera.y - 1 &&
+            y <= camera.y + visibleRowSpan + 1
     }
 }
 
@@ -883,11 +979,14 @@ private struct MovingPlatformView: View {
 
 private struct EditorControls: View {
     @Binding var selectedTool: CreatorTool
-    let camera: LevelGridPoint
+    let camera: CGPoint
+    let zoom: CGFloat
+    let zoomInAction: () -> Void
+    let zoomOutAction: () -> Void
     let removeAllAction: () -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 9) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(CreatorTool.allCases) { tool in
@@ -911,21 +1010,46 @@ private struct EditorControls: View {
             }
 
             HStack(spacing: 8) {
-                Label("Drag with Move to pan", systemImage: "hand.draw.fill")
+                Label("Move: drag canvas", systemImage: "hand.draw.fill")
                     .font(.caption.weight(.black))
                     .foregroundStyle(.white.opacity(0.72))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
-                Text("Camera \(camera.x),\(camera.y)")
-                    .font(.caption.weight(.black))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .frame(maxWidth: .infinity)
+                Text("\(Int(camera.x.rounded())),\(Int(camera.y.rounded()))")
+                    .font(.caption2.weight(.black).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.48))
+                    .frame(minWidth: 40)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 3) {
+                    Button(action: zoomOutAction) {
+                        Image(systemName: "minus.magnifyingglass")
+                            .font(.system(size: 14, weight: .black))
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+
+                    Text("\(Int((zoom * 100).rounded()))%")
+                        .font(.caption2.weight(.black).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.72))
+                        .frame(width: 42)
+
+                    Button(action: zoomInAction) {
+                        Image(systemName: "plus.magnifyingglass")
+                            .font(.system(size: 14, weight: .black))
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
 
                 Button(action: removeAllAction) {
                     Label("Remove All", systemImage: "trash.fill")
                         .font(.caption.weight(.black))
-                        .frame(height: 36)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(height: 34)
                 }
                 .buttonStyle(SecondaryButtonStyle())
             }
@@ -1021,20 +1145,6 @@ private struct HoldButton: View {
     }
 }
 
-private struct CameraButton: View {
-    let symbol: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .black))
-                .frame(width: 36, height: 36)
-        }
-        .buttonStyle(SecondaryButtonStyle())
-    }
-}
-
 private struct AppBackdrop: View {
     var body: some View {
         ZStack {
@@ -1066,13 +1176,13 @@ private struct ViewportMetrics {
     let boardWidth: CGFloat
     let boardHeight: CGFloat
 
-    init(availableSize: CGSize) {
+    init(availableSize: CGSize, zoom: CGFloat) {
         let horizontalCell = availableSize.width / CGFloat(GameConstants.viewportColumns)
         let verticalCell = availableSize.height / CGFloat(GameConstants.viewportRows)
-        let size = floor(min(horizontalCell, verticalCell))
-        cellSize = max(18, size)
-        boardWidth = cellSize * CGFloat(GameConstants.viewportColumns)
-        boardHeight = cellSize * CGFloat(GameConstants.viewportRows)
+        let baseCellSize = max(18, min(horizontalCell, verticalCell).rounded(.down))
+        cellSize = max(12, baseCellSize * zoom)
+        boardWidth = baseCellSize * CGFloat(GameConstants.viewportColumns)
+        boardHeight = baseCellSize * CGFloat(GameConstants.viewportRows)
     }
 }
 
@@ -1082,13 +1192,15 @@ private enum GameConstants {
     static let playerWidth: CGFloat = 0.64
     static let playerHeight: CGFloat = 0.86
     static let platformWidth: CGFloat = 0.96
-    static let platformHeight: CGFloat = 0.42
+    static let platformHeight: CGFloat = 0.68
     static let playerSpeed: CGFloat = 5.2
     static let boostSpeed: CGFloat = 9.2
-    static let jumpVelocity: CGFloat = 9.2
+    static let jumpVelocity: CGFloat = 13.6
     static let gravity: CGFloat = 23.0
     static let enemySpeed: CGFloat = 1.7
     static let platformSpeed: CGFloat = 2.4
+    static let minZoom: CGFloat = 0.7
+    static let maxZoom: CGFloat = 1.75
 }
 
 private struct EditableLevel {
