@@ -79,10 +79,13 @@ def main() -> int:
         ".github/workflows/glide-emu-ios-ci.yml",
         ".github/workflows/build-ipa.yml",
         ".github/workflows/build-signed-ipa.yml",
+        ".github/workflows/build-level-creator-ipa.yml",
+        ".github/workflows/level-creator-ios-ci.yml",
         ".github/workflows/repository-checks.yml",
         "README.md",
         "scripts/build_unsigned_ipa.sh",
         "scripts/build_glide_emu_unsigned_ipa.sh",
+        "scripts/build_level_creator_unsigned_ipa.sh",
         "scripts/build_signed_ipa.sh",
         "GlideEmu.xcodeproj/project.pbxproj",
         "GlideEmu.xcodeproj/xcshareddata/xcschemes/GlideEmu.xcscheme",
@@ -93,6 +96,11 @@ def main() -> int:
         "GlideEmu/EmuModels.swift",
         "GlideEmu/GlideEmuApp.swift",
         "GlideEmu/Info.plist",
+        "LevelCreator.xcodeproj/project.pbxproj",
+        "LevelCreator.xcodeproj/xcshareddata/xcschemes/LevelCreator.xcscheme",
+        "LevelCreator/ContentView.swift",
+        "LevelCreator/Info.plist",
+        "LevelCreator/LevelCreatorApp.swift",
         "ZenFireBrowser.xcodeproj/project.pbxproj",
         "ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme",
         "ZenFireBrowser/Assets.xcassets/Contents.json",
@@ -119,6 +127,8 @@ def main() -> int:
     parse_xml("ZenFireBrowser.xcodeproj/xcshareddata/xcschemes/ZenFireBrowser.xcscheme")
     parse_xml("GlideEmu/Info.plist")
     parse_xml("GlideEmu.xcodeproj/xcshareddata/xcschemes/GlideEmu.xcscheme")
+    parse_xml("LevelCreator/Info.plist")
+    parse_xml("LevelCreator.xcodeproj/xcshareddata/xcschemes/LevelCreator.xcscheme")
     parse_json("ZenFireBrowser/Assets.xcassets/Contents.json")
     parse_json("ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Contents.json")
     parse_json("GlideEmu/Assets.xcassets/Contents.json")
@@ -881,6 +891,46 @@ def main() -> int:
         "GlideEmu/Info.plist",
         "<key>CFBundleDisplayName</key>\n\t<string>Glide Emu</string>",
         "The separate emulator app display name must be Glide Emu.",
+    )
+    require_contains(
+        "LevelCreator/Info.plist",
+        "<key>CFBundleDisplayName</key>\n\t<string>Level Creator</string>",
+        "The separate level creator app display name must be Level Creator.",
+    )
+    require_contains(
+        "LevelCreator.xcodeproj/project.pbxproj",
+        "LevelCreatorApp.swift in Sources",
+        "The Level Creator Xcode target must compile the SwiftUI app entry point.",
+    )
+    require_contains(
+        "LevelCreator.xcodeproj/project.pbxproj",
+        "ContentView.swift in Sources",
+        "The Level Creator Xcode target must compile the editor/gameplay view.",
+    )
+    require_contains(
+        "LevelCreator/ContentView.swift",
+        "case kill",
+        "Level Creator must include kill blocks.",
+    )
+    require_contains(
+        "LevelCreator/ContentView.swift",
+        "case moving",
+        "Level Creator must include a moving-platform tool.",
+    )
+    require_contains(
+        "LevelCreator/ContentView.swift",
+        "LevelMovingPlatform",
+        "Level Creator must model purple moving platforms.",
+    )
+    require_contains(
+        ".github/workflows/build-level-creator-ipa.yml",
+        "LevelCreator-unsigned.ipa",
+        "The Level Creator IPA workflow must upload a LevelCreator IPA artifact.",
+    )
+    require_contains(
+        "scripts/build_level_creator_unsigned_ipa.sh",
+        "CODE_SIGNING_ALLOWED=NO",
+        "The Level Creator unsigned IPA script must disable code signing.",
     )
     require_contains(
         "GlideEmu/Info.plist",
