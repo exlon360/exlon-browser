@@ -1,11 +1,15 @@
+import AudioToolbox
 import Combine
 import SwiftUI
 
 struct ContentView: View {
+    @State private var levels = EditableLevel.defaultSet()
+    @State private var selectedLevelIndex = 0
     @State private var level = EditableLevel.starter()
     @State private var selectedTool: CreatorTool = .block
     @State private var camera = CGPoint(x: 0, y: 3)
     @State private var zoom: CGFloat = 1.0
+    @State private var jumpPadPower = GameConstants.defaultJumpPadPower
     @State private var isPlaying = false
     @State private var playState = LevelPlayState(level: EditableLevel.starter())
     @State private var isPressingLeft = false
@@ -21,6 +25,14 @@ struct ContentView: View {
 
             VStack(spacing: 10) {
                 header
+
+                LevelControls(
+                    levelIndex: selectedLevelIndex,
+                    levelCount: levels.count,
+                    previousAction: previousLevel,
+                    nextAction: nextLevel,
+                    addAction: addLevel
+                )
 
                 StatusStrip(
                     isPlaying: isPlaying,
@@ -54,6 +66,7 @@ struct ContentView: View {
                 } else {
                     EditorControls(
                         selectedTool: $selectedTool,
+                        jumpPadPower: $jumpPadPower,
                         camera: camera,
                         zoom: zoom,
                         zoomInAction: zoomIn,
@@ -113,6 +126,7 @@ struct ContentView: View {
     private func applyTool(at point: LevelGridPoint) {
         guard level.contains(point) else { return }
 
+        var didEdit = true
         switch selectedTool {
         case .block:
             level.tiles[point] = .block
@@ -126,9 +140,13 @@ struct ContentView: View {
         case .space:
             level.tiles[point] = .space
             removeActors(at: point)
+        case .jumpPad:
+            level.tiles[point] = .jumpPad(power: jumpPadPower)
+            removeActors(at: point)
         case .moving:
             let end = level.clamped(LevelGridPoint(x: point.x + 4, y: point.y))
             updateMovingPlatform(start: point, end: end)
+            return
         case .enemy:
             level.tiles[point] = nil
             level.movingPlatforms.removeAll { $0.touches(point) }
@@ -150,7 +168,13 @@ struct ContentView: View {
             level.enemies.remove(point)
             level.movingPlatforms.removeAll { $0.touches(point) }
         case .move:
+            didEdit = false
             break
+        }
+
+        if didEdit {
+            persistCurrentLevel()
+            playEditorSound(for: selectedTool)
         }
     }
 
@@ -181,11 +205,57 @@ struct ContentView: View {
         } else {
             level.movingPlatforms.append(LevelMovingPlatform(start: safeStart, end: safeEnd))
         }
+
+        persistCurrentLevel()
+        playEditorSound(.platform)
     }
 
     private func defaultMovingEnd(from start: LevelGridPoint) -> LevelGridPoint {
         let xOffset = start.x < level.width - 1 ? 1 : -1
         return level.clamped(LevelGridPoint(x: start.x + xOffset, y: start.y))
+    }
+
+    private func persistCurrentLevel() {
+        guard levels.indices.contains(selectedLevelIndex) else { return }
+        levels[selectedLevelIndex] = level
+    }
+
+    private func previousLevel() {
+        selectLevel(selectedLevelIndex - 1)
+    }
+
+    private func nextLevel() {
+        selectLevel(selectedLevelIndex + 1)
+    }
+
+    private func addLevel() {
+        persistCurrentLevel()
+        let newLevel = EditableLevel.empty()
+        levels.append(newLevel)
+        selectedLevelIndex = levels.count - 1
+        loadLevel(newLevel)
+        playEditorSound(.select)
+    }
+
+    private func selectLevel(_ index: Int) {
+        guard levels.isEmpty == false else { return }
+        let nextIndex = min(max(index, 0), levels.count - 1)
+        guard nextIndex != selectedLevelIndex else { return }
+        persistCurrentLevel()
+        selectedLevelIndex = nextIndex
+        loadLevel(levels[nextIndex])
+        playEditorSound(.select)
+    }
+
+    private func loadLevel(_ nextLevel: EditableLevel) {
+        level = nextLevel
+        playState = LevelPlayState(level: level)
+        isPlaying = false
+        isPressingLeft = false
+        isPressingRight = false
+        queuedJump = false
+        lastTickDate = nil
+        camera = clampedCamera(x: 0, y: 3)
     }
 
     private func togglePlay() {
@@ -198,6 +268,7 @@ struct ContentView: View {
             return
         }
 
+        persistCurrentLevel()
         playState = LevelPlayState(level: level)
         isPlaying = true
         lastTickDate = nil
@@ -211,6 +282,8 @@ struct ContentView: View {
         camera = clampedCamera(x: 0, y: 3, atZoom: 1.0)
         playState = LevelPlayState(level: level)
         isPlaying = false
+        persistCurrentLevel()
+        playEditorSound(.erase)
     }
 
     private func moveCameraByDrag(dx: CGFloat, dy: CGFloat) {
@@ -256,7 +329,10 @@ struct ContentView: View {
             x: point.x - visible.width / 2,
             y: point.y - visible.height / 2
         )
-        let follow: CGFloat = 0.18
+        let distanceX = target.x - camera.x
+        let distanceY = target.y - camera.y
+        let distance = sqrt(distanceX * distanceX + distanceY * distanceY)
+        let follow: CGFloat = distance > 5 ? 0.68 : 0.38
         camera = clampedCamera(
             x: camera.x + (target.x - camera.x) * follow,
             y: camera.y + (target.y - camera.y) * follow
@@ -281,6 +357,23 @@ struct ContentView: View {
         )
     }
 
+    private func playEditorSound(for tool: CreatorTool) {
+        switch tool {
+        case .delete:
+            playEditorSound(.erase)
+        case .jumpPad:
+            playEditorSound(.jumpPad)
+        case .moving:
+            playEditorSound(.platform)
+        default:
+            playEditorSound(.place)
+        }
+    }
+
+    private func playEditorSound(_ sound: EditorSound) {
+        AudioServicesPlaySystemSound(sound.systemSoundID)
+    }
+
     private func stepPlay(deltaTime: CGFloat) {
         guard playState.isComplete == false else { return }
 
@@ -302,13 +395,22 @@ struct ContentView: View {
         var speed = GameConstants.playerSpeed
         let foot = LevelGridPoint(x: Int(state.playerX.rounded(.down)), y: Int((state.playerY + 0.45).rounded(.down)))
         let currentTile = level.tiles[foot]
-        if currentTile == .water || currentTile == .space {
+        let isInWater = touchesTile(kind: .water, state: state)
+        let isInSpace = currentTile == .space || touchesTile(kind: .space, state: state)
+
+        if isInSpace {
             speed = GameConstants.boostSpeed
-            state.velocityX += state.facing * 3.6 * deltaTime
-            if currentTile == .water {
-                state.velocityY -= 2.2 * deltaTime
+            state.velocityX += state.facing * 2.6 * deltaTime
+            state.statusText = "Space boost"
+        }
+
+        if isInWater {
+            speed = max(speed, GameConstants.waterMoveSpeed)
+            if state.velocityY > GameConstants.waterFloatVelocity {
+                state.velocityY -= GameConstants.waterBuoyancy * deltaTime
             }
-            state.statusText = currentTile == .water ? "Water current boost" : "Space block boost"
+            state.velocityY = min(state.velocityY, GameConstants.waterMaxFallSpeed)
+            state.statusText = "Floating"
         }
 
         if movement == 0 {
@@ -320,15 +422,16 @@ struct ContentView: View {
             state.velocityX = movement * speed
         }
 
-        if queuedJump && state.isGrounded {
-            state.velocityY = -GameConstants.jumpVelocity
+        if queuedJump && (state.isGrounded || isInWater) {
+            state.velocityY = isInWater && state.isGrounded == false ? -GameConstants.waterJumpVelocity : -GameConstants.jumpVelocity
             state.isGrounded = false
-            state.statusText = "Jump"
+            state.statusText = isInWater ? "Swim" : "Jump"
         }
         queuedJump = false
 
-        state.velocityY += GameConstants.gravity * deltaTime
+        state.velocityY += (isInWater ? GameConstants.waterGravity : GameConstants.gravity) * deltaTime
         movePlayer(&state, deltaTime: deltaTime)
+        handleJumpPads(&state)
         moveEnemies(&state, deltaTime: deltaTime)
         handleHazards(&state)
         handleEnemyContact(&state)
@@ -417,6 +520,14 @@ struct ContentView: View {
         }
     }
 
+    private func handleJumpPads(_ state: inout LevelPlayState) {
+        guard state.velocityY >= -1.0, let power = touchedJumpPadPower(state: state) else { return }
+        state.velocityY = -power
+        state.isGrounded = false
+        state.statusText = "Jump pad"
+        AudioServicesPlaySystemSound(EditorSound.jumpPad.systemSoundID)
+    }
+
     private func handleEnemyContact(_ state: inout LevelPlayState) {
         guard state.invulnerability <= 0 else { return }
 
@@ -449,6 +560,26 @@ struct ContentView: View {
         var state = LevelPlayState(level: level)
         state.statusText = message
         return state
+    }
+
+    private func touchedJumpPadPower(state: LevelPlayState) -> CGFloat? {
+        let halfWidth = GameConstants.playerWidth / 2
+        let halfHeight = GameConstants.playerHeight / 2
+        let left = Int((state.playerX - halfWidth).rounded(.down))
+        let right = Int((state.playerX + halfWidth).rounded(.down))
+        let top = Int((state.playerY - halfHeight).rounded(.down))
+        let bottom = Int((state.playerY + halfHeight).rounded(.down))
+        var power: CGFloat?
+
+        for y in top...bottom {
+            for x in left...right {
+                if case let .jumpPad(padPower) = level.tiles[LevelGridPoint(x: x, y: y)] {
+                    power = max(power ?? padPower, padPower)
+                }
+            }
+        }
+
+        return power
     }
 
     private func touchesTile(kind: LevelTileKind, state: LevelPlayState) -> Bool {
@@ -530,11 +661,84 @@ private struct StatusStrip: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 34)
-        .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(0.09), lineWidth: 1)
+        .background(PremiumPanelBackground(cornerRadius: 8))
+    }
+}
+
+private struct LevelControls: View {
+    let levelIndex: Int
+    let levelCount: Int
+    let previousAction: () -> Void
+    let nextAction: () -> Void
+    let addAction: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            CompactIconButton(symbol: "chevron.left", isEnabled: levelIndex > 0, action: previousAction)
+
+            HStack(spacing: 8) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(Color.sky)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Level \(levelIndex + 1)")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.white)
+                    Text("\(levelCount) slots")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.48))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+            .background(PremiumPanelBackground(cornerRadius: 8))
+
+            CompactIconButton(symbol: "chevron.right", isEnabled: levelIndex < levelCount - 1, action: nextAction)
+            CompactIconButton(symbol: "plus", isEnabled: true, action: addAction)
         }
+    }
+}
+
+private struct CompactIconButton: View {
+    let symbol: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .black))
+                .frame(width: 38, height: 38)
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .opacity(isEnabled ? 1 : 0.38)
+        .disabled(isEnabled == false)
+    }
+}
+
+private struct PremiumPanelBackground: View {
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.105),
+                        Color.white.opacity(0.045)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
     }
 }
 
@@ -557,10 +761,10 @@ private struct Badge: View {
         }
         .padding(.horizontal, 9)
         .frame(height: 28)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
         }
     }
 }
@@ -637,8 +841,6 @@ private struct LevelCanvasView: View {
                                 x: (platform.x - camera.x) * metrics.cellSize,
                                 y: (platform.y - camera.y) * metrics.cellSize
                             )
-                            .animation(.linear(duration: 1.0 / 60.0), value: platform.x)
-                            .animation(.linear(duration: 1.0 / 60.0), value: platform.y)
                     }
                 }
 
@@ -650,8 +852,6 @@ private struct LevelCanvasView: View {
                                 x: (enemy.x - camera.x) * metrics.cellSize,
                                 y: (enemy.y - camera.y) * metrics.cellSize
                             )
-                            .animation(.linear(duration: 1.0 / 60.0), value: enemy.x)
-                            .animation(.linear(duration: 1.0 / 60.0), value: enemy.y)
                     }
                 }
 
@@ -666,8 +866,6 @@ private struct LevelCanvasView: View {
                         x: (playState.playerX - camera.x) * metrics.cellSize,
                         y: (playState.playerY - camera.y) * metrics.cellSize
                     )
-                    .animation(.linear(duration: 1.0 / 60.0), value: playState.playerX)
-                    .animation(.linear(duration: 1.0 / 60.0), value: playState.playerY)
                 }
             } else {
                 ForEach(level.movingPlatforms) { platform in
@@ -979,6 +1177,7 @@ private struct MovingPlatformView: View {
 
 private struct EditorControls: View {
     @Binding var selectedTool: CreatorTool
+    @Binding var jumpPadPower: CGFloat
     let camera: CGPoint
     let zoom: CGFloat
     let zoomInAction: () -> Void
@@ -1009,8 +1208,13 @@ private struct EditorControls: View {
                 .padding(.horizontal, 2)
             }
 
+            if selectedTool == .jumpPad {
+                JumpPadSettings(power: $jumpPadPower)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
             HStack(spacing: 8) {
-                Label("Move: drag canvas", systemImage: "hand.draw.fill")
+                Label("Move", systemImage: "hand.draw.fill")
                     .font(.caption.weight(.black))
                     .foregroundStyle(.white.opacity(0.72))
                     .lineLimit(1)
@@ -1055,10 +1259,41 @@ private struct EditorControls: View {
             }
         }
         .padding(10)
-        .background(Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(PremiumPanelBackground(cornerRadius: 8))
+    }
+}
+
+private struct JumpPadSettings: View {
+    @Binding var power: CGFloat
+
+    private var sliderValue: Binding<Double> {
+        Binding(
+            get: { Double(power) },
+            set: { power = CGFloat($0) }
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("Pad", systemImage: "arrow.up.circle.fill")
+                .font(.caption.weight(.black))
+                .foregroundStyle(Color.mintPop)
+                .frame(width: 54, alignment: .leading)
+
+            Slider(value: sliderValue, in: 12.0...24.0, step: 1.0)
+                .tint(Color.mintPop)
+
+            Text("\(Int(power.rounded()))")
+                .font(.caption.weight(.black).monospacedDigit())
+                .foregroundStyle(.white)
+                .frame(width: 28, alignment: .trailing)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 38)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(Color.mintPop.opacity(0.24), lineWidth: 1)
         }
     }
 }
@@ -1079,35 +1314,77 @@ private struct PlayControls: View {
 
             Spacer(minLength: 8)
 
-            Button(action: jumpAction) {
-                VStack(spacing: 4) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 20, weight: .black))
-                    Text("Jump")
-                        .font(.caption.weight(.black))
-                }
-                .frame(width: 76, height: 58)
-            }
-            .buttonStyle(ActionButtonStyle(tint: Color.mintPop, isEnabled: true))
+            InstantActionButton(
+                symbol: "arrow.up",
+                title: "Jump",
+                tint: Color.mintPop,
+                width: 76,
+                isEnabled: true,
+                action: jumpAction
+            )
 
-            Button(action: attackAction) {
-                VStack(spacing: 4) {
-                    Image(systemName: "burst.fill")
-                        .font(.system(size: 20, weight: .black))
-                    Text("Attack")
-                        .font(.caption.weight(.black))
-                }
-                .frame(width: 84, height: 58)
-            }
-            .buttonStyle(ActionButtonStyle(tint: Color.gold, isEnabled: canAttack))
-            .disabled(canAttack == false)
+            InstantActionButton(
+                symbol: "burst.fill",
+                title: "Attack",
+                tint: Color.gold,
+                width: 84,
+                isEnabled: canAttack,
+                action: attackAction
+            )
         }
         .padding(10)
-        .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(PremiumPanelBackground(cornerRadius: 8))
+    }
+}
+
+private struct InstantActionButton: View {
+    let symbol: String
+    let title: String
+    let tint: Color
+    let width: CGFloat
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @State private var isPressed = false
+    @State private var didFire = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .black))
+            Text(title)
+                .font(.caption.weight(.black))
+        }
+        .foregroundStyle(isEnabled ? Color.black : Color.white.opacity(0.46))
+        .frame(width: width, height: 58)
+        .background(
+            isEnabled
+                ? tint.opacity(isPressed ? 0.78 : 0.96)
+                : Color.white.opacity(0.06),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(Color.white.opacity(isEnabled ? 0.35 : 0.08), lineWidth: 1)
         }
+        .scaleEffect(isPressed && isEnabled ? 0.97 : 1)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard isEnabled else { return }
+                    isPressed = true
+                    if didFire == false {
+                        didFire = true
+                        action()
+                    }
+                }
+                .onEnded { _ in
+                    isPressed = false
+                    didFire = false
+                }
+        )
+        .animation(.easeOut(duration: 0.08), value: isPressed)
     }
 }
 
@@ -1193,14 +1470,44 @@ private enum GameConstants {
     static let playerHeight: CGFloat = 0.86
     static let platformWidth: CGFloat = 0.96
     static let platformHeight: CGFloat = 0.68
-    static let playerSpeed: CGFloat = 5.2
-    static let boostSpeed: CGFloat = 9.2
+    static let playerSpeed: CGFloat = 6.7
+    static let boostSpeed: CGFloat = 9.6
     static let jumpVelocity: CGFloat = 13.6
     static let gravity: CGFloat = 23.0
+    static let waterGravity: CGFloat = 4.8
+    static let waterBuoyancy: CGFloat = 11.5
+    static let waterFloatVelocity: CGFloat = -0.45
+    static let waterMaxFallSpeed: CGFloat = 0.75
+    static let waterMoveSpeed: CGFloat = 5.9
+    static let waterJumpVelocity: CGFloat = 7.2
+    static let defaultJumpPadPower: CGFloat = 18.0
     static let enemySpeed: CGFloat = 1.7
     static let platformSpeed: CGFloat = 2.4
     static let minZoom: CGFloat = 0.7
     static let maxZoom: CGFloat = 1.75
+}
+
+private enum EditorSound {
+    case place
+    case erase
+    case platform
+    case jumpPad
+    case select
+
+    var systemSoundID: SystemSoundID {
+        switch self {
+        case .place:
+            return 1104
+        case .erase:
+            return 1155
+        case .platform:
+            return 1057
+        case .jumpPad:
+            return 1025
+        case .select:
+            return 1105
+        }
+    }
 }
 
 private struct EditableLevel {
@@ -1211,6 +1518,10 @@ private struct EditableLevel {
     var movingPlatforms: [LevelMovingPlatform]
     var start: LevelGridPoint
     var end: LevelGridPoint
+
+    static func defaultSet() -> [EditableLevel] {
+        [starter(), empty(), empty()]
+    }
 
     static func starter() -> EditableLevel {
         return EditableLevel(
@@ -1286,6 +1597,7 @@ private enum LevelTileKind: Equatable {
     case kill
     case water
     case space
+    case jumpPad(power: CGFloat)
 
     var symbolName: String {
         switch self {
@@ -1297,6 +1609,8 @@ private enum LevelTileKind: Equatable {
             return "drop.fill"
         case .space:
             return "bolt.fill"
+        case .jumpPad(_):
+            return "arrow.up.circle.fill"
         }
     }
 
@@ -1310,6 +1624,8 @@ private enum LevelTileKind: Equatable {
             return Color(red: 0.08, green: 0.48, blue: 0.72)
         case .space:
             return Color(red: 0.78, green: 0.56, blue: 0.16)
+        case .jumpPad(_):
+            return Color(red: 0.1, green: 0.64, blue: 0.38)
         }
     }
 
@@ -1323,6 +1639,8 @@ private enum LevelTileKind: Equatable {
             return Color(red: 0.72, green: 0.95, blue: 1.0)
         case .space:
             return Color(red: 1.0, green: 0.96, blue: 0.62)
+        case .jumpPad(_):
+            return Color(red: 0.74, green: 1.0, blue: 0.72)
         }
     }
 }
@@ -1332,6 +1650,7 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
     case kill
     case water
     case space
+    case jumpPad
     case moving
     case enemy
     case start
@@ -1351,6 +1670,8 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return "Water"
         case .space:
             return "Space"
+        case .jumpPad:
+            return "Pad"
         case .moving:
             return "Moving"
         case .enemy:
@@ -1374,6 +1695,8 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return "Kill blocks respawn the player on touch."
         case .move:
             return "Drag the board to move the camera."
+        case .jumpPad:
+            return "Tune pad power, then place launch pads."
         case .delete:
             return "Drag across tiles to remove them."
         default:
@@ -1383,7 +1706,7 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
 
     var supportsDragPainting: Bool {
         switch self {
-        case .block, .kill, .water, .space, .delete:
+        case .block, .kill, .water, .space, .jumpPad, .delete:
             return true
         case .moving, .enemy, .start, .end, .move:
             return false
@@ -1400,6 +1723,8 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return "drop.fill"
         case .space:
             return "bolt.fill"
+        case .jumpPad:
+            return "arrow.up.circle.fill"
         case .moving:
             return "arrow.left.and.right.square.fill"
         case .enemy:
@@ -1425,6 +1750,8 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return Color(red: 0.34, green: 0.78, blue: 1.0)
         case .space:
             return Color.gold
+        case .jumpPad:
+            return Color.mintPop
         case .moving:
             return Color.purplePop
         case .enemy:
@@ -1592,27 +1919,6 @@ private struct ToolButtonStyle: ButtonStyle {
                     .stroke(isSelected ? Color.white.opacity(0.38) : tint.opacity(0.24), lineWidth: 1)
             }
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-    }
-}
-
-private struct ActionButtonStyle: ButtonStyle {
-    let tint: Color
-    let isEnabled: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(isEnabled ? Color.black : Color.white.opacity(0.46))
-            .background(
-                isEnabled
-                    ? tint.opacity(configuration.isPressed ? 0.78 : 0.96)
-                    : Color.white.opacity(0.06),
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.white.opacity(isEnabled ? 0.35 : 0.08), lineWidth: 1)
-            }
-            .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1)
     }
 }
 
