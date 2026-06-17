@@ -12,7 +12,7 @@ struct ContentView: View {
     @State private var queuedJump = false
     @State private var lastTickDate: Date?
 
-    private let gameTimer = Timer.publish(every: 1.0 / 45.0, on: .main, in: .common).autoconnect()
+    private let gameTimer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -36,7 +36,7 @@ struct ContentView: View {
                     playState: playState,
                     applyAction: applyTool,
                     movingDragAction: updateMovingPlatform,
-                    cameraDragAction: moveCameraByDrag
+                    cameraDragAction: moveCameraByDrag(dx:dy:)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.vertical, 4)
@@ -53,8 +53,7 @@ struct ContentView: View {
                     EditorControls(
                         selectedTool: $selectedTool,
                         camera: camera,
-                        moveCameraAction: moveCamera,
-                        resetAction: resetLevel
+                        removeAllAction: removeAll
                     )
                 }
             }
@@ -189,8 +188,8 @@ struct ContentView: View {
         centerCamera(on: CGPoint(x: playState.playerX, y: playState.playerY))
     }
 
-    private func resetLevel() {
-        level = EditableLevel.starter()
+    private func removeAll() {
+        level = EditableLevel.empty()
         selectedTool = .block
         camera = clampedCamera(x: 0, y: 3)
         playState = LevelPlayState(level: level)
@@ -201,13 +200,9 @@ struct ContentView: View {
         camera = clampedCamera(x: camera.x + dx, y: camera.y + dy)
     }
 
-    private func moveCameraByDrag(_ translation: CGSize, cellSize: CGFloat) {
-        guard selectedTool == .move else { return }
-
-        let dragX = Int((translation.width / max(cellSize, 1)).rounded())
-        let dragY = Int((translation.height / max(cellSize, 1)).rounded())
-        guard dragX != 0 || dragY != 0 else { return }
-        moveCamera(dx: -dragX, dy: -dragY)
+    private func moveCameraByDrag(dx: Int, dy: Int) {
+        guard dx != 0 || dy != 0 else { return }
+        moveCamera(dx: dx, dy: dy)
     }
 
     private func centerCamera(on point: CGPoint) {
@@ -255,7 +250,14 @@ struct ContentView: View {
             state.statusText = currentTile == .water ? "Water current boost" : "Space block boost"
         }
 
-        state.velocityX = movement * speed + state.velocityX * 0.68
+        if movement == 0 {
+            state.velocityX *= 0.72
+            if abs(state.velocityX) < 0.04 {
+                state.velocityX = 0
+            }
+        } else {
+            state.velocityX = movement * speed
+        }
 
         if queuedJump && state.isGrounded {
             state.velocityY = -GameConstants.jumpVelocity
@@ -490,6 +492,9 @@ private struct Badge: View {
 }
 
 private struct LevelCanvasView: View {
+    @State private var lastPaintedPoint: LevelGridPoint?
+    @State private var lastCameraDrag = LevelGridPoint(x: 0, y: 0)
+
     let level: EditableLevel
     let selectedTool: CreatorTool
     let camera: LevelGridPoint
@@ -497,7 +502,7 @@ private struct LevelCanvasView: View {
     let playState: LevelPlayState
     let applyAction: (LevelGridPoint) -> Void
     let movingDragAction: (LevelGridPoint, LevelGridPoint) -> Void
-    let cameraDragAction: (CGSize, CGFloat) -> Void
+    let cameraDragAction: (Int, Int) -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -557,6 +562,8 @@ private struct LevelCanvasView: View {
                                 x: (platform.x - CGFloat(camera.x)) * metrics.cellSize,
                                 y: (platform.y - CGFloat(camera.y)) * metrics.cellSize
                             )
+                            .animation(.linear(duration: 1.0 / 60.0), value: platform.x)
+                            .animation(.linear(duration: 1.0 / 60.0), value: platform.y)
                     }
                 }
 
@@ -568,6 +575,8 @@ private struct LevelCanvasView: View {
                                 x: (enemy.x - CGFloat(camera.x)) * metrics.cellSize,
                                 y: (enemy.y - CGFloat(camera.y)) * metrics.cellSize
                             )
+                            .animation(.linear(duration: 1.0 / 60.0), value: enemy.x)
+                            .animation(.linear(duration: 1.0 / 60.0), value: enemy.y)
                     }
                 }
 
@@ -582,6 +591,8 @@ private struct LevelCanvasView: View {
                         x: (playState.playerX - CGFloat(camera.x)) * metrics.cellSize,
                         y: (playState.playerY - CGFloat(camera.y)) * metrics.cellSize
                     )
+                    .animation(.linear(duration: 1.0 / 60.0), value: playState.playerX)
+                    .animation(.linear(duration: 1.0 / 60.0), value: playState.playerY)
                 }
             } else {
                 ForEach(level.movingPlatforms) { platform in
@@ -617,17 +628,46 @@ private struct LevelCanvasView: View {
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .local)
                 .onChanged { value in
-                    guard isPlaying == false, selectedTool == .moving else { return }
-                    guard abs(value.translation.width) > 9 || abs(value.translation.height) > 9 else { return }
-                    movingDragAction(point(for: value.startLocation, cellSize: metrics.cellSize), point(for: value.location, cellSize: metrics.cellSize))
+                    guard isPlaying == false else { return }
+
+                    if selectedTool == .move {
+                        let dragX = Int((value.translation.width / max(metrics.cellSize, 1)).rounded())
+                        let dragY = Int((value.translation.height / max(metrics.cellSize, 1)).rounded())
+                        let deltaX = dragX - lastCameraDrag.x
+                        let deltaY = dragY - lastCameraDrag.y
+                        if deltaX != 0 || deltaY != 0 {
+                            cameraDragAction(-deltaX, -deltaY)
+                            lastCameraDrag = LevelGridPoint(x: dragX, y: dragY)
+                        }
+                        return
+                    }
+
+                    if selectedTool == .moving {
+                        guard abs(value.translation.width) > 9 || abs(value.translation.height) > 9 else { return }
+                        movingDragAction(point(for: value.startLocation, cellSize: metrics.cellSize), point(for: value.location, cellSize: metrics.cellSize))
+                        return
+                    }
+
+                    guard selectedTool.supportsDragPainting else { return }
+                    let point = point(for: value.location, cellSize: metrics.cellSize)
+                    if point != lastPaintedPoint {
+                        applyAction(point)
+                        lastPaintedPoint = point
+                    }
                 }
                 .onEnded { value in
                     guard isPlaying == false else { return }
+                    defer {
+                        lastPaintedPoint = nil
+                        lastCameraDrag = LevelGridPoint(x: 0, y: 0)
+                    }
 
-                    if selectedTool == .move && (abs(value.translation.width) > 10 || abs(value.translation.height) > 10) {
-                        cameraDragAction(value.translation, metrics.cellSize)
+                    if selectedTool == .move {
+                        return
                     } else if selectedTool == .moving && (abs(value.translation.width) > 9 || abs(value.translation.height) > 9) {
                         movingDragAction(point(for: value.startLocation, cellSize: metrics.cellSize), point(for: value.location, cellSize: metrics.cellSize))
+                    } else if selectedTool.supportsDragPainting {
+                        applyAction(point(for: value.location, cellSize: metrics.cellSize))
                     } else {
                         applyAction(point(for: value.location, cellSize: metrics.cellSize))
                     }
@@ -711,30 +751,38 @@ private struct TileCell: View {
                     .font(.system(size: 13, weight: .black))
                     .foregroundStyle(tile.foregroundColor)
                     .shadow(color: Color.black.opacity(0.25), radius: 2, y: 1)
+                    .transition(.scale(scale: 0.72).combined(with: .opacity))
             }
 
             if isStart {
                 Image(systemName: "flag.fill")
                     .font(.system(size: 14, weight: .black))
                     .foregroundStyle(Color.mintPop)
+                    .transition(.scale(scale: 0.72).combined(with: .opacity))
             }
 
             if isEnd {
                 Image(systemName: "scope")
                     .font(.system(size: 15, weight: .black))
                     .foregroundStyle(Color.gold)
+                    .transition(.scale(scale: 0.72).combined(with: .opacity))
             }
 
             if hasEnemy {
                 Image(systemName: "bolt.trianglebadge.exclamationmark.fill")
                     .font(.system(size: 13, weight: .black))
                     .foregroundStyle(Color.redPop)
+                    .transition(.scale(scale: 0.72).combined(with: .opacity))
             }
         }
         .overlay {
             Rectangle()
                 .stroke(isMoveTool ? Color.white.opacity(0.16) : Color.white.opacity(0.07), lineWidth: 0.7)
         }
+        .animation(.spring(response: 0.16, dampingFraction: 0.82), value: tile)
+        .animation(.spring(response: 0.16, dampingFraction: 0.82), value: isStart)
+        .animation(.spring(response: 0.16, dampingFraction: 0.82), value: isEnd)
+        .animation(.spring(response: 0.16, dampingFraction: 0.82), value: hasEnemy)
     }
 
     private var baseFill: Color {
@@ -836,8 +884,7 @@ private struct MovingPlatformView: View {
 private struct EditorControls: View {
     @Binding var selectedTool: CreatorTool
     let camera: LevelGridPoint
-    let moveCameraAction: (Int, Int) -> Void
-    let resetAction: () -> Void
+    let removeAllAction: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -864,18 +911,19 @@ private struct EditorControls: View {
             }
 
             HStack(spacing: 8) {
-                CameraButton(symbol: "arrow.left", action: { moveCameraAction(-2, 0) })
-                CameraButton(symbol: "arrow.right", action: { moveCameraAction(2, 0) })
-                CameraButton(symbol: "arrow.up", action: { moveCameraAction(0, -1) })
-                CameraButton(symbol: "arrow.down", action: { moveCameraAction(0, 1) })
+                Label("Drag with Move to pan", systemImage: "hand.draw.fill")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
 
                 Text("Camera \(camera.x),\(camera.y)")
                     .font(.caption.weight(.black))
                     .foregroundStyle(.white.opacity(0.72))
                     .frame(maxWidth: .infinity)
 
-                Button(action: resetAction) {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
+                Button(action: removeAllAction) {
+                    Label("Remove All", systemImage: "trash.fill")
                         .font(.caption.weight(.black))
                         .frame(height: 36)
                 }
@@ -959,7 +1007,7 @@ private struct HoldButton: View {
                 .stroke(isPressed ? Color.white.opacity(0.48) : Color.white.opacity(0.13), lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .gesture(
+        .highPriorityGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
                     if isPressed == false {
@@ -1053,47 +1101,26 @@ private struct EditableLevel {
     var end: LevelGridPoint
 
     static func starter() -> EditableLevel {
-        var tiles: [LevelGridPoint: LevelTileKind] = [:]
-        for x in 0..<42 {
-            tiles[LevelGridPoint(x: x, y: 15)] = .block
-        }
-
-        for x in 4...8 {
-            tiles[LevelGridPoint(x: x, y: 12)] = .block
-        }
-
-        for x in 13...17 {
-            tiles[LevelGridPoint(x: x, y: 10)] = .block
-        }
-
-        for x in 27...32 {
-            tiles[LevelGridPoint(x: x, y: 12)] = .block
-        }
-
-        for x in 7...10 {
-            tiles[LevelGridPoint(x: x, y: 14)] = .water
-        }
-
-        for x in 19...22 {
-            tiles[LevelGridPoint(x: x, y: 14)] = .space
-        }
-
-        for x in 34...36 {
-            tiles[LevelGridPoint(x: x, y: 14)] = .kill
-        }
-
         return EditableLevel(
-            tiles: tiles,
-            enemies: [
-                LevelGridPoint(x: 12, y: 14),
-                LevelGridPoint(x: 29, y: 11),
-                LevelGridPoint(x: 38, y: 14)
+            tiles: [
+                LevelGridPoint(x: 2, y: 14): .block,
+                LevelGridPoint(x: 6, y: 13): .block,
+                LevelGridPoint(x: 10, y: 12): .block
             ],
-            movingPlatforms: [
-                LevelMovingPlatform(start: LevelGridPoint(x: 22, y: 10), end: LevelGridPoint(x: 26, y: 10))
-            ],
-            start: LevelGridPoint(x: 2, y: 14),
-            end: LevelGridPoint(x: 40, y: 14)
+            enemies: [],
+            movingPlatforms: [],
+            start: LevelGridPoint(x: 2, y: 13),
+            end: LevelGridPoint(x: 12, y: 11)
+        )
+    }
+
+    static func empty() -> EditableLevel {
+        EditableLevel(
+            tiles: [:],
+            enemies: [],
+            movingPlatforms: [],
+            start: LevelGridPoint(x: 2, y: 13),
+            end: LevelGridPoint(x: 12, y: 11)
         )
     }
 
@@ -1234,9 +1261,20 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
         case .kill:
             return "Kill blocks respawn the player on touch."
         case .move:
-            return "Drag the board or use arrows to move the camera."
+            return "Drag the board to move the camera."
+        case .delete:
+            return "Drag across tiles to remove them."
         default:
-            return "Tap tiles to build, then press Play."
+            return supportsDragPainting ? "Tap or drag across tiles to build." : "Tap a tile to place this."
+        }
+    }
+
+    var supportsDragPainting: Bool {
+        switch self {
+        case .block, .kill, .water, .space, .delete:
+            return true
+        case .moving, .enemy, .start, .end, .move:
+            return false
         }
     }
 
