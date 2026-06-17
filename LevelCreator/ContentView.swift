@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var camera = CGPoint(x: 0, y: 3)
     @State private var zoom: CGFloat = 1.0
     @State private var jumpPadPower = GameConstants.defaultJumpPadPower
+    @State private var isBlockLibraryPresented = false
     @State private var isPlaying = false
     @State private var playState = LevelPlayState(level: EditableLevel.starter())
     @State private var isPressingLeft = false
@@ -69,6 +70,7 @@ struct ContentView: View {
                         jumpPadPower: $jumpPadPower,
                         camera: camera,
                         zoom: zoom,
+                        libraryAction: { isBlockLibraryPresented = true },
                         zoomInAction: zoomIn,
                         zoomOutAction: zoomOut,
                         removeAllAction: removeAll
@@ -81,6 +83,14 @@ struct ContentView: View {
         }
         .onAppear {
             camera = clampedCamera(x: 0, y: 3)
+        }
+        .sheet(isPresented: $isBlockLibraryPresented) {
+            BlockLibraryView(
+                selectedTool: $selectedTool,
+                jumpPadPower: $jumpPadPower
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .onReceive(gameTimer) { date in
             guard isPlaying else {
@@ -142,6 +152,36 @@ struct ContentView: View {
             removeActors(at: point)
         case .jumpPad:
             level.tiles[point] = .jumpPad(power: jumpPadPower)
+            removeActors(at: point)
+        case .ice:
+            level.tiles[point] = .ice
+            removeActors(at: point)
+        case .mud:
+            level.tiles[point] = .mud
+            removeActors(at: point)
+        case .conveyorLeft:
+            level.tiles[point] = .conveyorLeft
+            removeActors(at: point)
+        case .conveyorRight:
+            level.tiles[point] = .conveyorRight
+            removeActors(at: point)
+        case .spring:
+            level.tiles[point] = .spring
+            removeActors(at: point)
+        case .checkpoint:
+            level.tiles[point] = .checkpoint
+            removeActors(at: point)
+        case .heal:
+            level.tiles[point] = .heal
+            removeActors(at: point)
+        case .coin:
+            level.tiles[point] = .coin
+            removeActors(at: point)
+        case .key:
+            level.tiles[point] = .key
+            removeActors(at: point)
+        case .lock:
+            level.tiles[point] = .lock
             removeActors(at: point)
         case .moving:
             let end = level.clamped(LevelGridPoint(x: point.x + 4, y: point.y))
@@ -397,6 +437,8 @@ struct ContentView: View {
         let currentTile = level.tiles[foot]
         let isInWater = touchesTile(kind: .water, state: state)
         let isInSpace = currentTile == .space || touchesTile(kind: .space, state: state)
+        let isOnIce = currentTile == .ice
+        let isInMud = currentTile == .mud || touchesTile(kind: .mud, state: state)
 
         if isInSpace {
             speed = GameConstants.boostSpeed
@@ -413,8 +455,26 @@ struct ContentView: View {
             state.statusText = "Floating"
         }
 
+        if isOnIce {
+            speed = max(speed, GameConstants.iceSpeed)
+            state.statusText = "Ice slide"
+        }
+
+        if isInMud {
+            speed = min(speed, GameConstants.mudSpeed)
+            state.statusText = "Mud slow"
+        }
+
+        if currentTile == .conveyorLeft {
+            state.velocityX -= GameConstants.conveyorPush * deltaTime
+            state.statusText = "Conveyor"
+        } else if currentTile == .conveyorRight {
+            state.velocityX += GameConstants.conveyorPush * deltaTime
+            state.statusText = "Conveyor"
+        }
+
         if movement == 0 {
-            state.velocityX *= 0.72
+            state.velocityX *= isOnIce ? GameConstants.iceFriction : GameConstants.groundFriction
             if abs(state.velocityX) < 0.04 {
                 state.velocityX = 0
             }
@@ -432,13 +492,14 @@ struct ContentView: View {
         state.velocityY += (isInWater ? GameConstants.waterGravity : GameConstants.gravity) * deltaTime
         movePlayer(&state, deltaTime: deltaTime)
         handleJumpPads(&state)
+        handleFeatureTiles(&state)
         moveEnemies(&state, deltaTime: deltaTime)
         handleHazards(&state)
         handleEnemyContact(&state)
         handleGoal(&state)
 
         if state.playerY > CGFloat(level.height + 3) {
-            state = respawnState(message: "Respawned")
+            state = respawnState(message: "Respawned", previous: state)
         }
 
         playState = state
@@ -516,7 +577,7 @@ struct ContentView: View {
 
     private func handleHazards(_ state: inout LevelPlayState) {
         if touchesTile(kind: .kill, state: state) {
-            state = respawnState(message: "Kill block")
+            state = respawnState(message: "Kill block", previous: state)
         }
     }
 
@@ -526,6 +587,51 @@ struct ContentView: View {
         state.isGrounded = false
         state.statusText = "Jump pad"
         AudioServicesPlaySystemSound(EditorSound.jumpPad.systemSoundID)
+    }
+
+    private func handleFeatureTiles(_ state: inout LevelPlayState) {
+        for point in touchedPoints(state: state) {
+            guard let tile = level.tiles[point] else { continue }
+
+            switch tile {
+            case .spring:
+                guard state.velocityY >= -1.0 else { continue }
+                state.velocityY = -GameConstants.springVelocity
+                state.isGrounded = false
+                state.statusText = "Spring"
+                AudioServicesPlaySystemSound(EditorSound.jumpPad.systemSoundID)
+            case .checkpoint:
+                if state.checkpoint != point {
+                    state.checkpoint = point
+                    state.statusText = "Checkpoint"
+                    AudioServicesPlaySystemSound(EditorSound.select.systemSoundID)
+                }
+            case .heal:
+                guard state.collectedItems.contains(point) == false else { continue }
+                state.health = min(GameConstants.maxHealth, state.health + 1)
+                state.collectedItems.insert(point)
+                state.statusText = "Healed"
+                AudioServicesPlaySystemSound(EditorSound.select.systemSoundID)
+            case .coin:
+                guard state.collectedItems.contains(point) == false else { continue }
+                state.coins += 1
+                state.collectedItems.insert(point)
+                state.statusText = "Coin"
+                AudioServicesPlaySystemSound(EditorSound.select.systemSoundID)
+            case .key:
+                guard state.collectedItems.contains(point) == false else { continue }
+                state.hasKey = true
+                state.collectedItems.insert(point)
+                state.statusText = "Key"
+                AudioServicesPlaySystemSound(EditorSound.select.systemSoundID)
+            case .lock:
+                if state.hasKey {
+                    state.statusText = "Unlocked"
+                }
+            default:
+                break
+            }
+        }
     }
 
     private func handleEnemyContact(_ state: inout LevelPlayState) {
@@ -543,7 +649,7 @@ struct ContentView: View {
         state.statusText = "Enemy contact"
 
         if state.health <= 0 {
-            state = respawnState(message: "Respawned")
+            state = respawnState(message: "Respawned", previous: state)
         }
     }
 
@@ -556,45 +662,54 @@ struct ContentView: View {
         }
     }
 
-    private func respawnState(message: String) -> LevelPlayState {
+    private func respawnState(message: String, previous: LevelPlayState? = nil) -> LevelPlayState {
         var state = LevelPlayState(level: level)
+        if let previous {
+            state.coins = previous.coins
+            state.hasKey = previous.hasKey
+            state.collectedItems = previous.collectedItems
+            state.checkpoint = previous.checkpoint
+            if let checkpoint = previous.checkpoint {
+                state.playerX = CGFloat(checkpoint.x) + 0.5
+                state.playerY = CGFloat(checkpoint.y) + 0.38
+            }
+        }
         state.statusText = message
         return state
     }
 
     private func touchedJumpPadPower(state: LevelPlayState) -> CGFloat? {
-        let halfWidth = GameConstants.playerWidth / 2
-        let halfHeight = GameConstants.playerHeight / 2
-        let left = Int((state.playerX - halfWidth).rounded(.down))
-        let right = Int((state.playerX + halfWidth).rounded(.down))
-        let top = Int((state.playerY - halfHeight).rounded(.down))
-        let bottom = Int((state.playerY + halfHeight).rounded(.down))
         var power: CGFloat?
-
-        for y in top...bottom {
-            for x in left...right {
-                if case let .jumpPad(padPower) = level.tiles[LevelGridPoint(x: x, y: y)] {
-                    power = max(power ?? padPower, padPower)
-                }
+        for point in touchedPoints(state: state) {
+            if case let .jumpPad(padPower) = level.tiles[point] {
+                power = max(power ?? padPower, padPower)
             }
         }
-
         return power
     }
 
-    private func touchesTile(kind: LevelTileKind, state: LevelPlayState) -> Bool {
+    private func touchedPoints(state: LevelPlayState) -> [LevelGridPoint] {
         let halfWidth = GameConstants.playerWidth / 2
         let halfHeight = GameConstants.playerHeight / 2
         let left = Int((state.playerX - halfWidth).rounded(.down))
         let right = Int((state.playerX + halfWidth).rounded(.down))
         let top = Int((state.playerY - halfHeight).rounded(.down))
         let bottom = Int((state.playerY + halfHeight).rounded(.down))
+        var points: [LevelGridPoint] = []
 
         for y in top...bottom {
             for x in left...right {
-                if level.tiles[LevelGridPoint(x: x, y: y)] == kind {
-                    return true
-                }
+                points.append(LevelGridPoint(x: x, y: y))
+            }
+        }
+
+        return points
+    }
+
+    private func touchesTile(kind: LevelTileKind, state: LevelPlayState) -> Bool {
+        for point in touchedPoints(state: state) {
+            if level.tiles[point] == kind {
+                return true
             }
         }
 
@@ -618,7 +733,7 @@ struct ContentView: View {
 
         for y in top...bottom {
             for x in left...right {
-                if level.isSolid(at: LevelGridPoint(x: x, y: y)) {
+                if isSolid(at: LevelGridPoint(x: x, y: y), state: state) {
                     return true
                 }
             }
@@ -631,6 +746,25 @@ struct ContentView: View {
         }
 
         return false
+    }
+
+    private func isSolid(at point: LevelGridPoint, state: LevelPlayState) -> Bool {
+        if point.x < 0 || point.x >= level.width || point.y >= level.height {
+            return true
+        }
+
+        if point.y < 0 {
+            return false
+        }
+
+        switch level.tiles[point] {
+        case .block:
+            return true
+        case .lock:
+            return state.hasKey == false
+        default:
+            return false
+        }
     }
 }
 
@@ -653,6 +787,10 @@ private struct StatusStrip: View {
 
             if isPlaying {
                 Badge(symbol: "heart.fill", text: "\(playState.health)", tint: Color.redPop)
+                Badge(symbol: "circle.fill", text: "\(playState.coins)", tint: Color.gold)
+                if playState.hasKey {
+                    Badge(symbol: "key.fill", text: "Key", tint: Color.mintPop)
+                }
                 Badge(symbol: "bolt.fill", text: "\(playState.enemies.count)", tint: Color.violetSoft)
             } else {
                 Badge(symbol: "square.grid.3x3.fill", text: "\(level.tiles.count)", tint: Color.sky)
@@ -812,7 +950,7 @@ private struct LevelCanvasView: View {
                     let point = LevelGridPoint(x: column, y: row)
                     TileCell(
                         point: point,
-                        tile: level.tiles[point],
+                        tile: tileForDisplay(at: point),
                         isStart: point == level.start,
                         isEnd: point == level.end,
                         hasEnemy: level.enemies.contains(point),
@@ -961,6 +1099,14 @@ private struct LevelCanvasView: View {
 
     private func visibleColumns() -> [Int] {
         visibleIndices(start: camera.x, span: visibleColumnSpan, count: level.width)
+    }
+
+    private func tileForDisplay(at point: LevelGridPoint) -> LevelTileKind? {
+        if isPlaying && playState.collectedItems.contains(point) {
+            return nil
+        }
+
+        return level.tiles[point]
     }
 
     private func visibleRows() -> [Int] {
@@ -1180,6 +1326,7 @@ private struct EditorControls: View {
     @Binding var jumpPadPower: CGFloat
     let camera: CGPoint
     let zoom: CGFloat
+    let libraryAction: () -> Void
     let zoomInAction: () -> Void
     let zoomOutAction: () -> Void
     let removeAllAction: () -> Void
@@ -1188,7 +1335,7 @@ private struct EditorControls: View {
         VStack(spacing: 9) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(CreatorTool.allCases) { tool in
+                    ForEach(CreatorTool.hotbarTools) { tool in
                         Button {
                             selectedTool = tool
                         } label: {
@@ -1214,6 +1361,15 @@ private struct EditorControls: View {
             }
 
             HStack(spacing: 8) {
+                Button(action: libraryAction) {
+                    Label("Library", systemImage: "square.grid.2x2.fill")
+                        .font(.caption.weight(.black))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(height: 34)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
                 Label("Move", systemImage: "hand.draw.fill")
                     .font(.caption.weight(.black))
                     .foregroundStyle(.white.opacity(0.72))
@@ -1295,6 +1451,100 @@ private struct JumpPadSettings: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.mintPop.opacity(0.24), lineWidth: 1)
         }
+    }
+}
+
+private struct BlockLibraryView: View {
+    @Binding var selectedTool: CreatorTool
+    @Binding var jumpPadPower: CGFloat
+    @Environment(\.dismiss) private var dismiss
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 118), spacing: 10)
+    ]
+
+    var body: some View {
+        ZStack {
+            AppBackdrop()
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Block Library")
+                            .font(.title2.weight(.black))
+                            .foregroundStyle(.white)
+                        Text("Pick a feature block, then paint it into the level.")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.58))
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .black))
+                            .frame(width: 36, height: 36)
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+
+                JumpPadSettings(power: $jumpPadPower)
+
+                ScrollView(showsIndicators: false) {
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(CreatorTool.blockLibraryTools) { tool in
+                            Button {
+                                selectedTool = tool
+                                dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Image(systemName: tool.symbolName)
+                                            .font(.system(size: 18, weight: .black))
+                                            .foregroundStyle(selectedTool == tool ? Color.black : tool.tint)
+                                        Spacer(minLength: 0)
+                                        if selectedTool == tool {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 13, weight: .black))
+                                                .foregroundStyle(Color.black.opacity(0.72))
+                                        }
+                                    }
+
+                                    Text(tool.title)
+                                        .font(.caption.weight(.black))
+                                        .foregroundStyle(selectedTool == tool ? Color.black : Color.white)
+                                        .lineLimit(1)
+
+                                    Text(tool.featureText)
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(selectedTool == tool ? Color.black.opacity(0.62) : Color.white.opacity(0.52))
+                                        .lineLimit(2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(10)
+                                .frame(minHeight: 104, alignment: .topLeading)
+                                .background(
+                                    selectedTool == tool
+                                        ? tool.tint
+                                        : Color.white.opacity(0.07),
+                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                )
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(selectedTool == tool ? Color.white.opacity(0.4) : tool.tint.opacity(0.2), lineWidth: 1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.bottom, 12)
+                }
+            }
+            .padding(16)
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -1470,10 +1720,17 @@ private enum GameConstants {
     static let playerHeight: CGFloat = 0.86
     static let platformWidth: CGFloat = 0.96
     static let platformHeight: CGFloat = 0.68
+    static let maxHealth = 3
     static let playerSpeed: CGFloat = 6.7
     static let boostSpeed: CGFloat = 9.6
     static let jumpVelocity: CGFloat = 13.6
     static let gravity: CGFloat = 23.0
+    static let groundFriction: CGFloat = 0.72
+    static let iceFriction: CGFloat = 0.94
+    static let iceSpeed: CGFloat = 7.2
+    static let mudSpeed: CGFloat = 3.7
+    static let conveyorPush: CGFloat = 9.0
+    static let springVelocity: CGFloat = 15.8
     static let waterGravity: CGFloat = 4.8
     static let waterBuoyancy: CGFloat = 11.5
     static let waterFloatVelocity: CGFloat = -0.45
@@ -1598,6 +1855,16 @@ private enum LevelTileKind: Equatable {
     case water
     case space
     case jumpPad(power: CGFloat)
+    case ice
+    case mud
+    case conveyorLeft
+    case conveyorRight
+    case spring
+    case checkpoint
+    case heal
+    case coin
+    case key
+    case lock
 
     var symbolName: String {
         switch self {
@@ -1611,6 +1878,26 @@ private enum LevelTileKind: Equatable {
             return "bolt.fill"
         case .jumpPad(_):
             return "arrow.up.circle.fill"
+        case .ice:
+            return "snowflake"
+        case .mud:
+            return "drop.triangle.fill"
+        case .conveyorLeft:
+            return "arrow.left.square.fill"
+        case .conveyorRight:
+            return "arrow.right.square.fill"
+        case .spring:
+            return "arrow.up.to.line.compact"
+        case .checkpoint:
+            return "flag.fill"
+        case .heal:
+            return "heart.fill"
+        case .coin:
+            return "circle.fill"
+        case .key:
+            return "key.fill"
+        case .lock:
+            return "lock.fill"
         }
     }
 
@@ -1626,6 +1913,24 @@ private enum LevelTileKind: Equatable {
             return Color(red: 0.78, green: 0.56, blue: 0.16)
         case .jumpPad(_):
             return Color(red: 0.1, green: 0.64, blue: 0.38)
+        case .ice:
+            return Color(red: 0.35, green: 0.78, blue: 0.92)
+        case .mud:
+            return Color(red: 0.42, green: 0.28, blue: 0.18)
+        case .conveyorLeft, .conveyorRight:
+            return Color(red: 0.22, green: 0.28, blue: 0.46)
+        case .spring:
+            return Color(red: 0.12, green: 0.62, blue: 0.45)
+        case .checkpoint:
+            return Color(red: 0.13, green: 0.44, blue: 0.56)
+        case .heal:
+            return Color(red: 0.62, green: 0.12, blue: 0.28)
+        case .coin:
+            return Color(red: 0.9, green: 0.68, blue: 0.12)
+        case .key:
+            return Color(red: 0.86, green: 0.62, blue: 0.16)
+        case .lock:
+            return Color(red: 0.21, green: 0.21, blue: 0.26)
         }
     }
 
@@ -1641,6 +1946,22 @@ private enum LevelTileKind: Equatable {
             return Color(red: 1.0, green: 0.96, blue: 0.62)
         case .jumpPad(_):
             return Color(red: 0.74, green: 1.0, blue: 0.72)
+        case .ice:
+            return Color.white.opacity(0.9)
+        case .mud:
+            return Color(red: 1.0, green: 0.78, blue: 0.5)
+        case .conveyorLeft, .conveyorRight:
+            return Color(red: 0.72, green: 0.82, blue: 1.0)
+        case .spring:
+            return Color(red: 0.76, green: 1.0, blue: 0.8)
+        case .checkpoint:
+            return Color.sky
+        case .heal:
+            return Color(red: 1.0, green: 0.75, blue: 0.82)
+        case .coin, .key:
+            return Color(red: 1.0, green: 0.94, blue: 0.58)
+        case .lock:
+            return Color.white.opacity(0.82)
         }
     }
 }
@@ -1651,6 +1972,16 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
     case water
     case space
     case jumpPad
+    case ice
+    case mud
+    case conveyorLeft
+    case conveyorRight
+    case spring
+    case checkpoint
+    case heal
+    case coin
+    case key
+    case lock
     case moving
     case enemy
     case start
@@ -1659,6 +1990,17 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
     case move
 
     var id: String { rawValue }
+
+    static let hotbarTools: [CreatorTool] = [
+        .block, .kill, .water, .space, .jumpPad,
+        .moving, .enemy, .start, .end, .delete, .move
+    ]
+
+    static let blockLibraryTools: [CreatorTool] = [
+        .block, .kill, .water, .space, .jumpPad,
+        .ice, .mud, .conveyorLeft, .conveyorRight, .spring,
+        .checkpoint, .heal, .coin, .key, .lock
+    ]
 
     var title: String {
         switch self {
@@ -1672,6 +2014,26 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return "Space"
         case .jumpPad:
             return "Pad"
+        case .ice:
+            return "Ice"
+        case .mud:
+            return "Mud"
+        case .conveyorLeft:
+            return "Left Belt"
+        case .conveyorRight:
+            return "Right Belt"
+        case .spring:
+            return "Spring"
+        case .checkpoint:
+            return "Checkpoint"
+        case .heal:
+            return "Heal"
+        case .coin:
+            return "Coin"
+        case .key:
+            return "Key"
+        case .lock:
+            return "Lock"
         case .moving:
             return "Moving"
         case .enemy:
@@ -1697,6 +2059,26 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return "Drag the board to move the camera."
         case .jumpPad:
             return "Tune pad power, then place launch pads."
+        case .ice:
+            return "Ice keeps momentum and slides."
+        case .mud:
+            return "Mud slows player movement."
+        case .conveyorLeft:
+            return "Left belts push the player left."
+        case .conveyorRight:
+            return "Right belts push the player right."
+        case .spring:
+            return "Springs bounce the player upward."
+        case .checkpoint:
+            return "Checkpoints update respawn position."
+        case .heal:
+            return "Heal blocks restore one heart."
+        case .coin:
+            return "Coins can be collected in playtest."
+        case .key:
+            return "Keys unlock lock blocks."
+        case .lock:
+            return "Locks block the player until a key is held."
         case .delete:
             return "Drag across tiles to remove them."
         default:
@@ -1706,7 +2088,7 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
 
     var supportsDragPainting: Bool {
         switch self {
-        case .block, .kill, .water, .space, .jumpPad, .delete:
+        case .block, .kill, .water, .space, .jumpPad, .ice, .mud, .conveyorLeft, .conveyorRight, .spring, .checkpoint, .heal, .coin, .key, .lock, .delete:
             return true
         case .moving, .enemy, .start, .end, .move:
             return false
@@ -1725,6 +2107,26 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return "bolt.fill"
         case .jumpPad:
             return "arrow.up.circle.fill"
+        case .ice:
+            return "snowflake"
+        case .mud:
+            return "drop.triangle.fill"
+        case .conveyorLeft:
+            return "arrow.left.square.fill"
+        case .conveyorRight:
+            return "arrow.right.square.fill"
+        case .spring:
+            return "arrow.up.to.line.compact"
+        case .checkpoint:
+            return "flag.fill"
+        case .heal:
+            return "heart.fill"
+        case .coin:
+            return "circle.fill"
+        case .key:
+            return "key.fill"
+        case .lock:
+            return "lock.fill"
         case .moving:
             return "arrow.left.and.right.square.fill"
         case .enemy:
@@ -1752,6 +2154,22 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return Color.gold
         case .jumpPad:
             return Color.mintPop
+        case .ice:
+            return Color(red: 0.55, green: 0.9, blue: 1.0)
+        case .mud:
+            return Color(red: 0.95, green: 0.62, blue: 0.34)
+        case .conveyorLeft, .conveyorRight:
+            return Color(red: 0.62, green: 0.72, blue: 1.0)
+        case .spring:
+            return Color(red: 0.42, green: 1.0, blue: 0.72)
+        case .checkpoint:
+            return Color.sky
+        case .heal:
+            return Color(red: 1.0, green: 0.48, blue: 0.62)
+        case .coin, .key:
+            return Color.gold
+        case .lock:
+            return Color(red: 0.72, green: 0.74, blue: 0.82)
         case .moving:
             return Color.purplePop
         case .enemy:
@@ -1766,6 +2184,53 @@ private enum CreatorTool: String, CaseIterable, Identifiable, Equatable {
             return Color(red: 0.72, green: 0.8, blue: 1.0)
         }
     }
+
+    var featureText: String {
+        switch self {
+        case .block:
+            return "Solid build block"
+        case .kill:
+            return "Touch to respawn"
+        case .water:
+            return "Float and swim"
+        case .space:
+            return "Fast boost zone"
+        case .jumpPad:
+            return "Custom launch power"
+        case .ice:
+            return "Slippery movement"
+        case .mud:
+            return "Slows the player"
+        case .conveyorLeft:
+            return "Pushes left"
+        case .conveyorRight:
+            return "Pushes right"
+        case .spring:
+            return "Bounce pad"
+        case .checkpoint:
+            return "Respawn marker"
+        case .heal:
+            return "Restores health"
+        case .coin:
+            return "Collectible"
+        case .key:
+            return "Unlocks locks"
+        case .lock:
+            return "Requires key"
+        case .moving:
+            return "Purple path block"
+        case .enemy:
+            return "Walking hazard"
+        case .start:
+            return "Player spawn"
+        case .end:
+            return "Goal"
+        case .delete:
+            return "Erase tiles"
+        case .move:
+            return "Pan camera"
+        }
+    }
 }
 
 private struct LevelPlayState {
@@ -1774,7 +2239,11 @@ private struct LevelPlayState {
     var velocityX: CGFloat = 0
     var velocityY: CGFloat = 0
     var facing: CGFloat = 1
-    var health = 3
+    var health = GameConstants.maxHealth
+    var coins = 0
+    var hasKey = false
+    var collectedItems = Set<LevelGridPoint>()
+    var checkpoint: LevelGridPoint?
     var isGrounded = false
     var attackCooldown: CGFloat = 0
     var attackFlash: CGFloat = 0
