@@ -1,5 +1,4 @@
 import SceneKit
-import simd
 import SwiftUI
 import UIKit
 
@@ -105,10 +104,8 @@ struct MagnetSceneView: UIViewRepresentable {
             scene.rootNode.addChildNode(keyNode)
 
             let fill = SCNLight()
-            fill.type = .area
+            fill.type = .omni
             fill.intensity = 460
-            fill.areaType = .rectangle
-            fill.areaExtents = simd_float3(6.0, 4.0, 1.0)
 
             let fillNode = SCNNode()
             fillNode.light = fill
@@ -748,7 +745,7 @@ struct MagnetSceneView: UIViewRepresentable {
             node.position = position
             node.scale = SCNVector3(scale, scale, scale)
             let billboard = SCNBillboardConstraint()
-            billboard.freeAxes = .all
+            billboard.freeAxes = SCNBillboardAxis.all
             node.constraints = [billboard]
             return node
         }
