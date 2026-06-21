@@ -698,10 +698,16 @@ struct MagnetSceneView: UIViewRepresentable {
             return SCNNode(geometry: geometry)
         }
 
-        private func cylinder(radius: CGFloat, height: CGFloat, color: UIColor, metalness: CGFloat = 0.0) -> SCNNode {
+        private func cylinder(
+            radius: CGFloat,
+            height: CGFloat,
+            color: UIColor,
+            metalness: CGFloat = 0.0,
+            roughness: CGFloat = 0.28
+        ) -> SCNNode {
             let geometry = SCNCylinder(radius: radius, height: height)
             geometry.radialSegmentCount = 36
-            geometry.materials = [material(color, metalness: metalness, roughness: 0.28, alpha: alphaComponent(color))]
+            geometry.materials = [material(color, metalness: metalness, roughness: roughness, alpha: alphaComponent(color))]
             return SCNNode(geometry: geometry)
         }
 
