@@ -50,6 +50,7 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     case forward
     case reload
     case tabFinder
+    case tabFolders
     case closeAllTabs
     case compact
     case containedTabs
@@ -72,6 +73,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "Reload / Stop"
         case .tabFinder:
             return "Tab Finder"
+        case .tabFolders:
+            return "Tab Folders"
         case .closeAllTabs:
             return "Close All Tabs"
         case .compact:
@@ -114,6 +117,8 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "arrow.clockwise"
         case .tabFinder:
             return "square.grid.2x2"
+        case .tabFolders:
+            return "folder"
         case .closeAllTabs:
             return "xmark.square"
         case .compact:
@@ -151,6 +156,7 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case forward
     case reload
     case tabFinder
+    case tabFolders
     case closeAllTabs
     case compact
     case downloadCurrent
@@ -192,6 +198,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "Reload"
         case .tabFinder:
             return "Tab Finder"
+        case .tabFolders:
+            return "Tab Folders"
         case .closeAllTabs:
             return "Close All Tabs"
         case .compact:
@@ -241,6 +249,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "arrow.clockwise"
         case .tabFinder:
             return "square.grid.2x2"
+        case .tabFolders:
+            return "folder"
         case .closeAllTabs:
             return "xmark.square"
         case .compact:
@@ -377,6 +387,8 @@ extension BrowserToolbarAction {
             return .reload
         case .tabFinder:
             return .tabFinder
+        case .tabFolders:
+            return .tabFolders
         case .closeAllTabs:
             return .closeAllTabs
         case .compact:
@@ -681,6 +693,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isSettingsPresented = false
     @Published var isHistoryPresented = false
     @Published var isDownloadsPresented = false
+    @Published var isTabFoldersPresented = false
     @Published var isVPNPresented = false
     @Published var isAddOnsPresented = false
     @Published var isAdvancedConfigPresented = false
@@ -944,6 +957,11 @@ final class BrowserViewModel: ObservableObject {
     }
     @Published var history: [BrowserHistoryItem]
     @Published var essentials: [BrowserEssentialItem]
+    @Published var tabFolders: [BrowserTabFolder] {
+        didSet {
+            saveTabFolders()
+        }
+    }
     @Published var downloads: [BrowserDownloadItem]
     @Published var localAIName: String {
         didSet {
@@ -1012,6 +1030,7 @@ final class BrowserViewModel: ObservableObject {
         let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
         let savedHistory = Self.loadHistory(vault: vault)
         let savedEssentials = Self.loadEssentials(vault: vault)
+        let savedTabFolders = Self.loadTabFolders(vault: vault)
         let savedDownloads = Self.loadDownloads(vault: vault)
         let savedVPNProfile = Self.loadVPNProfile(vault: vault)
         let savedBrowserMusicTrack = BrowserMusicTrack(
@@ -1065,6 +1084,7 @@ final class BrowserViewModel: ObservableObject {
         self.customIconImageDataBySlot = Self.sanitizedIconImageData(savedCustomIconImageData)
         self.history = savedHistory
         self.essentials = savedEssentials
+        self.tabFolders = savedTabFolders
         self.downloads = savedDownloads
         self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
@@ -1144,6 +1164,19 @@ final class BrowserViewModel: ObservableObject {
         isPrivateModeEnabled ? [] : containedTabs
     }
 
+    var unfiledNormalTabs: [BrowserTab] {
+        normalTabs.filter { $0.folderID == nil }
+    }
+
+    func tabs(in folder: BrowserTabFolder) -> [BrowserTab] {
+        normalTabs.filter { $0.folderID == folder.id }
+    }
+
+    func folderName(for tab: BrowserTab) -> String? {
+        guard let folderID = tab.folderID else { return nil }
+        return tabFolders.first { $0.id == folderID }?.name
+    }
+
     var closeAllTabsWarningMessage: String {
         let summary = [
             Self.countLabel(normalTabs.count, singular: "normal tab"),
@@ -1177,6 +1210,75 @@ final class BrowserViewModel: ObservableObject {
             select(tab)
         }
         isTabFinderPresented = false
+    }
+
+    @discardableResult
+    func createTabFolder(named rawName: String = "") -> BrowserTabFolder {
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackName = "Folder \(tabFolders.count + 1)"
+        let folder = BrowserTabFolder(name: trimmedName.isEmpty ? fallbackName : trimmedName)
+        tabFolders.append(folder)
+        return folder
+    }
+
+    func createFolderFromSelectedTab() {
+        guard let tab = selectedTab, tab.isPrivate == false else {
+            isTabFoldersPresented = true
+            return
+        }
+
+        createFolder(from: tab)
+    }
+
+    func createFolder(from tab: BrowserTab) {
+        guard tab.isPrivate == false else {
+            isTabFoldersPresented = true
+            return
+        }
+
+        let folder = createTabFolder(named: tab.url?.host ?? "Saved Tabs")
+        assign(tab, to: folder)
+        isTabFoldersPresented = true
+    }
+
+    func assign(_ tab: BrowserTab, to folder: BrowserTabFolder) {
+        guard tab.isPrivate == false,
+              tabFolders.contains(where: { $0.id == folder.id }) else { return }
+        tab.folderID = folder.id
+        persistOpenTabs()
+    }
+
+    func removeFromFolder(_ tab: BrowserTab) {
+        guard tab.isPrivate == false else { return }
+        tab.folderID = nil
+        persistOpenTabs()
+    }
+
+    func rename(_ folder: BrowserTabFolder, to rawName: String) {
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedName.isEmpty == false,
+              let index = tabFolders.firstIndex(where: { $0.id == folder.id }) else { return }
+        tabFolders[index].name = trimmedName
+    }
+
+    func delete(_ folder: BrowserTabFolder) {
+        tabFolders.removeAll { $0.id == folder.id }
+        for tab in normalTabs where tab.folderID == folder.id {
+            tab.folderID = nil
+        }
+        persistOpenTabs()
+    }
+
+    func moveTab(withID sourceID: UUID, before targetID: UUID) {
+        guard sourceID != targetID,
+              let sourceIndex = tabs.firstIndex(where: { $0.id == sourceID }),
+              let targetIndex = tabs.firstIndex(where: { $0.id == targetID }) else { return }
+
+        let movedTab = tabs.remove(at: sourceIndex)
+        let adjustedTargetIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+        tabs.insert(movedTab, at: max(0, min(adjustedTargetIndex, tabs.count)))
+        selectedTabID = movedTab.id
+        persistOpenTabs()
     }
 
     @discardableResult
@@ -1884,6 +1986,8 @@ final class BrowserViewModel: ObservableObject {
             reloadOrStop()
         case .tabFinder:
             isTabFinderPresented = true
+        case .tabFolders:
+            isTabFoldersPresented = true
         case .closeAllTabs:
             requestCloseAllTabs()
         case .compact:
@@ -2185,28 +2289,7 @@ final class BrowserViewModel: ObservableObject {
         isTopSearchBarMoveMode ? topSearchBarDraftY : topSearchBarPositionY
     }
 
-    func resetToDefaults() {
-        chromePlacement = .left
-        areSideTabsCollapsed = false
-        isTopSearchBarEnabled = false
-        topSearchBarPlacement = .top
-        topSearchBarPositionX = 0.5
-        topSearchBarPositionY = 0.0
-        topSearchBarDraftX = topSearchBarPositionX
-        topSearchBarDraftY = topSearchBarPositionY
-        isTopSearchBarMoveMode = false
-        arePageControlsCollapsed = false
-        searchEngine = .duckDuckGo
-        customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
-        newTabOpensSearch = true
-        isBrowserMusicEnabled = false
-        browserMusicTrack = .focus
-        browserMusicVolume = 0.34
-        browserMusicImportMessage = ""
-        moreMenuActionIDs = []
-        resetCustomIcons()
-        localAIName = "Local AI"
-        localAIURLText = ""
+    func resetPrivacySettings() {
         setAdBlockerEnabled(true)
         trackerBlockingLevel = .aggressive
         isScriptBlockingEnabled = false
@@ -2217,14 +2300,62 @@ final class BrowserViewModel: ObservableObject {
         isTrackingParameterStrippingEnabled = true
         isBounceTrackingProtectionEnabled = true
         isWebRTCProtectionEnabled = true
+        saveVPNProfile(.empty)
+    }
+
+    func resetLayoutSettings() {
+        chromePlacement = .left
+        areSideTabsCollapsed = false
+        arePageControlsCollapsed = false
+        isTopSearchBarEnabled = false
+        topSearchBarPlacement = .top
+        topSearchBarPositionX = 0.5
+        topSearchBarPositionY = 0.0
+        topSearchBarDraftX = topSearchBarPositionX
+        topSearchBarDraftY = topSearchBarPositionY
+        isTopSearchBarMoveMode = false
+        moreMenuActionIDs = []
+    }
+
+    func resetBrowsingSettings() {
+        searchEngine = .duckDuckGo
+        customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
+        newTabOpensSearch = true
+        localAIName = "Local AI"
+        localAIURLText = ""
+    }
+
+    func resetGlideMods() {
         setDarkReaderEnabled(false)
         darkReaderTheme = .zenCopy
         isStylusCatppuccinEnabled = false
         isFPSForcerEnabled = false
         forcedFPS = 60
+        isBrowserMusicEnabled = false
+        browserMusicTrack = .focus
+        browserMusicVolume = 0.34
+        browserMusicImportMessage = ""
+        isAddOnsPresented = false
+        isAdvancedConfigPresented = false
+    }
+
+    func resetFolders() {
+        tabFolders = []
+        for tab in normalTabs {
+            tab.folderID = nil
+        }
+        persistOpenTabs()
+    }
+
+    func resetToDefaults() {
+        resetLayoutSettings()
+        resetBrowsingSettings()
+        resetGlideMods()
+        resetPrivacySettings()
+        resetFolders()
+        resetCustomIcons()
         essentials = []
         saveEssentials()
-        saveVPNProfile(.empty)
     }
 
     private func configure(_ tab: BrowserTab) {
@@ -2302,7 +2433,8 @@ final class BrowserViewModel: ObservableObject {
             return PersistedBrowserTab(
                 title: tab.title,
                 urlString: url.absoluteString,
-                isSelected: selectedNormalID.map { $0 == tab.id } ?? false
+                isSelected: selectedNormalID.map { $0 == tab.id } ?? false,
+                folderID: tab.folderID
             )
         }
 
@@ -2315,6 +2447,10 @@ final class BrowserViewModel: ObservableObject {
 
     private func saveEssentials() {
         vault.save(essentials, forKey: Self.StorageKey.essentials)
+    }
+
+    private func saveTabFolders() {
+        vault.save(tabFolders, forKey: Self.StorageKey.tabFolders)
     }
 
     private func updateDownload(_ item: BrowserDownloadItem) {
@@ -2594,6 +2730,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
         vault.save(history, forKey: Self.StorageKey.history)
         vault.save(essentials, forKey: Self.StorageKey.essentials)
+        vault.save(tabFolders, forKey: Self.StorageKey.tabFolders)
         vault.save(downloads, forKey: Self.StorageKey.downloads)
         vault.save(localAIName, forKey: Self.StorageKey.localAIName)
         vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
@@ -2686,8 +2823,10 @@ final class BrowserViewModel: ObservableObject {
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
-                forcedFPS: forcedFPS
+                forcedFPS: forcedFPS,
+                folderID: savedTab.folderID
             )
+            tab.title = savedTab.title
             restoredTabs.append(tab)
             if savedTab.isSelected {
                 selectedID = tab.id
@@ -2729,6 +2868,10 @@ final class BrowserViewModel: ObservableObject {
 
     private static func loadEssentials(vault: SecureBrowserVault) -> [BrowserEssentialItem] {
         vault.load([BrowserEssentialItem].self, forKey: StorageKey.essentials, default: [])
+    }
+
+    private static func loadTabFolders(vault: SecureBrowserVault) -> [BrowserTabFolder] {
+        vault.load([BrowserTabFolder].self, forKey: StorageKey.tabFolders, default: [])
     }
 
     private static func loadVPNProfile(vault: SecureBrowserVault) -> CustomVPNProfile {
@@ -2808,6 +2951,7 @@ final class BrowserViewModel: ObservableObject {
         static let customIconImageDataBySlot = "ZenFireBrowser.customIconImageDataBySlot"
         static let history = "ZenFireBrowser.history"
         static let essentials = "ZenFireBrowser.essentials"
+        static let tabFolders = "ZenFireBrowser.tabFolders"
         static let openTabs = "ZenFireBrowser.openTabs"
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"

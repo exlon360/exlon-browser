@@ -354,6 +354,12 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
+            .sheet(isPresented: $model.isTabFoldersPresented) {
+                BrowserTabFoldersView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
             .sheet(isPresented: $model.isHistoryPresented) {
                 BrowserHistoryView()
                     .environmentObject(model)
@@ -781,27 +787,33 @@ private struct HorizontalChrome: View {
     let edge: VerticalEdge
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                ChromeHeader(compact: false)
-                SearchTrigger(style: .bar)
-                ChromeFooter()
-                TabBarStyleControl(compact: true)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    NewTabActions(layout: .strip)
-
-                    ForEach(model.visibleEssentials) { item in
-                        EssentialPill(item: item, layout: .horizontal)
+        Group {
+            if edge == .top {
+                TraditionalTopChrome()
+            } else {
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        ChromeHeader(compact: false)
+                        SearchTrigger(style: .bar)
+                        ChromeFooter()
+                        TabBarStyleControl(compact: true)
                     }
 
-                    ForEach(model.chromeTabs) { tab in
-                        TabPill(tab: tab, layout: .horizontal)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            NewTabActions(layout: .strip)
+
+                            ForEach(model.visibleEssentials) { item in
+                                EssentialPill(item: item, layout: .horizontal)
+                            }
+
+                            ForEach(model.chromeTabs) { tab in
+                                TabPill(tab: tab, layout: .horizontal)
+                            }
+                        }
+                        .padding(.horizontal, 2)
                     }
                 }
-                .padding(.horizontal, 2)
             }
         }
         .padding(.horizontal, 12)
@@ -814,6 +826,179 @@ private struct HorizontalChrome: View {
                 .fill(theme.color(.border).opacity(0.65))
                 .frame(height: 1)
         }
+    }
+}
+
+private struct TraditionalTopChrome: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                BrandMark()
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(model.chromeTabs) { tab in
+                            TraditionalTopTab(tab: tab)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+
+                Button {
+                    model.openNewTabAndSearch()
+                } label: {
+                    BrowserIcon(slot: .newTab, systemName: "plus", size: 18, weight: .black)
+                        .frame(width: 42, height: 38)
+                        .foregroundStyle(theme.color(.canvas))
+                        .background(ButtonGradientBackground(cornerRadius: 8, prominence: .primary))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Tab")
+
+                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.tabFolders) == false {
+                    TabFoldersToolbarButton()
+                }
+
+                TabBarStyleControl(compact: true)
+            }
+
+            HStack(spacing: 10) {
+                SearchTrigger(style: .bar)
+                ChromeFooter()
+            }
+        }
+    }
+}
+
+private struct TraditionalTopTab: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @ObservedObject var tab: BrowserTab
+    @State private var isTargeted = false
+
+    private var isSelected: Bool {
+        model.selectedTabID == tab.id
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.select(tab)
+            } label: {
+                HStack(spacing: 8) {
+                    BrowserIcon(slot: tab.isPrivate ? .privateTab : .normalTab, systemName: tab.isPrivate ? "theatermasks" : "globe", size: 12, weight: .bold)
+                        .frame(width: 22, height: 22)
+                        .foregroundStyle(tab.isPrivate ? theme.color(.text) : theme.color(.accent))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        PrivateRedactedText(text: tab.title, isPrivate: tab.isPrivate, minWidth: 72, maxWidth: 118, height: 10)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(theme.color(.text))
+                            .lineLimit(1)
+
+                        if let folderName = model.folderName(for: tab) {
+                            Label(folderName, systemImage: "folder")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(theme.color(.mutedText))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                model.close(tab)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 22, height: 22)
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close tab")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .frame(width: 182, height: 40)
+        .background(topTabBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(isSelected ? theme.color(.createTab) : Color.clear)
+                .frame(height: 2)
+                .padding(.horizontal, 10)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isTargeted ? theme.color(.createTab).opacity(0.95) : theme.color(.border).opacity(isSelected ? 0.72 : 0.38), lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .draggable(tab.id.uuidString)
+        .dropDestination(for: String.self, action: { items, _ in
+            guard let rawID = items.first,
+                  let sourceID = UUID(uuidString: rawID) else { return false }
+            model.moveTab(withID: sourceID, before: tab.id)
+            return true
+        }, isTargeted: { targeted in
+            isTargeted = targeted
+        })
+        .contextMenu {
+            if tab.isPrivate == false {
+                Button {
+                    model.addEssential(from: tab)
+                } label: {
+                    Label("Add to Essentials", systemImage: "sparkle")
+                }
+
+                if model.tabFolders.isEmpty == false {
+                    Menu {
+                        ForEach(model.tabFolders) { folder in
+                            Button {
+                                model.assign(tab, to: folder)
+                            } label: {
+                                Label(folder.name, systemImage: "folder")
+                            }
+                        }
+                    } label: {
+                        Label("Move to Folder", systemImage: "folder")
+                    }
+                }
+
+                Button {
+                    model.createFolder(from: tab)
+                } label: {
+                    Label("New Folder from Tab", systemImage: "folder.badge.plus")
+                }
+
+                if tab.folderID != nil {
+                    Button {
+                        model.removeFromFolder(tab)
+                    } label: {
+                        Label("Remove from Folder", systemImage: "folder.badge.minus")
+                    }
+                }
+            }
+
+            Button(role: .destructive) {
+                model.close(tab)
+            } label: {
+                Label("Close Tab", systemImage: "xmark")
+            }
+        }
+    }
+
+    private var topTabBackground: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill((isSelected ? theme.color(.field) : theme.color(.surface)).opacity(isSelected ? 0.92 : 0.54))
+            }
     }
 }
 
@@ -851,6 +1036,10 @@ private struct FloatingChrome: View {
                         ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
                             model.isTabFinderPresented = true
                         }
+                    }
+
+                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.tabFolders) == false {
+                        TabFoldersToolbarButton()
                     }
 
                     if model.isInMoreMenu(.closeAllTabs) == false {
@@ -981,6 +1170,10 @@ private struct ChromeFooter: View {
                     ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
                         model.isTabFinderPresented = true
                     }
+                }
+
+                if model.chromePlacement != .top && model.isPrivateModeEnabled == false && model.isInMoreMenu(.tabFolders) == false {
+                    TabFoldersToolbarButton()
                 }
 
                 if model.isInMoreMenu(.closeAllTabs) == false {
@@ -1963,6 +2156,16 @@ private struct CompactChromeButton: View {
     }
 }
 
+private struct TabFoldersToolbarButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+
+    var body: some View {
+        ChromeButton(slot: .tabFolders, symbol: "folder", label: "Tab Folders") {
+            model.isTabFoldersPresented = true
+        }
+    }
+}
+
 private struct BrowserMusicToolbarButton: View {
     @EnvironmentObject private var model: BrowserViewModel
 
@@ -2164,7 +2367,7 @@ private struct MoreTabButton: View {
             .filter { $0 != .closeAllTabs }
             .filter { action in
                 guard model.isPrivateModeEnabled else { return true }
-                return [.containedTabs, .downloadCurrent, .history, .downloads].contains(action) == false
+                return [.tabFolders, .containedTabs, .downloadCurrent, .history, .downloads].contains(action) == false
             }
     }
 
@@ -2860,6 +3063,179 @@ private struct BrowserTabFinderView: View {
             tab.title.lowercased().contains(trimmedQuery) ||
             (tab.url?.absoluteString.lowercased().contains(trimmedQuery) ?? false)
         }
+    }
+}
+
+private struct BrowserTabFoldersView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var newFolderName = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Create") {
+                    HStack(spacing: 10) {
+                        TextField("Folder name", text: $newFolderName)
+                            .textInputAutocapitalization(.words)
+
+                        Button {
+                            createFolder()
+                        } label: {
+                            Label("Create", systemImage: "folder.badge.plus")
+                        }
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
+                    }
+                }
+
+                if let currentTab = model.selectedTab, currentTab.isPrivate == false {
+                    Section("Current Tab") {
+                        FolderTabRow(tab: currentTab, isSelected: true) {
+                            dismiss()
+                        }
+
+                        if model.tabFolders.isEmpty {
+                            Button {
+                                model.createFolder(from: currentTab)
+                            } label: {
+                                Label("Create Folder from Current Tab", systemImage: "folder.badge.plus")
+                            }
+                        } else {
+                            ForEach(model.tabFolders) { folder in
+                                Button {
+                                    model.assign(currentTab, to: folder)
+                                } label: {
+                                    Label("Move to \(folder.name)", systemImage: "folder")
+                                }
+                            }
+                        }
+
+                        if currentTab.folderID != nil {
+                            Button {
+                                model.removeFromFolder(currentTab)
+                            } label: {
+                                Label("Remove from Folder", systemImage: "folder.badge.minus")
+                            }
+                        }
+                    }
+                }
+
+                if model.unfiledNormalTabs.isEmpty == false {
+                    Section("Unfiled Tabs") {
+                        ForEach(model.unfiledNormalTabs) { tab in
+                            FolderTabRow(tab: tab, isSelected: model.selectedTabID == tab.id) {
+                                model.select(tab)
+                                dismiss()
+                            }
+                        }
+                    }
+                }
+
+                Section("Folders") {
+                    if model.tabFolders.isEmpty {
+                        Label("No folders yet", systemImage: "folder")
+                            .foregroundStyle(theme.color(.mutedText))
+                    } else {
+                        ForEach(model.tabFolders) { folder in
+                            DisclosureGroup {
+                                let tabs = model.tabs(in: folder)
+
+                                if tabs.isEmpty {
+                                    Text("Empty")
+                                        .foregroundStyle(theme.color(.mutedText))
+                                } else {
+                                    ForEach(tabs) { tab in
+                                        FolderTabRow(tab: tab, isSelected: model.selectedTabID == tab.id) {
+                                            model.select(tab)
+                                            dismiss()
+                                        }
+                                        .contextMenu {
+                                            Button {
+                                                model.removeFromFolder(tab)
+                                            } label: {
+                                                Label("Remove from Folder", systemImage: "folder.badge.minus")
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Button(role: .destructive) {
+                                    model.delete(folder)
+                                } label: {
+                                    Label("Delete Folder", systemImage: "trash")
+                                }
+                            } label: {
+                                Label("\(folder.name) (\(model.tabs(in: folder).count))", systemImage: "folder")
+                            }
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Tab Folders")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        model.resetFolders()
+                    } label: {
+                        Label("Reset Folders", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(model.tabFolders.isEmpty && model.normalTabs.allSatisfy { $0.folderID == nil })
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func createFolder() {
+        model.createTabFolder(named: newFolderName)
+        newFolderName = ""
+    }
+}
+
+private struct FolderTabRow: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    @ObservedObject var tab: BrowserTab
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: tab.folderID == nil ? "globe" : "folder.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .frame(width: 32, height: 32)
+                    .foregroundStyle(theme.color(.accent))
+                    .background(ButtonGradientBackground(cornerRadius: 7, prominence: .quiet))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tab.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                    Text(BrowserTab.isStartPageURL(tab.url) ? "Start Page" : (tab.url?.host ?? "Tab"))
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(theme.color(.createTab))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -3750,6 +4126,11 @@ private struct TabPill: View {
                                 .font(.caption2)
                                 .foregroundStyle(theme.color(.mutedText))
                                 .lineLimit(1)
+                        } else if let folderName = model.folderName(for: tab) {
+                            Label(folderName, systemImage: "folder")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(theme.color(.mutedText))
+                                .lineLimit(1)
                         }
                     }
 
@@ -3789,6 +4170,34 @@ private struct TabPill: View {
                     model.addEssential(from: tab)
                 } label: {
                     Label("Add to Essentials", systemImage: "sparkle")
+                }
+
+                if model.tabFolders.isEmpty == false {
+                    Menu {
+                        ForEach(model.tabFolders) { folder in
+                            Button {
+                                model.assign(tab, to: folder)
+                            } label: {
+                                Label(folder.name, systemImage: "folder")
+                            }
+                        }
+                    } label: {
+                        Label("Move to Folder", systemImage: "folder")
+                    }
+                }
+
+                Button {
+                    model.createFolder(from: tab)
+                } label: {
+                    Label("New Folder from Tab", systemImage: "folder.badge.plus")
+                }
+
+                if tab.folderID != nil {
+                    Button {
+                        model.removeFromFolder(tab)
+                    } label: {
+                        Label("Remove from Folder", systemImage: "folder.badge.minus")
+                    }
                 }
             }
 
@@ -4228,6 +4637,12 @@ private struct BrowserSettingsView: View {
                         }
                     }
 
+                    Button("Tab Folders") {
+                        presentAfterDismiss {
+                            model.isTabFoldersPresented = true
+                        }
+                    }
+
                     Button("Custom VPN") {
                         presentAfterDismiss {
                             model.isVPNPresented = true
@@ -4330,6 +4745,49 @@ private struct BrowserSettingsView: View {
                     }
                     } label: {
                         Label("Browser Music", systemImage: "music.note")
+                    }
+                }
+
+                Section {
+                    DisclosureGroup {
+                    Toggle("Dark Reader", isOn: darkReaderBinding)
+                    Toggle("Stylus Catppuccin", isOn: stylusCatppuccinBinding)
+                    Toggle("FPS forcer", isOn: fpsForcerBinding)
+                    Toggle("Browser Music", isOn: $model.isBrowserMusicEnabled)
+                    Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
+
+                    Button {
+                        model.setDarkReaderEnabled(true)
+                        model.setDarkReaderTheme(.catppuccinMochaDark)
+                    } label: {
+                        Label("Catppuccin Dark Reader", systemImage: BrowserDarkReaderTheme.catppuccinMochaDark.symbolName)
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            model.isTabFoldersPresented = true
+                        }
+                    } label: {
+                        Label("Tab Folders", systemImage: "folder")
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            model.isAdvancedConfigPresented = true
+                        }
+                    } label: {
+                        Label("Config Mods", systemImage: "curlybraces")
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            model.isCustomIconsPresented = true
+                        }
+                    } label: {
+                        Label("Icon Mods", systemImage: "app.badge")
+                    }
+                    } label: {
+                        Label("Glide Mods", systemImage: "sparkles.rectangle.stack")
                     }
                 }
 
@@ -4603,7 +5061,49 @@ private struct BrowserSettingsView: View {
 
                 Section {
                     DisclosureGroup {
-                    Button("Reset to default") {
+                    Button {
+                        model.resetPrivacySettings()
+                    } label: {
+                        Label("Reset Privacy", systemImage: "hand.raised")
+                    }
+
+                    Button {
+                        theme.resetToZenDefaults()
+                    } label: {
+                        Label("Reset Colors and Background", systemImage: "eyedropper")
+                    }
+
+                    Button {
+                        model.resetLayoutSettings()
+                    } label: {
+                        Label("Reset Layout", systemImage: "rectangle.split.2x1")
+                    }
+
+                    Button {
+                        model.resetBrowsingSettings()
+                    } label: {
+                        Label("Reset Browsing", systemImage: "safari")
+                    }
+
+                    Button {
+                        model.resetGlideMods()
+                    } label: {
+                        Label("Reset Glide Mods", systemImage: "sparkles.rectangle.stack")
+                    }
+
+                    Button {
+                        model.resetFolders()
+                    } label: {
+                        Label("Reset Folders", systemImage: "folder.badge.minus")
+                    }
+
+                    Button {
+                        model.resetCustomIcons()
+                    } label: {
+                        Label("Reset Icons", systemImage: "app.badge")
+                    }
+
+                    Button("Reset Everything") {
                         model.resetToDefaults()
                         theme.resetToZenDefaults()
                     }

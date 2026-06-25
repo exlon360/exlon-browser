@@ -38,6 +38,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var isWebRTCProtectionEnabled: Bool
     @Published var isFPSForcerEnabled: Bool
     @Published var forcedFPS: Double
+    @Published var folderID: UUID?
 
     var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
     var onDownloadUpdated: (@MainActor (BrowserDownloadItem) -> Void)?
@@ -74,7 +75,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         isBounceTrackingProtectionEnabled: Bool = true,
         isWebRTCProtectionEnabled: Bool = true,
         isFPSForcerEnabled: Bool = false,
-        forcedFPS: Double = 60
+        forcedFPS: Double = 60,
+        folderID: UUID? = nil
     ) {
         self.isPrivate = isPrivate
         self.isContainedBrowser = isContainedBrowser
@@ -97,6 +99,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.navigationBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
+        self.folderID = folderID
         self.title = isContainedBrowser ? "Contained Browser" : (isPrivate ? "Private Start" : "Start")
         self.url = startURL
         self.addressText = startURL.absoluteString
