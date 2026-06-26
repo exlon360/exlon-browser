@@ -215,6 +215,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         applyPageStyleOverrides(forceCleanup: true)
     }
 
+    func setWebInspectorEnabled(_ enabled: Bool) {
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = enabled
+        }
+    }
+
     func setAdBlockerEnabled(_ enabled: Bool, reloadAfterChange: Bool = true) {
         isAdBlockerEnabled = enabled
         rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)

@@ -698,6 +698,27 @@ final class BrowserViewModel: ObservableObject {
     @Published var isAddOnsPresented = false
     @Published var isAdvancedConfigPresented = false
     @Published var isCustomIconsPresented = false
+    @Published var isDeveloperModeEnabled: Bool {
+        didSet {
+            vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
+            if isDeveloperModeEnabled == false {
+                isWebInspectorEnabled = false
+            }
+            applyDeveloperOptionsToTabs()
+        }
+    }
+    @Published var isWebInspectorEnabled: Bool {
+        didSet {
+            vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
+            applyDeveloperOptionsToTabs()
+        }
+    }
+    @Published var devCustomEngineIdentifier: String {
+        didSet {
+            vault.save(devCustomEngineIdentifier, forKey: Self.StorageKey.devCustomEngineIdentifier)
+        }
+    }
+    @Published var devModeStatusMessage = ""
     @Published var isPrivateModeEnabled = false
     @Published var isPrivateModeAuthPresented = false
     @Published var isCloseAllTabsWarningPresented = false
@@ -1028,6 +1049,9 @@ final class BrowserViewModel: ObservableObject {
         let savedMoreMenuActionIDs = vault.load(Set<String>.self, forKey: Self.StorageKey.moreMenuActionIDs, default: [])
         let savedCustomIconNames = vault.load([String: String].self, forKey: Self.StorageKey.customIconNames, default: [:])
         let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
+        let developerModeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.developerModeEnabled, default: false)
+        let webInspectorEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.webInspectorEnabled, default: false)
+        let savedDevCustomEngineIdentifier = vault.load(String.self, forKey: Self.StorageKey.devCustomEngineIdentifier, default: "")
         let savedHistory = Self.loadHistory(vault: vault)
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedTabFolders = Self.loadTabFolders(vault: vault)
@@ -1074,6 +1098,9 @@ final class BrowserViewModel: ObservableObject {
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.moreMenuActionIDs = savedMoreMenuActionIDs
+        self.isDeveloperModeEnabled = developerModeEnabled
+        self.isWebInspectorEnabled = webInspectorEnabled
+        self.devCustomEngineIdentifier = savedDevCustomEngineIdentifier
         self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
         self.topSearchBarPositionX = savedTopSearchBarPositionX
@@ -1117,6 +1144,7 @@ final class BrowserViewModel: ObservableObject {
         for tab in tabs {
             configure(tab)
         }
+        applyDeveloperOptionsToTabs()
         migrateLoadedStateToEncryptedVault()
         updateBrowserMusicPlayer()
     }
@@ -1305,6 +1333,7 @@ final class BrowserViewModel: ObservableObject {
             forcedFPS: forcedFPS
         )
         configure(tab)
+        applyDeveloperOptions(to: tab)
         tabs.append(tab)
         selectedTabID = tab.id
         persistOpenTabs()
@@ -1350,6 +1379,7 @@ final class BrowserViewModel: ObservableObject {
             forcedFPS: forcedFPS
         )
         configureContained(tab)
+        applyDeveloperOptions(to: tab)
         containedTabs.append(tab)
         selectedContainedTabID = tab.id
         isContainedBrowserPresented = true
@@ -1581,6 +1611,28 @@ final class BrowserViewModel: ObservableObject {
             volume: browserMusicVolume,
             importedAudioURL: importedBrowserMusicURL
         )
+    }
+
+    func setDeveloperModeEnabled(_ enabled: Bool) {
+        isDeveloperModeEnabled = enabled
+        if enabled {
+            devModeStatusMessage = "Dev Mode enabled. Debug options can make pages slower or harder to use."
+        } else {
+            devModeStatusMessage = ""
+            devCustomEngineIdentifier = ""
+        }
+    }
+
+    func setWebInspectorEnabled(_ enabled: Bool) {
+        guard isDeveloperModeEnabled else {
+            isWebInspectorEnabled = false
+            return
+        }
+        isWebInspectorEnabled = enabled
+    }
+
+    func requestWKEscapeMode() {
+        devModeStatusMessage = "Escape WKWebKit is locked in this build. iOS requires BrowserEngineKit, Apple's browser-engine entitlement, and a bundled alternative engine process before Glide can run outside WKWebView rules."
     }
 
     private var importedBrowserMusicURL: URL? {
@@ -2335,6 +2387,7 @@ final class BrowserViewModel: ObservableObject {
         browserMusicTrack = .focus
         browserMusicVolume = 0.34
         browserMusicImportMessage = ""
+        setDeveloperModeEnabled(false)
         isAddOnsPresented = false
         isAdvancedConfigPresented = false
     }
@@ -2393,6 +2446,19 @@ final class BrowserViewModel: ObservableObject {
         tab.onFilePickerRequested = { [weak self] allowsMultipleSelection, completion in
             self?.requestWebFileImport(allowsMultipleSelection: allowsMultipleSelection, completion: completion)
         }
+    }
+
+    private func applyDeveloperOptionsToTabs() {
+        for tab in tabs {
+            applyDeveloperOptions(to: tab)
+        }
+        for tab in containedTabs {
+            applyDeveloperOptions(to: tab)
+        }
+    }
+
+    private func applyDeveloperOptions(to tab: BrowserTab) {
+        tab.setWebInspectorEnabled(isDeveloperModeEnabled && isWebInspectorEnabled)
     }
 
     private func recordVisit(from tab: BrowserTab) {
@@ -2726,6 +2792,9 @@ final class BrowserViewModel: ObservableObject {
         vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
+        vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
+        vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
+        vault.save(devCustomEngineIdentifier, forKey: Self.StorageKey.devCustomEngineIdentifier)
         vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
         vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
         vault.save(history, forKey: Self.StorageKey.history)
@@ -2947,6 +3016,9 @@ final class BrowserViewModel: ObservableObject {
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
+        static let developerModeEnabled = "ZenFireBrowser.developerModeEnabled"
+        static let webInspectorEnabled = "ZenFireBrowser.webInspectorEnabled"
+        static let devCustomEngineIdentifier = "ZenFireBrowser.devCustomEngineIdentifier"
         static let customIconNames = "ZenFireBrowser.customIconNames"
         static let customIconImageDataBySlot = "ZenFireBrowser.customIconImageDataBySlot"
         static let history = "ZenFireBrowser.history"

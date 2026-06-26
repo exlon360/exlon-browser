@@ -4515,6 +4515,7 @@ private struct BrowserSettingsView: View {
     @State private var isBackgroundImporterPresented = false
     @State private var isThemeImporterPresented = false
     @State private var isBrowserMusicImporterPresented = false
+    @State private var isDeveloperModeWarningPresented = false
     @State private var themeExportItem: ThemeExportItem?
     @State private var themeImportMessage = ""
     @State private var savedThemeName = ""
@@ -4788,6 +4789,40 @@ private struct BrowserSettingsView: View {
                     }
                     } label: {
                         Label("Glide Mods", systemImage: "sparkles.rectangle.stack")
+                    }
+                }
+
+                Section {
+                    DisclosureGroup {
+                    Toggle("Dev Mode", isOn: developerModeBinding)
+
+                    if model.isDeveloperModeEnabled {
+                        Toggle("Web Inspector", isOn: webInspectorBinding)
+
+                        LabeledContent("Engine") {
+                            Text("WKWebView")
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        TextField("Alternative engine bundle ID", text: $model.devCustomEngineIdentifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .disabled(true)
+
+                        Button {
+                            model.requestWKEscapeMode()
+                        } label: {
+                            Label("Escape WKWebKit", systemImage: "escape")
+                        }
+
+                        if model.devModeStatusMessage.isEmpty == false {
+                            Label(model.devModeStatusMessage, systemImage: "exclamationmark.triangle")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+                    }
+                    } label: {
+                        Label("Dev Mode", systemImage: "hammer")
                     }
                 }
 
@@ -5153,6 +5188,14 @@ private struct BrowserSettingsView: View {
                 }
                 .ignoresSafeArea()
             }
+            .alert("Warning: Dev Mode", isPresented: $isDeveloperModeWarningPresented) {
+                Button("Cancel", role: .cancel) {}
+                Button("Enable Dev Mode") {
+                    model.setDeveloperModeEnabled(true)
+                }
+            } message: {
+                Text("This is Dev Mode. This can make your browsing experience lag and harder to use.")
+            }
         }
     }
 
@@ -5181,6 +5224,26 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isAdBlockerEnabled },
             set: { model.setAdBlockerEnabled($0) }
+        )
+    }
+
+    private var developerModeBinding: Binding<Bool> {
+        Binding(
+            get: { model.isDeveloperModeEnabled },
+            set: { enabled in
+                if enabled {
+                    isDeveloperModeWarningPresented = true
+                } else {
+                    model.setDeveloperModeEnabled(false)
+                }
+            }
+        )
+    }
+
+    private var webInspectorBinding: Binding<Bool> {
+        Binding(
+            get: { model.isWebInspectorEnabled },
+            set: { model.setWebInspectorEnabled($0) }
         )
     }
 
