@@ -427,4 +427,5 @@ struct PersistedBrowserTab: Codable {
     var urlString: String
     var isSelected: Bool
     var folderID: UUID?
+    var usesDevWebKitProfile: Bool?
 }

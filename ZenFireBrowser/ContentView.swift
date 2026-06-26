@@ -899,7 +899,12 @@ private struct TraditionalTopTab: View {
                             .foregroundStyle(theme.color(.text))
                             .lineLimit(1)
 
-                        if let folderName = model.folderName(for: tab) {
+                        if tab.usesDevWebKitProfile {
+                            Label("Dev WebKit", systemImage: "hammer")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(theme.color(.createTab))
+                                .lineLimit(1)
+                        } else if let folderName = model.folderName(for: tab) {
                             Label(folderName, systemImage: "folder")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(theme.color(.mutedText))
@@ -4122,10 +4127,17 @@ private struct TabPill: View {
                             .lineLimit(1)
 
                         if layout == .vertical {
-                            PrivateRedactedText(text: subtitle, isPrivate: tab.isPrivate, minWidth: 64, maxWidth: 130, height: 8)
-                                .font(.caption2)
-                                .foregroundStyle(theme.color(.mutedText))
-                                .lineLimit(1)
+                            HStack(spacing: 5) {
+                                if tab.usesDevWebKitProfile {
+                                    Image(systemName: "hammer")
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundStyle(theme.color(.createTab))
+                                }
+                                PrivateRedactedText(text: subtitle, isPrivate: tab.isPrivate, minWidth: 64, maxWidth: 130, height: 8)
+                                    .font(.caption2)
+                                    .foregroundStyle(theme.color(.mutedText))
+                                    .lineLimit(1)
+                            }
                         } else if let folderName = model.folderName(for: tab) {
                             Label(folderName, systemImage: "folder")
                                 .font(.system(size: 9, weight: .bold))
@@ -4798,9 +4810,15 @@ private struct BrowserSettingsView: View {
 
                     if model.isDeveloperModeEnabled {
                         Toggle("Web Inspector", isOn: webInspectorBinding)
+                        Toggle("Use Dev WebKit for new tabs", isOn: devWebKitBinding)
 
                         LabeledContent("Engine") {
-                            Text("WKWebView")
+                            Text(model.isDevWebKitEnabled ? "Dev WebKit" : "WKWebView")
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        LabeledContent("Shields") {
+                            Text(model.isAdBlockerEnabled ? "Ad blocker active" : "Ad blocker off")
                                 .foregroundStyle(theme.color(.mutedText))
                         }
 
@@ -4810,9 +4828,15 @@ private struct BrowserSettingsView: View {
                             .disabled(true)
 
                         Button {
+                            model.openDevWebKitTab()
+                        } label: {
+                            Label("New Dev WebKit Tab", systemImage: "hammer")
+                        }
+
+                        Button {
                             model.requestWKEscapeMode()
                         } label: {
-                            Label("Escape WKWebKit", systemImage: "escape")
+                            Label("Engine Escape Notes", systemImage: "escape")
                         }
 
                         if model.devModeStatusMessage.isEmpty == false {
@@ -5244,6 +5268,13 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isWebInspectorEnabled },
             set: { model.setWebInspectorEnabled($0) }
+        )
+    }
+
+    private var devWebKitBinding: Binding<Bool> {
+        Binding(
+            get: { model.isDevWebKitEnabled },
+            set: { model.setDevWebKitEnabled($0) }
         )
     }
 

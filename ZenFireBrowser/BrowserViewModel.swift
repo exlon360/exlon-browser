@@ -703,6 +703,7 @@ final class BrowserViewModel: ObservableObject {
             vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
             if isDeveloperModeEnabled == false {
                 isWebInspectorEnabled = false
+                isDevWebKitEnabled = false
             }
             applyDeveloperOptionsToTabs()
         }
@@ -711,6 +712,14 @@ final class BrowserViewModel: ObservableObject {
         didSet {
             vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
             applyDeveloperOptionsToTabs()
+        }
+    }
+    @Published var isDevWebKitEnabled: Bool {
+        didSet {
+            vault.save(isDevWebKitEnabled, forKey: Self.StorageKey.devWebKitEnabled)
+            if isDevWebKitEnabled {
+                devCustomEngineIdentifier = "com.exlon360.glide.devwebkit"
+            }
         }
     }
     @Published var devCustomEngineIdentifier: String {
@@ -1051,6 +1060,7 @@ final class BrowserViewModel: ObservableObject {
         let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
         let developerModeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.developerModeEnabled, default: false)
         let webInspectorEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.webInspectorEnabled, default: false)
+        let devWebKitEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.devWebKitEnabled, default: false)
         let savedDevCustomEngineIdentifier = vault.load(String.self, forKey: Self.StorageKey.devCustomEngineIdentifier, default: "")
         let savedHistory = Self.loadHistory(vault: vault)
         let savedEssentials = Self.loadEssentials(vault: vault)
@@ -1076,7 +1086,8 @@ final class BrowserViewModel: ObservableObject {
             isPopupBlockingEnabled: popupBlockingEnabled,
             isTrackingParameterStrippingEnabled: trackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: bounceTrackingProtectionEnabled,
-            isWebRTCProtectionEnabled: webRTCProtectionEnabled
+            isWebRTCProtectionEnabled: webRTCProtectionEnabled,
+            isDeveloperModeEnabled: developerModeEnabled
         )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
@@ -1100,6 +1111,7 @@ final class BrowserViewModel: ObservableObject {
         self.moreMenuActionIDs = savedMoreMenuActionIDs
         self.isDeveloperModeEnabled = developerModeEnabled
         self.isWebInspectorEnabled = webInspectorEnabled
+        self.isDevWebKitEnabled = devWebKitEnabled
         self.devCustomEngineIdentifier = savedDevCustomEngineIdentifier
         self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
@@ -1310,8 +1322,9 @@ final class BrowserViewModel: ObservableObject {
     }
 
     @discardableResult
-    func openTab(startURL: URL = BrowserDefaults.homeURL, private isPrivate: Bool = false) -> BrowserTab {
+    func openTab(startURL: URL = BrowserDefaults.homeURL, private isPrivate: Bool = false, devWebKit: Bool? = nil) -> BrowserTab {
         let shouldOpenPrivate = isPrivate || isPrivateModeEnabled
+        let shouldUseDevWebKit = isDeveloperModeEnabled && shouldOpenPrivate == false && (devWebKit ?? isDevWebKitEnabled)
         let tab = BrowserTab(
             startURL: startURL,
             isPrivate: shouldOpenPrivate,
@@ -1330,7 +1343,8 @@ final class BrowserViewModel: ObservableObject {
             isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
             isFPSForcerEnabled: isFPSForcerEnabled,
-            forcedFPS: forcedFPS
+            forcedFPS: forcedFPS,
+            webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configure(tab)
         applyDeveloperOptions(to: tab)
@@ -1347,6 +1361,19 @@ final class BrowserViewModel: ObservableObject {
         isFloatingSearchPresented = newTabOpensSearch
     }
 
+    func openDevWebKitTab() {
+        guard isDeveloperModeEnabled else {
+            devModeStatusMessage = "Turn on Dev Mode before creating a Dev WebKit tab."
+            return
+        }
+
+        let tab = openTab(devWebKit: true)
+        floatingSearchText = tab.addressText
+        shouldSelectFloatingSearchText = true
+        isFloatingSearchPresented = newTabOpensSearch
+        devModeStatusMessage = "Opened a Dev WebKit tab. Shields and the ad blocker are still active."
+    }
+
     func openPrivateTab() {
         guard isPrivateModeEnabled else {
             requestPrivateModeToggle()
@@ -1358,6 +1385,7 @@ final class BrowserViewModel: ObservableObject {
 
     @discardableResult
     func openContainedTab(startURL: URL = BrowserDefaults.containedBrowserStartURL) -> BrowserTab {
+        let shouldUseDevWebKit = isDeveloperModeEnabled && isDevWebKitEnabled
         let tab = BrowserTab(
             startURL: startURL,
             usesPersistentStorage: false,
@@ -1376,7 +1404,8 @@ final class BrowserViewModel: ObservableObject {
             isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
             isFPSForcerEnabled: isFPSForcerEnabled,
-            forcedFPS: forcedFPS
+            forcedFPS: forcedFPS,
+            webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configureContained(tab)
         applyDeveloperOptions(to: tab)
@@ -1631,8 +1660,19 @@ final class BrowserViewModel: ObservableObject {
         isWebInspectorEnabled = enabled
     }
 
+    func setDevWebKitEnabled(_ enabled: Bool) {
+        guard isDeveloperModeEnabled else {
+            isDevWebKitEnabled = false
+            return
+        }
+        isDevWebKitEnabled = enabled
+        devModeStatusMessage = enabled
+            ? "Dev WebKit will be used for new tabs. Shields and the ad blocker stay active."
+            : "New tabs will use the standard WKWebView profile."
+    }
+
     func requestWKEscapeMode() {
-        devModeStatusMessage = "Escape WKWebKit is locked in this build. iOS requires BrowserEngineKit, Apple's browser-engine entitlement, and a bundled alternative engine process before Glide can run outside WKWebView rules."
+        devModeStatusMessage = "Dev WebKit is active inside the IPA as a separate WKWebView profile. Full non-WK engine escape still requires BrowserEngineKit, Apple's browser-engine entitlement, and a bundled alternative engine process."
     }
 
     private var importedBrowserMusicURL: URL? {
@@ -2500,7 +2540,8 @@ final class BrowserViewModel: ObservableObject {
                 title: tab.title,
                 urlString: url.absoluteString,
                 isSelected: selectedNormalID.map { $0 == tab.id } ?? false,
-                folderID: tab.folderID
+                folderID: tab.folderID,
+                usesDevWebKitProfile: tab.usesDevWebKitProfile ? true : nil
             )
         }
 
@@ -2794,6 +2835,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
         vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
         vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
+        vault.save(isDevWebKitEnabled, forKey: Self.StorageKey.devWebKitEnabled)
         vault.save(devCustomEngineIdentifier, forKey: Self.StorageKey.devCustomEngineIdentifier)
         vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
         vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
@@ -2845,7 +2887,8 @@ final class BrowserViewModel: ObservableObject {
         isPopupBlockingEnabled: Bool,
         isTrackingParameterStrippingEnabled: Bool,
         isBounceTrackingProtectionEnabled: Bool,
-        isWebRTCProtectionEnabled: Bool
+        isWebRTCProtectionEnabled: Bool,
+        isDeveloperModeEnabled: Bool
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
@@ -2875,6 +2918,7 @@ final class BrowserViewModel: ObservableObject {
 
         for savedTab in savedTabs {
             guard let url = URL(string: savedTab.urlString) else { continue }
+            let usesDevWebKitProfile = isDeveloperModeEnabled && savedTab.usesDevWebKitProfile == true
             let tab = BrowserTab(
                 startURL: url,
                 usesPersistentStorage: true,
@@ -2893,7 +2937,8 @@ final class BrowserViewModel: ObservableObject {
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
-                folderID: savedTab.folderID
+                folderID: savedTab.folderID,
+                webKitProfile: usesDevWebKitProfile ? .dev : .standard
             )
             tab.title = savedTab.title
             restoredTabs.append(tab)
@@ -3018,6 +3063,7 @@ final class BrowserViewModel: ObservableObject {
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
         static let developerModeEnabled = "ZenFireBrowser.developerModeEnabled"
         static let webInspectorEnabled = "ZenFireBrowser.webInspectorEnabled"
+        static let devWebKitEnabled = "ZenFireBrowser.devWebKitEnabled"
         static let devCustomEngineIdentifier = "ZenFireBrowser.devCustomEngineIdentifier"
         static let customIconNames = "ZenFireBrowser.customIconNames"
         static let customIconImageDataBySlot = "ZenFireBrowser.customIconImageDataBySlot"

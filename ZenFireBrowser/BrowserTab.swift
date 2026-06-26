@@ -9,11 +9,26 @@ enum BrowserDefaults {
     static let containedBrowserStartURL = URL(string: "https://lite.duckduckgo.com/lite/")!
 }
 
+enum BrowserWebKitProfile: String, Codable {
+    case standard
+    case dev
+
+    var title: String {
+        switch self {
+        case .standard:
+            return "WKWebView"
+        case .dev:
+            return "Dev WebKit"
+        }
+    }
+}
+
 @MainActor
 final class BrowserTab: NSObject, Identifiable, ObservableObject {
     let id = UUID()
     let isPrivate: Bool
     let isContainedBrowser: Bool
+    let webKitProfile: BrowserWebKitProfile
     let webView: WKWebView
 
     @Published var title: String
@@ -49,6 +64,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private var observations: [NSKeyValueObservation] = []
     private var activeDownloads: [ObjectIdentifier: BrowserDownloadItem] = [:]
     private static let sharedProcessPool = WKProcessPool()
+    private static let devProcessPool = WKProcessPool()
     private static let customPanMinimumDistance: CGFloat = 172
     private static let customPanDirectionRatio: CGFloat = 1.6
     private nonisolated(unsafe) var navigationScriptBlockingEnabled: Bool
@@ -76,10 +92,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         isWebRTCProtectionEnabled: Bool = true,
         isFPSForcerEnabled: Bool = false,
         forcedFPS: Double = 60,
-        folderID: UUID? = nil
+        folderID: UUID? = nil,
+        webKitProfile: BrowserWebKitProfile = .standard
     ) {
         self.isPrivate = isPrivate
         self.isContainedBrowser = isContainedBrowser
+        self.webKitProfile = webKitProfile
         self.isDarkReaderEnabled = isDarkReaderEnabled
         self.darkReaderTheme = darkReaderTheme
         self.isStylusCatppuccinEnabled = isStylusCatppuccinEnabled
@@ -100,14 +118,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
         self.folderID = folderID
-        self.title = isContainedBrowser ? "Contained Browser" : (isPrivate ? "Private Start" : "Start")
+        self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
         self.url = startURL
         self.addressText = startURL.absoluteString
 
         Self.configureAudioPlayback()
 
         let configuration = WKWebViewConfiguration()
-        configuration.processPool = Self.sharedProcessPool
+        configuration.processPool = webKitProfile == .dev ? Self.devProcessPool : Self.sharedProcessPool
         configuration.userContentController = WKUserContentController()
         configuration.allowsInlineMediaPlayback = true
         configuration.allowsAirPlayForMediaPlayback = true
@@ -125,6 +143,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         super.init()
 
         webView.customUserAgent = Self.safariCompatibleUserAgent()
+        if #available(iOS 16.4, *), webKitProfile == .dev {
+            webView.isInspectable = true
+        }
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -140,6 +161,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     static var homeURL: URL {
         BrowserDefaults.homeURL
+    }
+
+    var usesDevWebKitProfile: Bool {
+        webKitProfile == .dev
     }
 
     func load(_ url: URL) {
