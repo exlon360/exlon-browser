@@ -11,7 +11,7 @@ struct RunPowerCommandIntent: AppIntent {
     @Parameter(title: "Command", default: "ls")
     var command: String
 
-    @Parameter(title: "Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Root", default: "App Documents")
     var root: String
 
     @Parameter(title: "Working Folder", default: "")
@@ -30,7 +30,7 @@ struct ListFolderIntent: AppIntent {
     static var title: LocalizedStringResource = "List Files"
     static var description = IntentDescription("Lists files and folders inside an approved root.")
 
-    @Parameter(title: "Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Root", default: "App Documents")
     var root: String
 
     @Parameter(title: "Folder Path", default: "")
@@ -46,13 +46,13 @@ struct CopyShortcutFileIntent: AppIntent {
     static var title: LocalizedStringResource = "Copy File"
     static var description = IntentDescription("Copies a file or folder between approved roots.")
 
-    @Parameter(title: "Source Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Source Root", default: "App Documents")
     var sourceRoot: String
 
     @Parameter(title: "Source Path")
     var sourcePath: String
 
-    @Parameter(title: "Destination Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Destination Root", default: "App Documents")
     var destinationRoot: String
 
     @Parameter(title: "Destination Path")
@@ -77,13 +77,13 @@ struct MoveShortcutFileIntent: AppIntent {
     static var title: LocalizedStringResource = "Move File"
     static var description = IntentDescription("Moves or renames a file or folder inside approved roots.")
 
-    @Parameter(title: "Source Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Source Root", default: "App Documents")
     var sourceRoot: String
 
     @Parameter(title: "Source Path")
     var sourcePath: String
 
-    @Parameter(title: "Destination Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Destination Root", default: "App Documents")
     var destinationRoot: String
 
     @Parameter(title: "Destination Path")
@@ -108,7 +108,7 @@ struct DeleteShortcutFileIntent: AppIntent {
     static var title: LocalizedStringResource = "Delete File"
     static var description = IntentDescription("Deletes one file, or a folder only when folder deletion is explicitly enabled.")
 
-    @Parameter(title: "Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Root", default: "App Documents")
     var root: String
 
     @Parameter(title: "Path")
@@ -130,7 +130,7 @@ struct ImportShortcutFileIntent: AppIntent {
     @Parameter(title: "File")
     var file: IntentFile
 
-    @Parameter(title: "Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Root", default: "App Documents")
     var root: String
 
     @Parameter(title: "Destination Path", default: "")
@@ -140,7 +140,7 @@ struct ImportShortcutFileIntent: AppIntent {
     var overwrite: Bool
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let filename = file.filename ?? "ShortcutFile"
+        let filename = file.filename
         let path = try ShortcutFileSystem.shared.destinationPath(for: destinationPath, fallbackFilename: filename)
         try ShortcutFileSystem.shared.writeData(rootName: root, path: path, data: file.data, overwrite: overwrite)
         return .result(value: "Imported \(path)")
@@ -151,7 +151,7 @@ struct ExportShortcutFileIntent: AppIntent {
     static var title: LocalizedStringResource = "Export File"
     static var description = IntentDescription("Returns a file from an approved root to the Shortcut.")
 
-    @Parameter(title: "Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Root", default: "App Documents")
     var root: String
 
     @Parameter(title: "Path")
@@ -170,7 +170,7 @@ struct ReadTextFileIntent: AppIntent {
     static var title: LocalizedStringResource = "Read Text File"
     static var description = IntentDescription("Reads a UTF-8 text file from an approved root.")
 
-    @Parameter(title: "Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Root", default: "App Documents")
     var root: String
 
     @Parameter(title: "Path")
@@ -186,7 +186,7 @@ struct WriteTextFileIntent: AppIntent {
     static var title: LocalizedStringResource = "Write Text File"
     static var description = IntentDescription("Writes UTF-8 text into an approved root.")
 
-    @Parameter(title: "Root", default: ShortcutFileSystem.builtInRootName)
+    @Parameter(title: "Root", default: "App Documents")
     var root: String
 
     @Parameter(title: "Path")

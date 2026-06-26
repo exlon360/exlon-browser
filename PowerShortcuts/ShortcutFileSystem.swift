@@ -94,7 +94,7 @@ final class ShortcutFileSystem {
             }
         }
 
-        let bookmark = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+        let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         var existing = storedRoots()
         let baseName = url.lastPathComponent.isEmpty ? "Files Root" : url.lastPathComponent
         let name = uniqueRootName(baseName, in: existing)
@@ -399,7 +399,7 @@ final class ShortcutFileSystem {
         var isStale = false
         let url = try URL(
             resolvingBookmarkData: bookmarkData,
-            options: [.withSecurityScope],
+            options: [],
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
