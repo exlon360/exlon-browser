@@ -258,6 +258,37 @@ private struct SecureLockBackground: View {
     }
 }
 
+private enum GlideDeviceExperience: Equatable {
+    case phone
+    case iPad
+
+    var title: String {
+        switch self {
+        case .phone:
+            return "Glide for iPhone"
+        case .iPad:
+            return "Glide for iPad"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .phone:
+            return "iphone"
+        case .iPad:
+            return "ipad"
+        }
+    }
+
+    static func resolve(for size: CGSize) -> GlideDeviceExperience {
+        min(size.width, size.height) >= 600 ? .iPad : .phone
+    }
+
+    static var currentScreen: GlideDeviceExperience {
+        resolve(for: UIScreen.main.bounds.size)
+    }
+}
+
 private struct BrowserShell: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -267,12 +298,14 @@ private struct BrowserShell: View {
         GeometryReader { proxy in
             ZStack {
                 BrowserBackground()
+                let experience = GlideDeviceExperience.resolve(for: proxy.size)
+                let chromePlacement = effectiveChromePlacement(for: experience)
 
-                switch model.chromePlacement {
+                switch chromePlacement {
                 case .left:
-                    SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy))
+                    SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy, experience: experience), experience: experience)
                 case .right:
-                    SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy))
+                    SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy, experience: experience), experience: experience)
                 case .top:
                     ZStack(alignment: .top) {
                         BrowserContent()
@@ -298,7 +331,7 @@ private struct BrowserShell: View {
                 }
 
                 BrowserPageControls()
-                    .padding(.leading, pageControlsLeadingPadding(for: proxy))
+                    .padding(.leading, pageControlsLeadingPadding(for: proxy, experience: experience))
                     .padding(.top, pageControlsTopPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
@@ -444,13 +477,33 @@ private struct BrowserShell: View {
         .tint(theme.color(.accent))
     }
 
-    private func sideWidth(for proxy: GeometryProxy) -> CGFloat {
-        min(max(proxy.size.width * 0.3, 286), 360)
+    private func sideWidth(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
+        if experience == .phone {
+            let availableWidth = max(220, proxy.size.width - 56)
+            return min(max(proxy.size.width * 0.82, 248), min(availableWidth, 360))
+        }
+
+        return min(max(proxy.size.width * 0.3, 286), 380)
     }
 
-    private func pageControlsLeadingPadding(for proxy: GeometryProxy) -> CGFloat {
+    private func effectiveChromePlacement(for experience: GlideDeviceExperience) -> BrowserChromePlacement {
+        guard experience == .phone else { return model.chromePlacement }
+
+        switch model.chromePlacement {
+        case .left, .right:
+            return .bottom
+        default:
+            return model.chromePlacement
+        }
+    }
+
+    private func pageControlsLeadingPadding(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
+        if experience == .phone {
+            return 14
+        }
+
         if model.chromePlacement == .left && model.areSideTabsCollapsed == false {
-            return sideWidth(for: proxy) + 18
+            return sideWidth(for: proxy, experience: experience) + 18
         }
         return 14
     }
@@ -713,12 +766,22 @@ private struct SideBrowserLayout: View {
     @EnvironmentObject private var model: BrowserViewModel
     let edge: SideChromeEdge
     let sideWidth: CGFloat
+    let experience: GlideDeviceExperience
 
     var body: some View {
         ZStack(alignment: edge == .left ? .leading : .trailing) {
             BrowserContent()
 
             if model.areSideTabsCollapsed == false {
+                if experience == .phone {
+                    Color.black.opacity(0.28)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            model.setTabBarCollapsed(true)
+                        }
+                        .transition(.opacity)
+                }
+
                 SideChrome(edge: edge)
                     .frame(width: sideWidth)
                     .transition(chromeTransition)
@@ -4568,6 +4631,10 @@ private struct BrowserSettingsView: View {
 
                 Section("Browsing") {
                     DisclosureGroup {
+                    LabeledContent("Experience") {
+                        Label(GlideDeviceExperience.currentScreen.title, systemImage: GlideDeviceExperience.currentScreen.symbolName)
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
                     if model.isDarkReaderEnabled {
                         Picker("Dark Reader theme", selection: $model.darkReaderTheme) {
