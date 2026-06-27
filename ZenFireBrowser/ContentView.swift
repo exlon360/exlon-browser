@@ -299,9 +299,8 @@ private struct BrowserShell: View {
             ZStack {
                 BrowserBackground()
                 let experience = GlideDeviceExperience.resolve(for: proxy.size)
-                let chromePlacement = effectiveChromePlacement(for: experience)
 
-                switch chromePlacement {
+                switch model.chromePlacement {
                 case .left:
                     SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy, experience: experience), experience: experience)
                 case .right:
@@ -479,22 +478,10 @@ private struct BrowserShell: View {
 
     private func sideWidth(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
         if experience == .phone {
-            let availableWidth = max(220, proxy.size.width - 56)
-            return min(max(proxy.size.width * 0.82, 248), min(availableWidth, 360))
+            return max(1, proxy.size.width)
         }
 
         return min(max(proxy.size.width * 0.3, 286), 380)
-    }
-
-    private func effectiveChromePlacement(for experience: GlideDeviceExperience) -> BrowserChromePlacement {
-        guard experience == .phone else { return model.chromePlacement }
-
-        switch model.chromePlacement {
-        case .left, .right:
-            return .bottom
-        default:
-            return model.chromePlacement
-        }
     }
 
     private func pageControlsLeadingPadding(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
