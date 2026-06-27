@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify-project-files:
     name: Verify project files
-    runs-on: macos-latest
+    runs-on: macos-15-arm64
     timeout-minutes: 10
 
     steps:
