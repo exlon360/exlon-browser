@@ -293,7 +293,7 @@ private enum GlideDeviceExperience: Equatable {
             return .iPad
         }
 
-        min(size.width, size.height) >= 600 ? .iPad : .phone
+        return min(size.width, size.height) >= 600 ? GlideDeviceExperience.iPad : GlideDeviceExperience.phone
     }
 }
 
