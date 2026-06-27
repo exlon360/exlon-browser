@@ -45,6 +45,36 @@ enum BrowserChromePlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserDeviceExperienceOverride: String, CaseIterable, Identifiable {
+    case automatic
+    case phone
+    case iPad
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .automatic:
+            return "Auto"
+        case .phone:
+            return "Glide for iPhone"
+        case .iPad:
+            return "Glide for iPad"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .automatic:
+            return "wand.and.stars"
+        case .phone:
+            return "iphone"
+        case .iPad:
+            return "ipad"
+        }
+    }
+}
+
 enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     case back
     case forward
@@ -704,6 +734,7 @@ final class BrowserViewModel: ObservableObject {
             if isDeveloperModeEnabled == false {
                 isWebInspectorEnabled = false
                 isDevWebKitEnabled = false
+                deviceExperienceOverride = .automatic
             }
             applyDeveloperOptionsToTabs()
         }
@@ -725,6 +756,15 @@ final class BrowserViewModel: ObservableObject {
     @Published var devCustomEngineIdentifier: String {
         didSet {
             vault.save(devCustomEngineIdentifier, forKey: Self.StorageKey.devCustomEngineIdentifier)
+        }
+    }
+    @Published var deviceExperienceOverride: BrowserDeviceExperienceOverride {
+        didSet {
+            if isDeveloperModeEnabled == false && deviceExperienceOverride != .automatic {
+                deviceExperienceOverride = .automatic
+                return
+            }
+            vault.save(deviceExperienceOverride.rawValue, forKey: Self.StorageKey.deviceExperienceOverride)
         }
     }
     @Published var devModeStatusMessage = ""
@@ -1096,6 +1136,11 @@ final class BrowserViewModel: ObservableObject {
         let webInspectorEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.webInspectorEnabled, default: false)
         let devWebKitEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.devWebKitEnabled, default: false)
         let savedDevCustomEngineIdentifier = vault.load(String.self, forKey: Self.StorageKey.devCustomEngineIdentifier, default: "")
+        let savedDeviceExperienceOverride = developerModeEnabled ? (
+            BrowserDeviceExperienceOverride(
+                rawValue: vault.load(String.self, forKey: Self.StorageKey.deviceExperienceOverride, default: "")
+            ) ?? .automatic
+        ) : .automatic
         let savedHistory = Self.loadHistory(vault: vault)
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedTabFolders = Self.loadTabFolders(vault: vault)
@@ -1152,6 +1197,7 @@ final class BrowserViewModel: ObservableObject {
         self.isWebInspectorEnabled = webInspectorEnabled
         self.isDevWebKitEnabled = devWebKitEnabled
         self.devCustomEngineIdentifier = savedDevCustomEngineIdentifier
+        self.deviceExperienceOverride = savedDeviceExperienceOverride
         self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
         self.topSearchBarPositionX = savedTopSearchBarPositionX
@@ -1710,6 +1756,22 @@ final class BrowserViewModel: ObservableObject {
             : "New tabs will use the standard WKWebView profile."
     }
 
+    func setDeviceExperienceOverride(_ override: BrowserDeviceExperienceOverride) {
+        guard isDeveloperModeEnabled else {
+            deviceExperienceOverride = .automatic
+            devModeStatusMessage = "Turn on Dev Mode before changing the app experience."
+            return
+        }
+
+        isTopSearchBarMoveMode = false
+        isChromeWidthResizeMode = false
+        isPageControlsMoveMode = false
+        deviceExperienceOverride = override
+        devModeStatusMessage = override == .automatic
+            ? "Experience follows the current screen size."
+            : "Experience forced to \(override.title) until Dev Mode is turned off."
+    }
+
     func requestWKEscapeMode() {
         devModeStatusMessage = "Dev WebKit is active inside the IPA as a separate WKWebView profile. Full non-WK engine escape still requires BrowserEngineKit, Apple's browser-engine entitlement, and a bundled alternative engine process."
     }
@@ -2056,6 +2118,7 @@ final class BrowserViewModel: ObservableObject {
             browserMusicEnabled: isBrowserMusicEnabled,
             browserMusicTrack: browserMusicTrack.rawValue,
             browserMusicVolume: browserMusicVolume,
+            devExperienceOverride: isDeveloperModeEnabled ? deviceExperienceOverride.rawValue : BrowserDeviceExperienceOverride.automatic.rawValue,
             darkReaderEnabled: isDarkReaderEnabled,
             adBlockerEnabled: isAdBlockerEnabled,
             trackerBlockingLevel: trackerBlockingLevel.rawValue,
@@ -2135,6 +2198,11 @@ final class BrowserViewModel: ObservableObject {
             browserMusicTrack = track
         }
         browserMusicVolume = Self.clampedUnit(config.browserMusicVolume ?? 0.34)
+        if isDeveloperModeEnabled,
+           let devExperienceValue = config.devExperienceOverride,
+           let override = BrowserDeviceExperienceOverride(rawValue: devExperienceValue) {
+            setDeviceExperienceOverride(override)
+        }
         if let trackerBlockingValue = config.trackerBlockingLevel,
            let level = BrowserTrackerBlockingLevel(rawValue: trackerBlockingValue) {
             trackerBlockingLevel = level
@@ -2939,6 +3007,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
         vault.save(isDevWebKitEnabled, forKey: Self.StorageKey.devWebKitEnabled)
         vault.save(devCustomEngineIdentifier, forKey: Self.StorageKey.devCustomEngineIdentifier)
+        vault.save(deviceExperienceOverride.rawValue, forKey: Self.StorageKey.deviceExperienceOverride)
         vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
         vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
         vault.save(history, forKey: Self.StorageKey.history)
@@ -3174,6 +3243,7 @@ final class BrowserViewModel: ObservableObject {
         static let webInspectorEnabled = "ZenFireBrowser.webInspectorEnabled"
         static let devWebKitEnabled = "ZenFireBrowser.devWebKitEnabled"
         static let devCustomEngineIdentifier = "ZenFireBrowser.devCustomEngineIdentifier"
+        static let deviceExperienceOverride = "ZenFireBrowser.deviceExperienceOverride"
         static let customIconNames = "ZenFireBrowser.customIconNames"
         static let customIconImageDataBySlot = "ZenFireBrowser.customIconImageDataBySlot"
         static let history = "ZenFireBrowser.history"

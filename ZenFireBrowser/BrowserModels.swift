@@ -371,6 +371,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var browserMusicEnabled: Bool?
     var browserMusicTrack: String?
     var browserMusicVolume: Double?
+    var devExperienceOverride: String?
     var darkReaderEnabled: Bool
     var adBlockerEnabled: Bool
     var trackerBlockingLevel: String?

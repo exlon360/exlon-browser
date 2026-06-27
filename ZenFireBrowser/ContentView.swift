@@ -280,12 +280,20 @@ private enum GlideDeviceExperience: Equatable {
         }
     }
 
-    static func resolve(for size: CGSize) -> GlideDeviceExperience {
-        min(size.width, size.height) >= 600 ? .iPad : .phone
-    }
+    static func resolve(
+        for size: CGSize,
+        override: BrowserDeviceExperienceOverride = .automatic
+    ) -> GlideDeviceExperience {
+        switch override {
+        case .automatic:
+            break
+        case .phone:
+            return .phone
+        case .iPad:
+            return .iPad
+        }
 
-    static var currentScreen: GlideDeviceExperience {
-        resolve(for: UIScreen.main.bounds.size)
+        min(size.width, size.height) >= 600 ? .iPad : .phone
     }
 }
 
@@ -296,9 +304,13 @@ private struct BrowserShell: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let experience = GlideDeviceExperience.resolve(
+                for: proxy.size,
+                override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
+            )
+
             ZStack {
                 BrowserBackground()
-                let experience = GlideDeviceExperience.resolve(for: proxy.size)
 
                 switch model.chromePlacement {
                 case .left:
@@ -403,7 +415,7 @@ private struct BrowserShell: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
-                BrowserSettingsView()
+                BrowserSettingsView(currentExperience: experience)
                     .environmentObject(model)
                     .environmentObject(theme)
                     .environmentObject(security)
@@ -4885,6 +4897,7 @@ private struct BrowserSettingsView: View {
     @EnvironmentObject private var theme: BrowserTheme
     @EnvironmentObject private var security: AppSecurityModel
     @Environment(\.dismiss) private var dismiss
+    let currentExperience: GlideDeviceExperience
     @State private var isBackgroundImporterPresented = false
     @State private var isThemeImporterPresented = false
     @State private var isBrowserMusicImporterPresented = false
@@ -4930,7 +4943,7 @@ private struct BrowserSettingsView: View {
                 Section("Browsing") {
                     DisclosureGroup {
                     LabeledContent("Experience") {
-                        Label(GlideDeviceExperience.currentScreen.title, systemImage: GlideDeviceExperience.currentScreen.symbolName)
+                        Label(displayedExperience.title, systemImage: displayedExperience.symbolName)
                             .foregroundStyle(theme.color(.mutedText))
                     }
                     Toggle("Dark Reader style pages", isOn: darkReaderBinding)
@@ -5190,6 +5203,18 @@ private struct BrowserSettingsView: View {
                     Toggle("Dev Mode", isOn: developerModeBinding)
 
                     if model.isDeveloperModeEnabled {
+                        Picker("Change Experience", selection: deviceExperienceOverrideBinding) {
+                            ForEach(BrowserDeviceExperienceOverride.allCases) { experience in
+                                Label(experience.title, systemImage: experience.symbolName)
+                                    .tag(experience)
+                            }
+                        }
+
+                        LabeledContent("Active Experience") {
+                            Label(displayedExperience.title, systemImage: displayedExperience.symbolName)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
                         Toggle("Web Inspector", isOn: webInspectorBinding)
                         Toggle("Use Dev WebKit for new tabs", isOn: devWebKitBinding)
 
@@ -5604,6 +5629,21 @@ private struct BrowserSettingsView: View {
         }
     }
 
+    private var displayedExperience: GlideDeviceExperience {
+        guard model.isDeveloperModeEnabled else {
+            return currentExperience
+        }
+
+        switch model.deviceExperienceOverride {
+        case .automatic:
+            return currentExperience
+        case .phone:
+            return .phone
+        case .iPad:
+            return .iPad
+        }
+    }
+
     private var darkReaderBinding: Binding<Bool> {
         Binding(
             get: { model.isDarkReaderEnabled },
@@ -5656,6 +5696,13 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isDevWebKitEnabled },
             set: { model.setDevWebKitEnabled($0) }
+        )
+    }
+
+    private var deviceExperienceOverrideBinding: Binding<BrowserDeviceExperienceOverride> {
+        Binding(
+            get: { model.deviceExperienceOverride },
+            set: { model.setDeviceExperienceOverride($0) }
         )
     }
 
