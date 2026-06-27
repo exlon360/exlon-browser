@@ -307,6 +307,36 @@ enum BrowserTrackerBlockingLevel: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum BrowserWebsiteDisplayMode: String, CaseIterable, Identifiable, Codable {
+    case automatic
+    case mobile
+    case desktop
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .automatic:
+            return "Auto"
+        case .mobile:
+            return "Mobile"
+        case .desktop:
+            return "Desktop"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .automatic:
+            return "iphone.and.arrow.forward"
+        case .mobile:
+            return "iphone"
+        case .desktop:
+            return "desktopcomputer"
+        }
+    }
+}
+
 struct BrowserDownloadItem: Identifiable, Codable, Equatable {
     var id: UUID
     var filename: String
@@ -354,6 +384,45 @@ struct BrowserDownloadItem: Identifiable, Codable, Equatable {
     }
 }
 
+struct BrowserPasswordEntry: Identifiable, Codable, Equatable {
+    var id: UUID
+    var title: String
+    var host: String
+    var username: String
+    var password: String
+    var notes: String
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        title: String,
+        host: String,
+        username: String,
+        password: String,
+        notes: String = "",
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.title = title
+        self.host = host
+        self.username = username
+        self.password = password
+        self.notes = notes
+        self.updatedAt = updatedAt
+    }
+
+    var normalizedHost: String {
+        Self.normalized(host)
+    }
+
+    static func normalized(_ rawHost: String) -> String {
+        rawHost
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
+    }
+}
+
 struct BrowserAdvancedConfig: Codable, Equatable {
     var topSearchBarEnabled: Bool
     var topSearchBarPlacement: String?
@@ -397,6 +466,7 @@ struct CustomVPNProfile: Codable, Equatable {
     var serverAddress: String
     var remoteIdentifier: String
     var username: String
+    var password: String?
     var isEnabled: Bool
 
     static let empty = CustomVPNProfile(
@@ -404,6 +474,7 @@ struct CustomVPNProfile: Codable, Equatable {
         serverAddress: "",
         remoteIdentifier: "",
         username: "",
+        password: nil,
         isEnabled: false
     )
 

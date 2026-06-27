@@ -4,6 +4,7 @@ import PhotosUI
 import QuickLook
 import UIKit
 import UniformTypeIdentifiers
+import WebKit
 
 struct ContentView: View {
     @StateObject private var security = AppSecurityModel()
@@ -387,6 +388,14 @@ private struct BrowserShell: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
+                if let item = model.latestDownloadShelfItem {
+                    DownloadShelf(item: item)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 if model.isContainedBrowserPresented {
                     ContainedBrowserOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
@@ -457,6 +466,12 @@ private struct BrowserShell: View {
             }
             .sheet(isPresented: $model.isVPNPresented) {
                 CustomVPNView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $model.isPasswordManagerPresented) {
+                PasswordManagerView()
                     .environmentObject(model)
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
@@ -640,8 +655,12 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
         private weak var installedView: UIView?
         private let twoFingerPan = UIPanGestureRecognizer()
         private let threeFingerPan = UIPanGestureRecognizer()
-        private let minimumDistance: CGFloat = 118
-        private let directionRatio: CGFloat = 1.45
+        private let minimumDistance: CGFloat = 154
+        private let directionRatio: CGFloat = 1.6
+        private let pinchDistanceTolerance: CGFloat = 28
+        private let pinchRelativeTolerance: CGFloat = 0.10
+        private var twoFingerStartDistance: CGFloat?
+        private var twoFingerRejectedForPinch = false
 
         init(parent: BrowserShellGestureInstaller) {
             self.parent = parent
@@ -675,7 +694,26 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
         }
 
         @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
-            guard recognizer.state == .ended,
+            switch recognizer.state {
+            case .began:
+                twoFingerStartDistance = twoFingerDistance(in: recognizer)
+                twoFingerRejectedForPinch = false
+                return
+            case .changed:
+                updatePinchRejection(for: recognizer)
+                return
+            case .ended:
+                break
+            case .cancelled, .failed:
+                resetTwoFingerTracking()
+                return
+            default:
+                return
+            }
+
+            defer { resetTwoFingerTracking() }
+            updatePinchRejection(for: recognizer)
+            guard twoFingerRejectedForPinch == false,
                   let view = recognizer.view else { return }
             let translation = recognizer.translation(in: view)
             let absX = abs(translation.x)
@@ -702,8 +740,51 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer {
+                return false
+            }
             true
         }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            touch.view?.hasSuperview(of: WKWebView.self) == false
+        }
+
+        private func twoFingerDistance(in recognizer: UIPanGestureRecognizer) -> CGFloat? {
+            guard recognizer.numberOfTouches >= 2,
+                  let view = recognizer.view else { return nil }
+            let first = recognizer.location(ofTouch: 0, in: view)
+            let second = recognizer.location(ofTouch: 1, in: view)
+            return hypot(first.x - second.x, first.y - second.y)
+        }
+
+        private func updatePinchRejection(for recognizer: UIPanGestureRecognizer) {
+            guard let start = twoFingerStartDistance,
+                  let current = twoFingerDistance(in: recognizer),
+                  start > 0 else { return }
+            let allowedDelta = max(pinchDistanceTolerance, start * pinchRelativeTolerance)
+            if abs(current - start) > allowedDelta {
+                twoFingerRejectedForPinch = true
+            }
+        }
+
+        private func resetTwoFingerTracking() {
+            twoFingerStartDistance = nil
+            twoFingerRejectedForPinch = false
+        }
+    }
+}
+
+private extension UIView {
+    func hasSuperview<T: UIView>(of type: T.Type) -> Bool {
+        var view: UIView? = self
+        while let current = view {
+            if current is T {
+                return true
+            }
+            view = current.superview
+        }
+        return false
     }
 }
 
@@ -1312,6 +1393,18 @@ private struct FloatingChrome: View {
                         }
                     }
 
+                    if model.isInMoreMenu(.websiteMode) == false {
+                        WebsiteModeButton()
+                    }
+
+                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.vpnCountry) == false {
+                        VPNCountryToolbarButton()
+                    }
+
+                    if model.isInMoreMenu(.passwordManager) == false {
+                        PasswordManagerToolbarButton()
+                    }
+
                     if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloadCurrent) == false {
                         ChromeButton(slot: .downloadCurrent, symbol: "arrow.down.doc", label: "Download Current Page") {
                             model.downloadSelectedTab()
@@ -1410,6 +1503,18 @@ private struct ChromeFooter: View {
                     ChromeButton(slot: model.selectedTab?.isLoading == true ? nil : .reload, symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                         model.reloadOrStop()
                     }
+                }
+
+                if model.isInMoreMenu(.websiteMode) == false {
+                    WebsiteModeButton()
+                }
+
+                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.vpnCountry) == false {
+                    VPNCountryToolbarButton()
+                }
+
+                if model.isInMoreMenu(.passwordManager) == false {
+                    PasswordManagerToolbarButton()
                 }
 
                 if model.isPrivateModeEnabled == false && model.isInMoreMenu(.history) == false {
@@ -2563,6 +2668,59 @@ private struct BrowserMusicToolbarButton: View {
     }
 }
 
+private struct WebsiteModeButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Menu {
+            ForEach(BrowserWebsiteDisplayMode.allCases) { mode in
+                Button {
+                    model.setWebsiteDisplayMode(mode)
+                } label: {
+                    Label(mode.title, systemImage: mode.symbolName)
+                }
+            }
+        } label: {
+            BrowserIcon(
+                slot: .websiteMode,
+                systemName: model.websiteDisplayMode.symbolName,
+                size: 15,
+                weight: .semibold
+            )
+            .frame(width: 36, height: 36)
+            .foregroundStyle(theme.chromeForegroundColor)
+            .background(ControlGlassBackground(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.color(.accent).opacity(model.websiteDisplayMode == .automatic ? 0.4 : 0.78), lineWidth: 1)
+            }
+        }
+        .accessibilityLabel("Website mode")
+        .accessibilityValue(model.websiteDisplayMode.title)
+    }
+}
+
+private struct VPNCountryToolbarButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+
+    var body: some View {
+        ChromeButton(slot: .vpnCountry, symbol: "globe.americas", label: "Change Country") {
+            model.isVPNPresented = true
+        }
+    }
+}
+
+private struct PasswordManagerToolbarButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+
+    var body: some View {
+        ChromeButton(slot: .passwordManager, symbol: "key.fill", label: "Passwords") {
+            model.isPasswordManagerPresented = true
+        }
+    }
+}
+
 private struct PrivateModeBadge: View {
     @EnvironmentObject private var theme: BrowserTheme
 
@@ -2782,6 +2940,9 @@ private struct MoreTabButton: View {
         if action == .compact {
             return model.isCompactModeActive ? "Reveal Chrome" : "Compact Mode"
         }
+        if action == .websiteMode {
+            return "Website Mode: \(model.websiteDisplayMode.title)"
+        }
         return action.menuTitle
     }
 
@@ -2794,6 +2955,9 @@ private struct MoreTabButton: View {
         }
         if action == .compact {
             return model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : model.customIconName(for: .compact, fallback: action.symbolName)
+        }
+        if action == .websiteMode {
+            return model.customIconName(for: .websiteMode, fallback: model.websiteDisplayMode.symbolName)
         }
         return model.customIconName(for: action.customIconSlot, fallback: action.symbolName)
     }
@@ -3193,6 +3357,15 @@ private struct FirstRunTutorialView: View {
                                         symbol: "arrow.left.and.right",
                                         title: "Gestures",
                                         detail: "Two fingers left hides the tab bar, two fingers right reveals it. Three fingers moves back or forward.",
+                                        tint: .accent
+                                    )
+
+                                    TutorialDivider()
+
+                                    TutorialFeatureRow(
+                                        symbol: "shield.lefthalf.filled",
+                                        title: "Never experience an ad again",
+                                        detail: "Glide Shields block ads, trackers, pop-ups, and noisy scripts by default.",
                                         tint: .accent
                                     )
 
@@ -3712,6 +3885,103 @@ private struct TabFinderRow: View {
     }
 }
 
+private struct DownloadShelf: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let item: BrowserDownloadItem
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                model.isDownloadsPresented = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: symbolName)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(tintColor)
+                        .frame(width: 28, height: 28)
+                        .background(ButtonGradientBackground(cornerRadius: 7, prominence: .quiet))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.filename)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(theme.color(.text))
+                            .lineLimit(1)
+
+                        Text(subtitle)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if item.state == .inProgress {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(theme.color(.accent))
+            }
+
+            Button {
+                model.dismissDownloadShelf()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .black))
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(theme.color(.mutedText))
+                    .background(ControlGlassBackground(cornerRadius: 7))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hide download shelf")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.68), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.34), radius: 18, y: 10)
+    }
+
+    private var symbolName: String {
+        switch item.state {
+        case .inProgress:
+            return "arrow.down.circle"
+        case .finished:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var tintColor: Color {
+        switch item.state {
+        case .inProgress:
+            return theme.color(.accent)
+        case .finished:
+            return .green
+        case .failed:
+            return .red
+        }
+    }
+
+    private var subtitle: String {
+        var parts = [item.state.title]
+        if item.isEncrypted {
+            parts.append("Encrypted")
+        }
+        if let byteCount = item.originalByteCount {
+            parts.append(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))
+        }
+        return parts.joined(separator: "  ")
+    }
+}
+
 private struct BrowserDownloadsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -4012,15 +4282,188 @@ private struct ActivityShareController: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
+private struct PasswordManagerView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var host = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var notes = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Current Site") {
+                    LabeledContent("Site") {
+                        Text(currentHostLabel)
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+
+                    if matchingEntries.isEmpty {
+                        Label("No saved password for this site yet.", systemImage: "key")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    } else {
+                        ForEach(matchingEntries) { entry in
+                            passwordEntryRow(entry)
+                        }
+                    }
+                }
+
+                Section("Save Password") {
+                    TextField("Label", text: $title)
+                    TextField("Website", text: $host)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    TextField("Username or email", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField("Password", text: $password)
+                    TextField("Notes", text: $notes)
+
+                    Button {
+                        model.savePasswordEntry(title: title, host: host, username: username, password: password, notes: notes)
+                        password = ""
+                        notes = ""
+                    } label: {
+                        Label("Save Password", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
+                }
+
+                Section("All Passwords") {
+                    if model.passwordEntries.isEmpty {
+                        Label("Password vault is empty.", systemImage: "lock")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    } else {
+                        ForEach(model.passwordEntries) { entry in
+                            passwordEntryRow(entry)
+                        }
+                    }
+                }
+
+                if model.passwordStatusMessage.isEmpty == false {
+                    Section("Status") {
+                        Label(model.passwordStatusMessage, systemImage: "info.circle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Passwords")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                host = model.currentPasswordHost
+                title = host
+            }
+        }
+    }
+
+    private var matchingEntries: [BrowserPasswordEntry] {
+        model.matchingPasswordEntriesForCurrentSite()
+    }
+
+    private var currentHostLabel: String {
+        model.currentPasswordHost.isEmpty ? "No website selected" : model.currentPasswordHost
+    }
+
+    private func passwordEntryRow(_ entry: BrowserPasswordEntry) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(theme.color(.accent))
+                    .frame(width: 30, height: 30)
+                    .background(ButtonGradientBackground(cornerRadius: 7, prominence: .quiet))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title)
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("\(entry.username) at \(entry.host)")
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                        .lineLimit(1)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    model.fillPasswordEntry(entry)
+                } label: {
+                    Label("Fill", systemImage: "rectangle.and.pencil.and.ellipsis")
+                }
+                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+
+                Button(role: .destructive) {
+                    model.deletePasswordEntry(entry)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+            }
+            .font(.caption.weight(.bold))
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 private struct CustomVPNView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
     @State private var profile = CustomVPNProfile.empty
+    @State private var selectedCountry = "United States"
+
+    private let countryPresets = [
+        "United States",
+        "Canada",
+        "United Kingdom",
+        "Japan",
+        "Germany",
+        "France",
+        "Netherlands",
+        "Australia",
+        "South Korea",
+        "Brazil"
+    ]
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Country Changer") {
+                    Picker("Country", selection: countryBinding) {
+                        ForEach(countryPresets, id: \.self) { country in
+                            Text(country)
+                                .tag(country)
+                        }
+                    }
+
+                    Button {
+                        profile.countryName = selectedCountry
+                        model.changeVPNCountry(using: profile)
+                    } label: {
+                        Label("Change Country", systemImage: "globe.americas.fill")
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
+
+                    Text("Pick a country, add a real VPN server in that country, then Glide asks iOS to switch the tunnel.")
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+
                 Section("Custom VPN") {
                     TextField("Country", text: $profile.countryName)
                     TextField("Server address", text: $profile.serverAddress)
@@ -4033,6 +4476,7 @@ private struct CustomVPNView: View {
                     TextField("Username", text: $profile.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    SecureField("Password", text: vpnPasswordBinding)
                     Toggle("Enable profile", isOn: $profile.isEnabled)
                 }
 
@@ -4079,8 +4523,30 @@ private struct CustomVPNView: View {
             }
             .onAppear {
                 profile = model.vpnProfile
+                selectedCountry = model.selectedVPNCountry.isEmpty ? (profile.countryName.isEmpty ? "United States" : profile.countryName) : model.selectedVPNCountry
+                if profile.countryName.isEmpty {
+                    profile.countryName = selectedCountry
+                }
             }
         }
+    }
+
+    private var countryBinding: Binding<String> {
+        Binding(
+            get: { selectedCountry },
+            set: { country in
+                selectedCountry = country
+                profile.countryName = country
+                model.prepareVPNCountry(country)
+            }
+        )
+    }
+
+    private var vpnPasswordBinding: Binding<String> {
+        Binding(
+            get: { profile.password ?? "" },
+            set: { profile.password = $0.isEmpty ? nil : $0 }
+        )
     }
 }
 
@@ -4931,6 +5397,17 @@ private struct BrowserSettingsView: View {
                         Toggle("Strip tracking links", isOn: $model.isTrackingParameterStrippingEnabled)
                         Toggle("Block bounce tracking", isOn: $model.isBounceTrackingProtectionEnabled)
                         Toggle("Protect WebRTC IP", isOn: $model.isWebRTCProtectionEnabled)
+                        Label("Never experience an ad again", systemImage: "shield.checkered")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(theme.color(.accent))
+
+                        Button {
+                            presentAfterDismiss {
+                                model.isPasswordManagerPresented = true
+                            }
+                        } label: {
+                            Label("Password Manager", systemImage: "key.fill")
+                        }
 
                         Button {
                             model.clearHistory()
@@ -5026,6 +5503,13 @@ private struct BrowserSettingsView: View {
                         ForEach(BrowserSearchEngine.allCases) { engine in
                             Text(engine.title)
                                 .tag(engine)
+                        }
+                    }
+
+                    Picker("Website mode", selection: websiteDisplayModeBinding) {
+                        ForEach(BrowserWebsiteDisplayMode.allCases) { mode in
+                            Label(mode.title, systemImage: mode.symbolName)
+                                .tag(mode)
                         }
                     }
 
@@ -5700,6 +6184,13 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.isDevWebKitEnabled },
             set: { model.setDevWebKitEnabled($0) }
+        )
+    }
+
+    private var websiteDisplayModeBinding: Binding<BrowserWebsiteDisplayMode> {
+        Binding(
+            get: { model.websiteDisplayMode },
+            set: { model.setWebsiteDisplayMode($0) }
         )
     }
 

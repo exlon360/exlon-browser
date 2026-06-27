@@ -53,6 +53,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var isWebRTCProtectionEnabled: Bool
     @Published var isFPSForcerEnabled: Bool
     @Published var forcedFPS: Double
+    @Published var websiteDisplayMode: BrowserWebsiteDisplayMode
     @Published var folderID: UUID?
 
     var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
@@ -92,6 +93,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         isWebRTCProtectionEnabled: Bool = true,
         isFPSForcerEnabled: Bool = false,
         forcedFPS: Double = 60,
+        websiteDisplayMode: BrowserWebsiteDisplayMode = .automatic,
         folderID: UUID? = nil,
         webKitProfile: BrowserWebKitProfile = .standard
     ) {
@@ -117,6 +119,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.navigationBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
+        self.websiteDisplayMode = websiteDisplayMode
         self.folderID = folderID
         self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
         self.url = startURL
@@ -142,7 +145,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
 
-        webView.customUserAgent = Self.safariCompatibleUserAgent()
+        webView.customUserAgent = Self.userAgent(for: websiteDisplayMode)
         if #available(iOS 16.4, *), webKitProfile == .dev {
             webView.isInspectable = true
         }
@@ -208,6 +211,21 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         webView.goForward()
         canGoBack = webView.canGoBack
         canGoForward = webView.canGoForward
+    }
+
+    func setWebsiteDisplayMode(_ mode: BrowserWebsiteDisplayMode, reloadAfterChange: Bool = true) {
+        websiteDisplayMode = mode
+        webView.customUserAgent = Self.userAgent(for: mode)
+
+        guard reloadAfterChange,
+              let url,
+              Self.isStartPageURL(url) == false,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+        webView.reload()
+    }
+
+    func fillCredentials(username: String, password: String) {
+        webView.evaluateJavaScript(Self.credentialFillScript(username: username, password: password))
     }
 
     func setDarkReaderEnabled(_ enabled: Bool) {
@@ -561,12 +579,79 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         return request
     }
 
-    private static func safariCompatibleUserAgent() -> String {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+    private static func userAgent(for mode: BrowserWebsiteDisplayMode) -> String {
+        switch mode {
+        case .automatic:
+            return safariCompatibleUserAgent()
+        case .mobile:
+            return mobileSafariUserAgent()
+        case .desktop:
+            return desktopSafariUserAgent()
         }
+    }
 
-        return "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    private static func safariCompatibleUserAgent() -> String {
+        UIDevice.current.userInterfaceIdiom == .pad ? desktopSafariUserAgent() : mobileSafariUserAgent()
+    }
+
+    private static func desktopSafariUserAgent() -> String {
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+    }
+
+    private static func mobileSafariUserAgent() -> String {
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    }
+
+    private static func credentialFillScript(username: String, password: String) -> String {
+        let usernameLiteral = javascriptStringLiteral(username)
+        let passwordLiteral = javascriptStringLiteral(password)
+        return """
+        (() => {
+          const username = \(usernameLiteral);
+          const password = \(passwordLiteral);
+          const fire = (input) => {
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          const visible = (input) => {
+            const style = window.getComputedStyle(input);
+            const rect = input.getBoundingClientRect();
+            return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0 && !input.disabled && !input.readOnly;
+          };
+          const passwords = Array.from(document.querySelectorAll('input[type="password"]')).filter(visible);
+          if (passwords[0]) {
+            passwords[0].focus();
+            passwords[0].value = password;
+            fire(passwords[0]);
+          }
+          const scope = passwords[0]?.form || document;
+          const usernameSelectors = [
+            'input[autocomplete="username"]',
+            'input[autocomplete="email"]',
+            'input[type="email"]',
+            'input[name*="user" i]',
+            'input[name*="email" i]',
+            'input[id*="user" i]',
+            'input[id*="email" i]',
+            'input[type="text"]'
+          ];
+          const candidates = usernameSelectors.flatMap((selector) => Array.from(scope.querySelectorAll(selector)));
+          const target = candidates.find((input) => visible(input) && input.type !== 'password');
+          if (target) {
+            target.focus();
+            target.value = username;
+            fire(target);
+          }
+          return Boolean(target || passwords[0]);
+        })();
+        """
+    }
+
+    private static func javascriptStringLiteral(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+              let text = String(data: data, encoding: .utf8),
+              text.count >= 2 else { return "\"\"" }
+        return String(text.dropFirst().dropLast())
     }
 
     private nonisolated static func normalizedHost(for url: URL?) -> String {

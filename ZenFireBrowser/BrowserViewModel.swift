@@ -88,6 +88,9 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     case history
     case downloads
     case browserMusic
+    case websiteMode
+    case vpnCountry
+    case passwordManager
     case placement
     case settings
 
@@ -119,6 +122,12 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "Downloads"
         case .browserMusic:
             return "Browser Music"
+        case .websiteMode:
+            return "Website Mode"
+        case .vpnCountry:
+            return "Change Country"
+        case .passwordManager:
+            return "Passwords"
         case .placement:
             return "Chrome Placement"
         case .settings:
@@ -163,6 +172,12 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
             return "arrow.down.circle"
         case .browserMusic:
             return "music.note"
+        case .websiteMode:
+            return "desktopcomputer.and.arrow.down"
+        case .vpnCountry:
+            return "globe.americas"
+        case .passwordManager:
+            return "key.fill"
         case .placement:
             return "rectangle.split.2x1"
         case .settings:
@@ -193,6 +208,9 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case downloads
     case history
     case browserMusic
+    case websiteMode
+    case vpnCountry
+    case passwordManager
     case placement
     case settings
 
@@ -242,6 +260,12 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "History"
         case .browserMusic:
             return "Browser Music"
+        case .websiteMode:
+            return "Website Mode"
+        case .vpnCountry:
+            return "Change Country"
+        case .passwordManager:
+            return "Passwords"
         case .placement:
             return "Placement"
         case .settings:
@@ -293,6 +317,12 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "clock.arrow.circlepath"
         case .browserMusic:
             return "music.note"
+        case .websiteMode:
+            return "desktopcomputer.and.arrow.down"
+        case .vpnCountry:
+            return "globe.americas"
+        case .passwordManager:
+            return "key.fill"
         case .placement:
             return "rectangle.split.2x1"
         case .settings:
@@ -433,6 +463,12 @@ extension BrowserToolbarAction {
             return .downloads
         case .browserMusic:
             return .browserMusic
+        case .websiteMode:
+            return .websiteMode
+        case .vpnCountry:
+            return .vpnCountry
+        case .passwordManager:
+            return .passwordManager
         case .placement:
             return .placement
         case .settings:
@@ -725,6 +761,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isDownloadsPresented = false
     @Published var isTabFoldersPresented = false
     @Published var isVPNPresented = false
+    @Published var isPasswordManagerPresented = false
     @Published var isAddOnsPresented = false
     @Published var isAdvancedConfigPresented = false
     @Published var isCustomIconsPresented = false
@@ -1065,6 +1102,22 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var downloads: [BrowserDownloadItem]
+    @Published var passwordEntries: [BrowserPasswordEntry] {
+        didSet {
+            savePasswordEntries()
+        }
+    }
+    @Published var websiteDisplayMode: BrowserWebsiteDisplayMode {
+        didSet {
+            vault.save(websiteDisplayMode.rawValue, forKey: Self.StorageKey.websiteDisplayMode)
+            for tab in tabs {
+                tab.setWebsiteDisplayMode(websiteDisplayMode)
+            }
+            for tab in containedTabs {
+                tab.setWebsiteDisplayMode(websiteDisplayMode)
+            }
+        }
+    }
     @Published var localAIName: String {
         didSet {
             vault.save(localAIName, forKey: Self.StorageKey.localAIName)
@@ -1080,8 +1133,15 @@ final class BrowserViewModel: ObservableObject {
             persistVPNProfile()
         }
     }
+    @Published var selectedVPNCountry: String {
+        didSet {
+            vault.save(selectedVPNCountry, forKey: Self.StorageKey.selectedVPNCountry)
+        }
+    }
     @Published var vpnStatusMessage = "Custom VPN profile not configured."
     @Published var downloadStatusMessage = ""
+    @Published var passwordStatusMessage = ""
+    @Published var dismissedDownloadShelfID: UUID?
     @Published private var customIconImageDataBySlot: [String: Data] {
         didSet {
             vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
@@ -1145,7 +1205,12 @@ final class BrowserViewModel: ObservableObject {
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedTabFolders = Self.loadTabFolders(vault: vault)
         let savedDownloads = Self.loadDownloads(vault: vault)
+        let savedPasswordEntries = Self.loadPasswordEntries(vault: vault)
         let savedVPNProfile = Self.loadVPNProfile(vault: vault)
+        let savedWebsiteDisplayMode = BrowserWebsiteDisplayMode(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.websiteDisplayMode, default: "")
+        ) ?? .automatic
+        let savedVPNCountry = vault.load(String.self, forKey: Self.StorageKey.selectedVPNCountry, default: savedVPNProfile.countryName)
         let savedBrowserMusicTrack = BrowserMusicTrack(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.browserMusicTrack, default: "")
         ) ?? .focus
@@ -1166,7 +1231,8 @@ final class BrowserViewModel: ObservableObject {
             isTrackingParameterStrippingEnabled: trackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: bounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: webRTCProtectionEnabled,
-            isDeveloperModeEnabled: developerModeEnabled
+            isDeveloperModeEnabled: developerModeEnabled,
+            websiteDisplayMode: savedWebsiteDisplayMode
         )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
@@ -1210,6 +1276,8 @@ final class BrowserViewModel: ObservableObject {
         self.essentials = savedEssentials
         self.tabFolders = savedTabFolders
         self.downloads = savedDownloads
+        self.passwordEntries = savedPasswordEntries
+        self.websiteDisplayMode = savedWebsiteDisplayMode
         self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
         self.darkReaderTheme = savedDarkReaderTheme
@@ -1234,6 +1302,7 @@ final class BrowserViewModel: ObservableObject {
         self.localAIName = vault.load(String.self, forKey: Self.StorageKey.localAIName, default: "Local AI")
         self.localAIURLText = vault.load(String.self, forKey: Self.StorageKey.localAIURLText, default: "")
         self.vpnProfile = savedVPNProfile
+        self.selectedVPNCountry = savedVPNCountry.isEmpty ? savedVPNProfile.countryName : savedVPNCountry
         self.vpnStatusMessage = savedVPNProfile.isConfigured ? "Custom VPN profile saved." : "Custom VPN profile not configured."
         self.tabs = restoredTabs.tabs
         self.selectedTabID = restoredTabs.selectedTabID
@@ -1429,6 +1498,7 @@ final class BrowserViewModel: ObservableObject {
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
+            websiteDisplayMode: websiteDisplayMode,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configure(tab)
@@ -1490,6 +1560,7 @@ final class BrowserViewModel: ObservableObject {
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
+            websiteDisplayMode: websiteDisplayMode,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configureContained(tab)
@@ -1799,6 +1870,7 @@ final class BrowserViewModel: ObservableObject {
             isFloatingSearchPresented = false
             isTopSearchBarEnabled = false
             areSideTabsCollapsed = true
+            arePageControlsCollapsed = true
         }
     }
 
@@ -1807,6 +1879,7 @@ final class BrowserViewModel: ObservableObject {
             isFloatingSearchPresented = false
             isTopSearchBarEnabled = true
             areSideTabsCollapsed = false
+            arePageControlsCollapsed = false
         }
     }
 
@@ -2029,6 +2102,84 @@ final class BrowserViewModel: ObservableObject {
         }
 
         download(url: url, suggestedFilename: item.filename)
+    }
+
+    var latestDownloadShelfItem: BrowserDownloadItem? {
+        guard let item = downloads.first,
+              dismissedDownloadShelfID != item.id else { return nil }
+        return item
+    }
+
+    func dismissDownloadShelf() {
+        dismissedDownloadShelfID = downloads.first?.id
+    }
+
+    func cycleWebsiteDisplayMode() {
+        setWebsiteDisplayMode(websiteDisplayMode == .desktop ? .mobile : .desktop)
+    }
+
+    func setWebsiteDisplayMode(_ mode: BrowserWebsiteDisplayMode) {
+        websiteDisplayMode = mode
+    }
+
+    var currentPasswordHost: String {
+        BrowserPasswordEntry.normalized(selectedTab?.url?.host ?? "")
+    }
+
+    func matchingPasswordEntriesForCurrentSite() -> [BrowserPasswordEntry] {
+        let host = currentPasswordHost
+        guard host.isEmpty == false else { return passwordEntries }
+        return passwordEntries.filter { entry in
+            let entryHost = entry.normalizedHost
+            return host == entryHost || host.hasSuffix("." + entryHost) || entryHost.hasSuffix("." + host)
+        }
+    }
+
+    func savePasswordEntry(title: String, host: String, username: String, password: String, notes: String = "") {
+        let normalizedHost = BrowserPasswordEntry.normalized(host.isEmpty ? currentPasswordHost : host)
+        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedHost.isEmpty == false,
+              trimmedUsername.isEmpty == false,
+              password.isEmpty == false else {
+            passwordStatusMessage = "Add a site, username, and password first."
+            return
+        }
+
+        let entryTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? normalizedHost : title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entry = BrowserPasswordEntry(
+            title: entryTitle,
+            host: normalizedHost,
+            username: trimmedUsername,
+            password: password,
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        passwordEntries.removeAll {
+            $0.normalizedHost == normalizedHost && $0.username.caseInsensitiveCompare(trimmedUsername) == .orderedSame
+        }
+        passwordEntries.insert(entry, at: 0)
+        passwordStatusMessage = "Saved password for \(normalizedHost)."
+    }
+
+    func deletePasswordEntry(_ entry: BrowserPasswordEntry) {
+        passwordEntries.removeAll { $0.id == entry.id }
+        passwordStatusMessage = "Deleted password for \(entry.host)."
+    }
+
+    func fillPasswordEntry(_ entry: BrowserPasswordEntry) {
+        selectedTab?.fillCredentials(username: entry.username, password: entry.password)
+        passwordStatusMessage = "Filled \(entry.username) on this page."
+        isPasswordManagerPresented = false
+    }
+
+    func prepareVPNCountry(_ country: String) {
+        selectedVPNCountry = country
+        var profile = vpnProfile
+        profile.countryName = country
+        vpnProfile = profile
+        vpnStatusMessage = profile.isConfigured
+            ? "Ready to change country to \(country)."
+            : "Selected \(country). Add a real VPN server for that country, then tap Change Country."
     }
 
     func isInMoreMenu(_ action: BrowserToolbarAction) -> Bool {
@@ -2256,6 +2407,12 @@ final class BrowserViewModel: ObservableObject {
             isDownloadsPresented = true
         case .browserMusic:
             toggleBrowserMusic()
+        case .websiteMode:
+            cycleWebsiteDisplayMode()
+        case .vpnCountry:
+            isVPNPresented = true
+        case .passwordManager:
+            isPasswordManagerPresented = true
         case .placement:
             break
         case .settings:
@@ -2407,7 +2564,37 @@ final class BrowserViewModel: ObservableObject {
 
     func saveVPNProfile(_ profile: CustomVPNProfile) {
         vpnProfile = profile
+        selectedVPNCountry = profile.countryName
         vpnStatusMessage = profile.isConfigured ? "Custom VPN profile saved." : "Custom VPN profile not configured."
+    }
+
+    func changeVPNCountry(using profile: CustomVPNProfile) {
+        var preparedProfile = profile
+        if preparedProfile.countryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            preparedProfile.countryName = selectedVPNCountry
+        }
+        preparedProfile.isEnabled = true
+        saveVPNProfile(preparedProfile)
+
+        guard preparedProfile.isConfigured else {
+            vpnStatusMessage = "Add a real VPN server for \(preparedProfile.countryName.isEmpty ? "that country" : preparedProfile.countryName) before changing country."
+            return
+        }
+
+        vpnStatusMessage = "Changing country to \(preparedProfile.countryName)..."
+        Task { [weak self] in
+            do {
+                try await CustomVPNController.install(profile: preparedProfile)
+                try await CustomVPNController.connect()
+                await MainActor.run {
+                    self?.vpnStatusMessage = "Country change requested for \(preparedProfile.countryName)."
+                }
+            } catch {
+                await MainActor.run {
+                    self?.vpnStatusMessage = "\(error.localizedDescription) Add the Personal VPN entitlement and a working server for this country."
+                }
+            }
+        }
     }
 
     func installVPNProfile() {
@@ -2985,6 +3172,10 @@ final class BrowserViewModel: ObservableObject {
         vault.save(downloads, forKey: Self.StorageKey.downloads)
     }
 
+    private func savePasswordEntries() {
+        vault.save(passwordEntries, forKey: Self.StorageKey.passwordEntries)
+    }
+
     private func persistVPNProfile() {
         vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
     }
@@ -3014,6 +3205,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(essentials, forKey: Self.StorageKey.essentials)
         vault.save(tabFolders, forKey: Self.StorageKey.tabFolders)
         vault.save(downloads, forKey: Self.StorageKey.downloads)
+        vault.save(passwordEntries, forKey: Self.StorageKey.passwordEntries)
+        vault.save(websiteDisplayMode.rawValue, forKey: Self.StorageKey.websiteDisplayMode)
         vault.save(localAIName, forKey: Self.StorageKey.localAIName)
         vault.save(localAIURLText, forKey: Self.StorageKey.localAIURLText)
         vault.save(isAdBlockerEnabled, forKey: Self.StorageKey.adBlockerEnabled)
@@ -3038,6 +3231,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
         vault.save(BrowserContentBlocker.engineVersion, forKey: Self.StorageKey.shieldEngineVersion)
         vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
+        vault.save(selectedVPNCountry, forKey: Self.StorageKey.selectedVPNCountry)
         vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
         persistOpenTabs()
     }
@@ -3059,7 +3253,8 @@ final class BrowserViewModel: ObservableObject {
         isTrackingParameterStrippingEnabled: Bool,
         isBounceTrackingProtectionEnabled: Bool,
         isWebRTCProtectionEnabled: Bool,
-        isDeveloperModeEnabled: Bool
+        isDeveloperModeEnabled: Bool,
+        websiteDisplayMode: BrowserWebsiteDisplayMode
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
@@ -3079,7 +3274,8 @@ final class BrowserViewModel: ObservableObject {
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
-                forcedFPS: forcedFPS
+                forcedFPS: forcedFPS,
+                websiteDisplayMode: websiteDisplayMode
             )
             return ([firstTab], firstTab.id)
         }
@@ -3108,6 +3304,7 @@ final class BrowserViewModel: ObservableObject {
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
+                websiteDisplayMode: websiteDisplayMode,
                 folderID: savedTab.folderID,
                 webKitProfile: usesDevWebKitProfile ? .dev : .standard
             )
@@ -3135,7 +3332,8 @@ final class BrowserViewModel: ObservableObject {
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
                 isFPSForcerEnabled: isFPSForcerEnabled,
-                forcedFPS: forcedFPS
+                forcedFPS: forcedFPS,
+                websiteDisplayMode: websiteDisplayMode
             )
             return ([firstTab], firstTab.id)
         }
@@ -3149,6 +3347,10 @@ final class BrowserViewModel: ObservableObject {
 
     private static func loadDownloads(vault: SecureBrowserVault) -> [BrowserDownloadItem] {
         vault.load([BrowserDownloadItem].self, forKey: StorageKey.downloads, default: [])
+    }
+
+    private static func loadPasswordEntries(vault: SecureBrowserVault) -> [BrowserPasswordEntry] {
+        vault.load([BrowserPasswordEntry].self, forKey: StorageKey.passwordEntries, default: [])
     }
 
     private static func loadEssentials(vault: SecureBrowserVault) -> [BrowserEssentialItem] {
@@ -3274,6 +3476,9 @@ final class BrowserViewModel: ObservableObject {
         static let newTabOpensSearch = "ZenFireBrowser.newTabOpensSearch"
         static let hasCompletedTutorial = "ZenFireBrowser.hasCompletedTutorial"
         static let downloads = "ZenFireBrowser.downloads"
+        static let passwordEntries = "ZenFireBrowser.passwordEntries"
+        static let websiteDisplayMode = "ZenFireBrowser.websiteDisplayMode"
+        static let selectedVPNCountry = "ZenFireBrowser.selectedVPNCountry"
         static let vpnProfile = "ZenFireBrowser.vpnProfile"
     }
 }

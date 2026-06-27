@@ -1,5 +1,6 @@
 import Foundation
 import NetworkExtension
+import Security
 
 enum CustomVPNError: LocalizedError {
     case missingConfiguration
@@ -27,7 +28,12 @@ enum CustomVPNController {
         tunnel.remoteIdentifier = profile.remoteIdentifier.isEmpty ? profile.serverAddress : profile.remoteIdentifier
         tunnel.localIdentifier = profile.username.isEmpty ? nil : profile.username
         tunnel.username = profile.username.isEmpty ? nil : profile.username
-        tunnel.useExtendedAuthentication = profile.username.isEmpty == false
+        if let passwordReference = try passwordReference(for: profile) {
+            tunnel.passwordReference = passwordReference
+            tunnel.useExtendedAuthentication = true
+        } else {
+            tunnel.useExtendedAuthentication = profile.username.isEmpty == false
+        }
         tunnel.authenticationMethod = .none
         tunnel.disconnectOnSleep = false
 
@@ -78,6 +84,39 @@ enum CustomVPNController {
             }
         }
     }
+
+    private static func passwordReference(for profile: CustomVPNProfile) throws -> Data? {
+        let password = profile.password?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard password.isEmpty == false else { return nil }
+
+        let account = [profile.countryName, profile.serverAddress, profile.username]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "|")
+        let data = Data(password.utf8)
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.exlon360.glide.vpn",
+            kSecAttrAccount as String: account
+        ]
+
+        SecItemDelete(baseQuery as CFDictionary)
+
+        var addQuery = baseQuery
+        addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        addQuery[kSecReturnPersistentRef as String] = true
+
+        var result: CFTypeRef?
+        let status = SecItemAdd(addQuery as CFDictionary, &result)
+        guard status == errSecSuccess else {
+            throw NSError(
+                domain: "GlideVPNKeychain",
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Could not save VPN password in Keychain."]
+            )
+        }
+        return result as? Data
+    }
 }
 
 private extension CustomVPNProfile {
@@ -87,6 +126,7 @@ private extension CustomVPNProfile {
             serverAddress: serverAddress.trimmingCharacters(in: .whitespacesAndNewlines),
             remoteIdentifier: remoteIdentifier.trimmingCharacters(in: .whitespacesAndNewlines),
             username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+            password: password?.trimmingCharacters(in: .whitespacesAndNewlines),
             isEnabled: isEnabled
         )
     }
