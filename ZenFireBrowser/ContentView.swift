@@ -302,9 +302,9 @@ private struct BrowserShell: View {
 
                 switch model.chromePlacement {
                 case .left:
-                    SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy, experience: experience), experience: experience)
+                    SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
                 case .right:
-                    SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy, experience: experience), experience: experience)
+                    SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
                 case .top:
                     ZStack(alignment: .top) {
                         BrowserContent()
@@ -329,9 +329,11 @@ private struct BrowserShell: View {
                     }
                 }
 
-                BrowserPageControls()
-                    .padding(.leading, pageControlsLeadingPadding(for: proxy, experience: experience))
-                    .padding(.top, pageControlsTopPadding)
+                MovableBrowserPageControls(
+                    containerSize: proxy.size,
+                    defaultLeading: pageControlsLeadingPadding(for: proxy, experience: experience),
+                    defaultTop: pageControlsTopPadding
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 if model.isPrivateModeEnabled {
@@ -358,6 +360,22 @@ private struct BrowserShell: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
+                if model.isChromeWidthResizeMode {
+                    ChromeWidthResizeControls(experience: experience)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 18)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if model.isPageControlsMoveMode {
+                    PageControlsMoveControls()
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 18)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 if model.isContainedBrowserPresented {
                     ContainedBrowserOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
@@ -367,6 +385,17 @@ private struct BrowserShell: View {
                     FloatingSearchOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                 }
+
+                BrowserShellGestureInstaller(
+                    onTwoFingerSwipe: { deltaX, deltaY in
+                        model.handleTwoFingerSwipe(deltaX: deltaX, deltaY: deltaY)
+                    },
+                    onThreeFingerSwipe: { deltaX in
+                        model.handleThreeFingerSwipe(deltaX: deltaX)
+                    }
+                )
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
             }
             .coordinateSpace(name: "browserShell")
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
@@ -481,7 +510,8 @@ private struct BrowserShell: View {
             return max(1, proxy.size.width)
         }
 
-        return min(max(proxy.size.width * 0.3, 286), 380)
+        let width = proxy.size.width * CGFloat(model.sideChromeWidthFraction)
+        return min(max(width, 286), min(proxy.size.width - 120, 520))
     }
 
     private func pageControlsLeadingPadding(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
@@ -557,6 +587,106 @@ private struct BrowserShell: View {
             return .scale(scale: 0.96).combined(with: .opacity)
         case .bottom:
             return .move(edge: .bottom).combined(with: .opacity)
+        }
+    }
+}
+
+private struct BrowserShellGestureInstaller: UIViewRepresentable {
+    let onTwoFingerSwipe: (CGFloat, CGFloat) -> Void
+    let onThreeFingerSwipe: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        DispatchQueue.main.async {
+            context.coordinator.install(from: view)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.parent = self
+        DispatchQueue.main.async {
+            context.coordinator.install(from: uiView)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: BrowserShellGestureInstaller
+        private weak var installedView: UIView?
+        private let twoFingerPan = UIPanGestureRecognizer()
+        private let threeFingerPan = UIPanGestureRecognizer()
+        private let minimumDistance: CGFloat = 118
+        private let directionRatio: CGFloat = 1.45
+
+        init(parent: BrowserShellGestureInstaller) {
+            self.parent = parent
+            super.init()
+            twoFingerPan.addTarget(self, action: #selector(handleTwoFingerPan(_:)))
+            twoFingerPan.minimumNumberOfTouches = 2
+            twoFingerPan.maximumNumberOfTouches = 2
+            twoFingerPan.cancelsTouchesInView = false
+            twoFingerPan.delegate = self
+
+            threeFingerPan.addTarget(self, action: #selector(handleThreeFingerPan(_:)))
+            threeFingerPan.minimumNumberOfTouches = 3
+            threeFingerPan.maximumNumberOfTouches = 3
+            threeFingerPan.cancelsTouchesInView = false
+            threeFingerPan.delegate = self
+        }
+
+        func install(from view: UIView) {
+            guard let target = view.superview else { return }
+            guard installedView !== target else { return }
+            uninstall()
+            target.addGestureRecognizer(twoFingerPan)
+            target.addGestureRecognizer(threeFingerPan)
+            installedView = target
+        }
+
+        func uninstall() {
+            installedView?.removeGestureRecognizer(twoFingerPan)
+            installedView?.removeGestureRecognizer(threeFingerPan)
+            installedView = nil
+        }
+
+        @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  let view = recognizer.view else { return }
+            let translation = recognizer.translation(in: view)
+            let absX = abs(translation.x)
+            let absY = abs(translation.y)
+            guard max(absX, absY) >= minimumDistance else { return }
+
+            if absY >= absX * directionRatio {
+                parent.onTwoFingerSwipe(0, translation.y)
+            } else if absX >= absY * directionRatio {
+                parent.onTwoFingerSwipe(translation.x, 0)
+            }
+        }
+
+        @objc private func handleThreeFingerPan(_ recognizer: UIPanGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  let view = recognizer.view else { return }
+            let translation = recognizer.translation(in: view)
+            guard abs(translation.x) >= minimumDistance,
+                  abs(translation.x) >= abs(translation.y) * directionRatio else { return }
+            parent.onThreeFingerSwipe(translation.x)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
     }
 }
@@ -753,6 +883,7 @@ private struct SideBrowserLayout: View {
     @EnvironmentObject private var model: BrowserViewModel
     let edge: SideChromeEdge
     let sideWidth: CGFloat
+    let containerWidth: CGFloat
     let experience: GlideDeviceExperience
 
     var body: some View {
@@ -772,6 +903,13 @@ private struct SideBrowserLayout: View {
                 SideChrome(edge: edge)
                     .frame(width: sideWidth)
                     .transition(chromeTransition)
+
+                if model.isChromeWidthResizeMode {
+                    SideChromeWidthDragHandle(edge: edge, sideWidth: sideWidth, containerWidth: containerWidth, experience: experience)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: edge == .left ? .leading : .trailing)
+                        .offset(x: edge == .left ? sideWidth - 16 : -(sideWidth - 16))
+                        .transition(.opacity)
+                }
             }
         }
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.areSideTabsCollapsed)
@@ -781,6 +919,49 @@ private struct SideBrowserLayout: View {
         edge == .left
             ? .move(edge: .leading).combined(with: .opacity)
             : .move(edge: .trailing).combined(with: .opacity)
+    }
+}
+
+private struct SideChromeWidthDragHandle: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let edge: SideChromeEdge
+    let sideWidth: CGFloat
+    let containerWidth: CGFloat
+    let experience: GlideDeviceExperience
+    @State private var dragStartWidth: CGFloat?
+
+    var body: some View {
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay {
+                Capsule()
+                    .fill(theme.color(.accent).opacity(experience == .phone ? 0.18 : 0.36))
+            }
+            .overlay {
+                Image(systemName: experience == .phone ? "arrow.left.and.right" : "line.3.horizontal")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(theme.color(.text))
+                    .rotationEffect(experience == .phone ? .degrees(0) : .degrees(90))
+            }
+            .frame(width: 32, height: 92)
+            .shadow(color: Color.black.opacity(0.28), radius: 12, y: 6)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard experience != .phone else { return }
+                        let startWidth = dragStartWidth ?? sideWidth
+                        dragStartWidth = startWidth
+                        let proposedWidth = edge == .left
+                            ? startWidth + value.translation.width
+                            : startWidth - value.translation.width
+                        model.updateSideChromeWidth(proposedWidth, containerWidth: containerWidth)
+                    }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                    }
+            )
+            .accessibilityLabel(experience == .phone ? "Phone chrome is full screen" : "Drag chrome width")
     }
 }
 
@@ -2015,6 +2196,82 @@ private struct TopSearchBarMoveControls: View {
     }
 }
 
+private struct ChromeWidthResizeControls: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let experience: GlideDeviceExperience
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(experience == .phone ? "Phone chrome is full screen" : "Drag the side edge", systemImage: experience == .phone ? "iphone" : "arrow.left.and.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(theme.color(.mutedText))
+
+            Button {
+                model.resetChromeWidth()
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+            .disabled(experience == .phone)
+            .accessibilityLabel("Reset chrome width")
+
+            Button {
+                model.endChromeWidthResize()
+            } label: {
+                Label("Done", systemImage: "checkmark")
+            }
+            .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
+        }
+        .font(.system(size: 14, weight: .bold))
+        .padding(10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.7), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.3), radius: 16, y: 8)
+    }
+}
+
+private struct PageControlsMoveControls: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label("Drag the reveal arrow", systemImage: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(theme.color(.mutedText))
+
+            Button {
+                model.resetPageControlsPosition()
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+            .accessibilityLabel("Reset reveal arrow position")
+
+            Button {
+                model.endPageControlsMove()
+            } label: {
+                Label("Done", systemImage: "checkmark")
+            }
+            .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
+        }
+        .font(.system(size: 14, weight: .bold))
+        .padding(10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.7), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.3), radius: 16, y: 8)
+    }
+}
+
 private struct BrowserTopSearchBar: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -2159,6 +2416,60 @@ private struct BrowserPageControls: View {
                 .stroke(theme.color(.border).opacity(0.42), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.24), radius: 14, y: 7)
+    }
+}
+
+private struct MovableBrowserPageControls: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    let containerSize: CGSize
+    let defaultLeading: CGFloat
+    let defaultTop: CGFloat
+    @State private var dragStartOffset: CGPoint?
+
+    var body: some View {
+        BrowserPageControls()
+            .padding(.leading, defaultLeading)
+            .padding(.top, defaultTop)
+            .offset(x: offsetX, y: offsetY)
+            .overlay {
+                if model.isPageControlsMoveMode {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.clear)
+                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .gesture(moveGesture)
+                }
+            }
+    }
+
+    private var offsetX: CGFloat {
+        CGFloat(model.pageControlsOffsetX) * horizontalRange
+    }
+
+    private var offsetY: CGFloat {
+        CGFloat(model.pageControlsOffsetY) * verticalRange
+    }
+
+    private var horizontalRange: CGFloat {
+        max(containerSize.width - 88, 1)
+    }
+
+    private var verticalRange: CGFloat {
+        max(containerSize.height - 88, 1)
+    }
+
+    private var moveGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("browserShell"))
+            .onChanged { value in
+                let start = dragStartOffset ?? CGPoint(x: CGFloat(model.pageControlsOffsetX), y: CGFloat(model.pageControlsOffsetY))
+                dragStartOffset = start
+                model.updatePageControlsOffset(
+                    x: Double(start.x) + Double(value.translation.width / horizontalRange),
+                    y: Double(start.y) + Double(value.translation.height / verticalRange)
+                )
+            }
+            .onEnded { _ in
+                dragStartOffset = nil
+            }
     }
 }
 
@@ -4678,6 +4989,22 @@ private struct BrowserSettingsView: View {
                                 .tag(placement)
                         }
                     }
+                    Button {
+                        presentAfterDismiss {
+                            model.beginChromeWidthResize()
+                        }
+                    } label: {
+                        Label("Drag Chrome Width", systemImage: "arrow.left.and.right")
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            model.beginPageControlsMove()
+                        }
+                    } label: {
+                        Label("Move Reveal Arrow", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+
                     Picker("Search engine", selection: $model.searchEngine) {
                         ForEach(BrowserSearchEngine.allCases) { engine in
                             Text(engine.title)

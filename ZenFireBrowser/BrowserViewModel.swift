@@ -965,6 +965,38 @@ final class BrowserViewModel: ObservableObject {
             vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
         }
     }
+    @Published var sideChromeWidthFraction: Double {
+        didSet {
+            let clamped = Self.clampedSideChromeWidthFraction(sideChromeWidthFraction)
+            if clamped != sideChromeWidthFraction {
+                sideChromeWidthFraction = clamped
+                return
+            }
+            vault.save(sideChromeWidthFraction, forKey: Self.StorageKey.sideChromeWidthFraction)
+        }
+    }
+    @Published var pageControlsOffsetX: Double {
+        didSet {
+            let clamped = Self.clampedUnit(pageControlsOffsetX)
+            if clamped != pageControlsOffsetX {
+                pageControlsOffsetX = clamped
+                return
+            }
+            vault.save(pageControlsOffsetX, forKey: Self.StorageKey.pageControlsOffsetX)
+        }
+    }
+    @Published var pageControlsOffsetY: Double {
+        didSet {
+            let clamped = Self.clampedUnit(pageControlsOffsetY)
+            if clamped != pageControlsOffsetY {
+                pageControlsOffsetY = clamped
+                return
+            }
+            vault.save(pageControlsOffsetY, forKey: Self.StorageKey.pageControlsOffsetY)
+        }
+    }
+    @Published var isChromeWidthResizeMode = false
+    @Published var isPageControlsMoveMode = false
     @Published var searchEngine: BrowserSearchEngine {
         didSet {
             vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
@@ -1018,6 +1050,8 @@ final class BrowserViewModel: ObservableObject {
     private let vault: SecureBrowserVault
     private let browserMusicPlayer = BrowserMusicPlayer()
     private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
+    private var lastTwoFingerSwipeAt = Date.distantPast
+    private var lastThreeFingerSwipeAt = Date.distantPast
 
     init(vault: SecureBrowserVault) {
         self.vault = vault
@@ -1106,6 +1140,11 @@ final class BrowserViewModel: ObservableObject {
         self.chromePlacement = placement
         self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
         self.arePageControlsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.pageControlsCollapsed, default: false)
+        self.sideChromeWidthFraction = Self.clampedSideChromeWidthFraction(
+            vault.load(Double.self, forKey: Self.StorageKey.sideChromeWidthFraction, default: 0.3)
+        )
+        self.pageControlsOffsetX = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.pageControlsOffsetX, default: 0.0))
+        self.pageControlsOffsetY = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.pageControlsOffsetY, default: 0.0))
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.moreMenuActionIDs = savedMoreMenuActionIDs
@@ -1723,7 +1762,53 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
+    func beginChromeWidthResize() {
+        isFloatingSearchPresented = false
+        isPageControlsMoveMode = false
+        if chromePlacement != .left && chromePlacement != .right {
+            chromePlacement = .left
+        }
+        areSideTabsCollapsed = false
+        isChromeWidthResizeMode = true
+    }
+
+    func endChromeWidthResize() {
+        isChromeWidthResizeMode = false
+    }
+
+    func resetChromeWidth() {
+        sideChromeWidthFraction = 0.3
+    }
+
+    func updateSideChromeWidth(_ width: CGFloat, containerWidth: CGFloat) {
+        guard containerWidth > 0 else { return }
+        sideChromeWidthFraction = Double(width / containerWidth)
+    }
+
+    func beginPageControlsMove() {
+        isFloatingSearchPresented = false
+        isChromeWidthResizeMode = false
+        isPageControlsMoveMode = true
+    }
+
+    func endPageControlsMove() {
+        isPageControlsMoveMode = false
+    }
+
+    func resetPageControlsPosition() {
+        pageControlsOffsetX = 0
+        pageControlsOffsetY = 0
+        isPageControlsMoveMode = false
+    }
+
+    func updatePageControlsOffset(x: Double, y: Double) {
+        pageControlsOffsetX = x
+        pageControlsOffsetY = y
+    }
+
     func handleTwoFingerSwipe(deltaX: CGFloat, deltaY: CGFloat) {
+        guard shouldAcceptGestureEvent(lastAcceptedAt: &lastTwoFingerSwipeAt) else { return }
+
         if abs(deltaY) > abs(deltaX) {
             if deltaY < 0 {
                 isTopSearchBarEnabled = false
@@ -1742,11 +1827,20 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func handleThreeFingerSwipe(deltaX: CGFloat) {
+        guard shouldAcceptGestureEvent(lastAcceptedAt: &lastThreeFingerSwipeAt) else { return }
+
         if deltaX > 0 {
             goBack()
         } else {
             goForward()
         }
+    }
+
+    private func shouldAcceptGestureEvent(lastAcceptedAt: inout Date) -> Bool {
+        let now = Date()
+        guard now.timeIntervalSince(lastAcceptedAt) > 0.35 else { return false }
+        lastAcceptedAt = now
+        return true
     }
 
     func openHistoryItem(_ item: BrowserHistoryItem) {
@@ -2399,6 +2493,11 @@ final class BrowserViewModel: ObservableObject {
         chromePlacement = .left
         areSideTabsCollapsed = false
         arePageControlsCollapsed = false
+        sideChromeWidthFraction = 0.3
+        pageControlsOffsetX = 0
+        pageControlsOffsetY = 0
+        isChromeWidthResizeMode = false
+        isPageControlsMoveMode = false
         isTopSearchBarEnabled = false
         topSearchBarPlacement = .top
         topSearchBarPositionX = 0.5
@@ -2826,6 +2925,9 @@ final class BrowserViewModel: ObservableObject {
         vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
+        vault.save(sideChromeWidthFraction, forKey: Self.StorageKey.sideChromeWidthFraction)
+        vault.save(pageControlsOffsetX, forKey: Self.StorageKey.pageControlsOffsetX)
+        vault.save(pageControlsOffsetY, forKey: Self.StorageKey.pageControlsOffsetY)
         vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
         vault.save(topSearchBarPlacement.rawValue, forKey: Self.StorageKey.topSearchBarPlacement)
         vault.save(topSearchBarPositionX, forKey: Self.StorageKey.topSearchBarPositionX)
@@ -3018,6 +3120,10 @@ final class BrowserViewModel: ObservableObject {
         min(max(value, 0.0), 1.0)
     }
 
+    private static func clampedSideChromeWidthFraction(_ value: Double) -> Double {
+        min(max(value, 0.22), 0.58)
+    }
+
     private static func clampedForcedFPS(_ value: Double) -> Double {
         guard value.isFinite else { return infiniteForcedFPSValue }
         return min(max(value.rounded(), minimumForcedFPS), infiniteForcedFPSValue)
@@ -3054,6 +3160,9 @@ final class BrowserViewModel: ObservableObject {
         static let chromePlacement = "ZenFireBrowser.chromePlacement"
         static let sideTabsCollapsed = "ZenFireBrowser.sideTabsCollapsed"
         static let pageControlsCollapsed = "ZenFireBrowser.pageControlsCollapsed"
+        static let sideChromeWidthFraction = "ZenFireBrowser.sideChromeWidthFraction"
+        static let pageControlsOffsetX = "ZenFireBrowser.pageControlsOffsetX"
+        static let pageControlsOffsetY = "ZenFireBrowser.pageControlsOffsetY"
         static let topSearchBarEnabled = "ZenFireBrowser.topSearchBarEnabled"
         static let topSearchBarPlacement = "ZenFireBrowser.topSearchBarPlacement"
         static let topSearchBarPositionX = "ZenFireBrowser.topSearchBarPositionX"
