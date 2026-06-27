@@ -304,13 +304,12 @@ private struct BrowserShell: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let experience = GlideDeviceExperience.resolve(
-                for: proxy.size,
-                override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
-            )
-
             ZStack {
                 BrowserBackground()
+                let experience = GlideDeviceExperience.resolve(
+                    for: proxy.size,
+                    override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
+                )
 
                 switch model.chromePlacement {
                 case .left:
@@ -415,7 +414,12 @@ private struct BrowserShell: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
-                BrowserSettingsView(currentExperience: experience)
+                BrowserSettingsView(
+                    currentExperience: GlideDeviceExperience.resolve(
+                        for: proxy.size,
+                        override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
+                    )
+                )
                     .environmentObject(model)
                     .environmentObject(theme)
                     .environmentObject(security)
