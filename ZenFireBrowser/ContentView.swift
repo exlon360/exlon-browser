@@ -743,7 +743,7 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
             if gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer {
                 return false
             }
-            true
+            return true
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
