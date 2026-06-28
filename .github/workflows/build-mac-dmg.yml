@@ -1,0 +1,53 @@
+name: Build Mac DMG
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "codex/**"
+    tags:
+      - "v*"
+      - "mac-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  mac-dmg:
+    name: Build Mac Catalyst DMG
+    runs-on: macos-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build Mac DMG
+        run: bash scripts/build_mac_dmg.sh
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Glide-macOS-dmg
+          path: build/mac-dmg/Glide-macOS.dmg
+          if-no-files-found: error
+
+      - name: Upload Mach-O report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Glide-macOS-mach-o-report
+          path: build/mac-dmg/mach-o.txt
+          if-no-files-found: error
+
+      - name: Publish DMG to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/mac-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/mac-dmg/Glide-macOS.dmg
+          generate_release_notes: true

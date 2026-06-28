@@ -60,6 +60,7 @@ The repo includes GitHub Actions workflows under `.github/workflows`:
 - `ios-ci.yml` builds the shared `ZenFireBrowser` Xcode scheme on a macOS runner for pushes, pull requests, and manual dispatches.
 - `glide-emu-ios-ci.yml` builds the separate `GlideEmu` Xcode scheme on a macOS runner for pushes, pull requests, and manual dispatches.
 - `build-ipa.yml` creates an unsigned `ZenFireBrowser-unsigned.ipa` artifact from a manual workflow run or a `v*` tag, and publishes the IPA to GitHub Releases for tag builds.
+- `build-mac-dmg.yml` creates a Mac Catalyst `Glide-macOS.dmg` artifact from a manual workflow run or a `v*` / `mac-v*` tag, verifies the app executable is Mach-O, and publishes the DMG to GitHub Releases for tag builds.
 - `build-glide-emu-ipa.yml` creates a separate unsigned `GlideEmu-unsigned.ipa` artifact from a manual workflow run or an `emu-v*` tag.
 - `build-signed-ipa.yml` creates a signed IPA when Apple signing secrets are configured.
 - `repository-checks.yml` validates the plist, shared scheme XML, required project files, private browsing storage, and dark mode enforcement.
@@ -102,6 +103,14 @@ base64 -i ZenFireBrowser.mobileprovision | pbcopy
 ```
 
 Then run the `Build Signed IPA` workflow manually.
+
+## Mac DMG Builds
+
+Glide can also build as a Mac Catalyst app from the same `ZenFireBrowser` target. Run the `Build Mac DMG` GitHub Action manually to produce `Glide-macOS.dmg` as a workflow artifact, or push a `v*` / `mac-v*` tag to attach the DMG to a GitHub Release.
+
+The DMG contains `Glide.app` plus an Applications shortcut. The workflow builds without signing by default, so macOS may show the normal warning for unsigned apps. For wider distribution, sign and notarize the app with an Apple Developer ID in a follow-up release flow.
+
+The Mac build includes Desktop Zen Mode in Settings. When enabled, the browser chrome hides for a calmer desktop surface and appears when the pointer hovers over the active chrome edge or floating bar area.
 
 ## Separate Glide Emu App
 

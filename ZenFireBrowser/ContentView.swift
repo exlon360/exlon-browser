@@ -306,6 +306,7 @@ private struct BrowserShell: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @EnvironmentObject private var security: AppSecurityModel
+    @State private var isDesktopZenChromeHovered = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -317,32 +318,41 @@ private struct BrowserShell: View {
                 )
                 PhoneExperienceSyncView(isPhoneExperience: experience == .phone)
 
-                switch model.chromePlacement {
-                case .left:
-                    SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
-                case .right:
-                    SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
-                case .top:
-                    ZStack(alignment: .top) {
-                        BrowserContent()
-                        if model.areSideTabsCollapsed == false {
-                            HorizontalChrome(edge: .top)
-                                .transition(.move(edge: .top).combined(with: .opacity))
+                if isDesktopZenModeActive {
+                    DesktopZenBrowserLayout(
+                        sideWidth: sideWidth(for: proxy, experience: experience),
+                        containerWidth: proxy.size.width,
+                        experience: experience,
+                        isChromeHovered: $isDesktopZenChromeHovered
+                    )
+                } else {
+                    switch model.chromePlacement {
+                    case .left:
+                        SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
+                    case .right:
+                        SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
+                    case .top:
+                        ZStack(alignment: .top) {
+                            BrowserContent()
+                            if model.areSideTabsCollapsed == false {
+                                HorizontalChrome(edge: .top)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            }
                         }
-                    }
-                case .bottom:
-                    ZStack(alignment: .bottom) {
+                    case .bottom:
+                        ZStack(alignment: .bottom) {
+                            BrowserContent()
+                            if model.areSideTabsCollapsed == false {
+                                HorizontalChrome(edge: .bottom)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                        }
+                    case .floating:
                         BrowserContent()
                         if model.areSideTabsCollapsed == false {
-                            HorizontalChrome(edge: .bottom)
+                            FloatingChrome()
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
-                    }
-                case .floating:
-                    BrowserContent()
-                    if model.areSideTabsCollapsed == false {
-                        FloatingChrome()
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
 
@@ -431,6 +441,8 @@ private struct BrowserShell: View {
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
+            .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.isDesktopZenModeEnabled)
+            .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isDesktopZenChromeHovered)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView(
@@ -542,8 +554,29 @@ private struct BrowserShell: View {
             .onAppear {
                 security.presentCrashLogsIfNeeded()
             }
+            .onChange(of: model.isDesktopZenModeEnabled) { _, enabled in
+                if enabled == false {
+                    isDesktopZenChromeHovered = false
+                }
+            }
         }
         .tint(theme.color(.accent))
+    }
+
+    private var isDesktopZenModeActive: Bool {
+        BrowserViewModel.supportsDesktopZenMode && model.isDesktopZenModeEnabled
+    }
+
+    private var isDesktopZenChromeVisible: Bool {
+        isDesktopZenModeActive && (isDesktopZenChromeHovered || model.isChromeWidthResizeMode)
+    }
+
+    private func chromeIsVisible(for placement: BrowserChromePlacement) -> Bool {
+        guard model.chromePlacement == placement else { return false }
+        if isDesktopZenModeActive {
+            return isDesktopZenChromeVisible
+        }
+        return model.areSideTabsCollapsed == false
     }
 
     private func sideWidth(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
@@ -560,7 +593,7 @@ private struct BrowserShell: View {
             return 14
         }
 
-        if model.chromePlacement == .left && model.areSideTabsCollapsed == false {
+        if chromeIsVisible(for: .left) {
             return sideWidth(for: proxy, experience: experience) + 18
         }
         return 14
@@ -571,28 +604,28 @@ private struct BrowserShell: View {
             return topSearchBarTopPadding + 62
         }
 
-        if model.chromePlacement == .top && model.areSideTabsCollapsed == false {
+        if chromeIsVisible(for: .top) {
             return 118
         }
         return 14
     }
 
     private var privateModeBadgeTopPadding: CGFloat {
-        if model.chromePlacement == .top && model.areSideTabsCollapsed == false {
+        if chromeIsVisible(for: .top) {
             return 118
         }
         return 18
     }
 
     private var topSearchBarTopPadding: CGFloat {
-        if model.chromePlacement == .top && model.areSideTabsCollapsed == false {
+        if chromeIsVisible(for: .top) {
             return 112
         }
         return 12
     }
 
     private var topSearchBarBottomPadding: CGFloat {
-        if model.chromePlacement == .bottom && model.areSideTabsCollapsed == false {
+        if chromeIsVisible(for: .bottom) {
             return 112
         }
         return 16
@@ -1072,6 +1105,169 @@ private struct SideBrowserLayout: View {
     }
 }
 
+private struct DesktopZenBrowserLayout: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    let sideWidth: CGFloat
+    let containerWidth: CGFloat
+    let experience: GlideDeviceExperience
+    @Binding var isChromeHovered: Bool
+
+    private var isChromeVisible: Bool {
+        isChromeHovered || model.isChromeWidthResizeMode
+    }
+
+    var body: some View {
+        ZStack {
+            BrowserContent()
+
+            switch model.chromePlacement {
+            case .left:
+                sideReveal(edge: .left)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            case .right:
+                sideReveal(edge: .right)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            case .top:
+                horizontalReveal(edge: .top)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            case .bottom:
+                horizontalReveal(edge: .bottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            case .floating:
+                floatingReveal()
+            }
+        }
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isChromeVisible)
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.chromePlacement)
+    }
+
+    @ViewBuilder
+    private func sideReveal(edge: SideChromeEdge) -> some View {
+        if isChromeVisible {
+            ZStack(alignment: edge == .left ? .leading : .trailing) {
+                SideChrome(edge: edge)
+                    .frame(width: sideWidth)
+                    .onHover(perform: setChromeHovered)
+
+                if model.isChromeWidthResizeMode {
+                    SideChromeWidthDragHandle(edge: edge, sideWidth: sideWidth, containerWidth: containerWidth, experience: experience)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: edge == .left ? .leading : .trailing)
+                        .offset(x: edge == .left ? sideWidth - 16 : -(sideWidth - 16))
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: sideWidth)
+            .frame(maxHeight: .infinity)
+            .transition(sideTransition(for: edge))
+        } else {
+            DesktopZenHoverStrip(edge: edge == .left ? .left : .right)
+                .frame(width: 28)
+                .frame(maxHeight: .infinity)
+                .onHover(perform: setChromeHovered)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private func horizontalReveal(edge: VerticalEdge) -> some View {
+        if isChromeVisible {
+            HorizontalChrome(edge: edge)
+                .onHover(perform: setChromeHovered)
+                .transition(.move(edge: edge == .top ? .top : .bottom).combined(with: .opacity))
+        } else {
+            DesktopZenHoverStrip(edge: edge == .top ? .top : .bottom)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .onHover(perform: setChromeHovered)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private func floatingReveal() -> some View {
+        if isChromeVisible {
+            FloatingChrome(onHoverChanged: setChromeHovered)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else {
+            DesktopZenHoverStrip(edge: .bottom)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .onHover(perform: setChromeHovered)
+                .transition(.opacity)
+        }
+    }
+
+    private func sideTransition(for edge: SideChromeEdge) -> AnyTransition {
+        edge == .left
+            ? .move(edge: .leading).combined(with: .opacity)
+            : .move(edge: .trailing).combined(with: .opacity)
+    }
+
+    private func setChromeHovered(_ hovered: Bool) {
+        guard isChromeHovered != hovered else { return }
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            isChromeHovered = hovered
+        }
+    }
+}
+
+private enum DesktopZenHoverEdge {
+    case left
+    case right
+    case top
+    case bottom
+
+    var alignment: Alignment {
+        switch self {
+        case .left:
+            return .leading
+        case .right:
+            return .trailing
+        case .top:
+            return .top
+        case .bottom:
+            return .bottom
+        }
+    }
+
+    var isHorizontal: Bool {
+        self == .top || self == .bottom
+    }
+}
+
+private struct DesktopZenHoverStrip: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let edge: DesktopZenHoverEdge
+
+    var body: some View {
+        ZStack(alignment: edge.alignment) {
+            Color.clear
+
+            Capsule()
+                .fill(theme.color(.accent).opacity(0.48))
+                .frame(width: edge.isHorizontal ? 118 : 4, height: edge.isHorizontal ? 4 : 118)
+                .shadow(color: theme.color(.accent).opacity(0.24), radius: 8)
+                .padding(stripPadding)
+        }
+        .contentShape(Rectangle())
+        .accessibilityLabel("Reveal desktop chrome")
+    }
+
+    private var stripPadding: EdgeInsets {
+        switch edge {
+        case .left:
+            return EdgeInsets(top: 0, leading: 7, bottom: 0, trailing: 0)
+        case .right:
+            return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 7)
+        case .top:
+            return EdgeInsets(top: 7, leading: 0, bottom: 0, trailing: 0)
+        case .bottom:
+            return EdgeInsets(top: 0, leading: 0, bottom: 7, trailing: 0)
+        }
+    }
+}
+
 private struct SideChromeWidthDragHandle: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -1391,6 +1587,7 @@ private struct TraditionalTopTab: View {
 private struct FloatingChrome: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    var onHoverChanged: ((Bool) -> Void)? = nil
 
     var body: some View {
         VStack {
@@ -1494,6 +1691,9 @@ private struct FloatingChrome: View {
             .overlay {
                 Capsule()
                     .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
+            }
+            .onHover { isHovered in
+                onHoverChanged?(isHovered)
             }
             .shadow(color: Color.black.opacity(0.34), radius: 20, y: 12)
             .padding(.horizontal, 12)
@@ -5585,6 +5785,9 @@ private struct BrowserSettingsView: View {
                     }
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
+                    if BrowserViewModel.supportsDesktopZenMode {
+                        Toggle("Desktop Zen Mode", isOn: $model.isDesktopZenModeEnabled)
+                    }
                     Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
                     Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
                     if model.isTopSearchBarEnabled {

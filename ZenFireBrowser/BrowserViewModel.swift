@@ -1,4 +1,5 @@
 import Combine
+import AudioToolbox
 import AVFoundation
 import CoreGraphics
 import Foundation
@@ -655,7 +656,11 @@ final class BrowserMusicPlayer {
         audioBufferList: UnsafeMutablePointer<AudioBufferList>,
         sampleRate: Double
     ) {
-        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+        guard let buffersOffset = MemoryLayout<AudioBufferList>.offset(of: \.mBuffers) else { return }
+        let bufferCount = Int(audioBufferList.pointee.mNumberBuffers)
+        let buffers = UnsafeMutableRawPointer(audioBufferList)
+            .advanced(by: buffersOffset)
+            .assumingMemoryBound(to: AudioBuffer.self)
         let frameTotal = Int(frameCount)
         let twoPi = Double.pi * 2
 
@@ -678,7 +683,7 @@ final class BrowserMusicPlayer {
                 filteredNoise * parameters.noiseLevel
             let sample = max(-0.8, min(0.8, mixed))
 
-            for bufferIndex in 0..<buffers.count {
+            for bufferIndex in 0..<bufferCount {
                 guard let data = buffers[bufferIndex].mData else { continue }
                 let samples = data.bindMemory(to: Float.self, capacity: frameTotal)
                 samples[frame] = bufferIndex == 0 ? sample : sample * 0.92
@@ -741,6 +746,13 @@ final class BrowserViewModel: ObservableObject {
     static let minimumForcedFPS = 15.0
     static let maximumFiniteForcedFPS = 240.0
     static let infiniteForcedFPSValue = 241.0
+    static var supportsDesktopZenMode: Bool {
+        #if targetEnvironment(macCatalyst)
+        return true
+        #else
+        return false
+        #endif
+    }
 
     @Published var tabs: [BrowserTab]
     @Published var selectedTabID: BrowserTab.ID?
@@ -1068,6 +1080,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         }
     }
+    @Published var isDesktopZenModeEnabled: Bool {
+        didSet {
+            vault.save(isDesktopZenModeEnabled, forKey: Self.StorageKey.desktopZenModeEnabled)
+        }
+    }
     @Published var arePageControlsCollapsed: Bool {
         didSet {
             vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
@@ -1301,6 +1318,7 @@ final class BrowserViewModel: ObservableObject {
 
         self.chromePlacement = placement
         self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
+        self.isDesktopZenModeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.desktopZenModeEnabled, default: false)
         self.arePageControlsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.pageControlsCollapsed, default: false)
         self.compactModeHidesQuickControls = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesQuickControls, default: true)
         self.isTwoFingerDoubleTapCompactEnabledOnIPad = vault.load(Bool.self, forKey: Self.StorageKey.twoFingerDoubleTapCompactOnIPad, default: false)
@@ -2347,6 +2365,7 @@ final class BrowserViewModel: ObservableObject {
             topSearchBarPositionY: topSearchBarPositionY,
             chromePlacement: chromePlacement.rawValue,
             sideTabsCollapsed: areSideTabsCollapsed,
+            desktopZenModeEnabled: isDesktopZenModeEnabled,
             compactModeHidesQuickControls: compactModeHidesQuickControls,
             compactModeHidesTopSearchBar: compactModeHidesTopSearchBar,
             compactModeRevealsTopSearchBar: compactModeRevealsTopSearchBar,
@@ -2429,6 +2448,7 @@ final class BrowserViewModel: ObservableObject {
             self.topSearchBarPlacement = Self.nearestTopSearchBarPlacement(for: topSearchBarPositionY)
         }
         areSideTabsCollapsed = config.sideTabsCollapsed
+        isDesktopZenModeEnabled = config.desktopZenModeEnabled ?? false
         compactModeHidesQuickControls = config.compactModeHidesQuickControls ?? true
         compactModeHidesTopSearchBar = config.compactModeHidesTopSearchBar ?? true
         compactModeRevealsTopSearchBar = config.compactModeRevealsTopSearchBar ?? false
@@ -2861,6 +2881,7 @@ final class BrowserViewModel: ObservableObject {
     func resetLayoutSettings() {
         chromePlacement = .left
         areSideTabsCollapsed = false
+        isDesktopZenModeEnabled = false
         arePageControlsCollapsed = false
         compactModeHidesQuickControls = true
         compactModeHidesTopSearchBar = true
@@ -3302,6 +3323,7 @@ final class BrowserViewModel: ObservableObject {
     private func migrateLoadedStateToEncryptedVault() {
         vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
+        vault.save(isDesktopZenModeEnabled, forKey: Self.StorageKey.desktopZenModeEnabled)
         vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
         vault.save(compactModeHidesQuickControls, forKey: Self.StorageKey.compactModeHidesQuickControls)
         vault.save(compactModeHidesTopSearchBar, forKey: Self.StorageKey.compactModeHidesTopSearchBar)
@@ -3564,6 +3586,7 @@ final class BrowserViewModel: ObservableObject {
         static let darkReaderEnabled = "ZenFireBrowser.darkReaderEnabled"
         static let chromePlacement = "ZenFireBrowser.chromePlacement"
         static let sideTabsCollapsed = "ZenFireBrowser.sideTabsCollapsed"
+        static let desktopZenModeEnabled = "ZenFireBrowser.desktopZenModeEnabled"
         static let pageControlsCollapsed = "ZenFireBrowser.pageControlsCollapsed"
         static let sideChromeWidthFraction = "ZenFireBrowser.sideChromeWidthFraction"
         static let pageControlsOffsetX = "ZenFireBrowser.pageControlsOffsetX"

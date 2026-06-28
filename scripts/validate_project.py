@@ -78,9 +78,11 @@ def main() -> int:
         ".github/workflows/ios-ci.yml",
         ".github/workflows/glide-emu-ios-ci.yml",
         ".github/workflows/build-ipa.yml",
+        ".github/workflows/build-mac-dmg.yml",
         ".github/workflows/build-signed-ipa.yml",
         ".github/workflows/repository-checks.yml",
         "README.md",
+        "scripts/build_mac_dmg.sh",
         "scripts/build_unsigned_ipa.sh",
         "scripts/build_glide_emu_unsigned_ipa.sh",
         "scripts/build_signed_ipa.sh",
@@ -134,6 +136,16 @@ def main() -> int:
         "ZenFireBrowser/Info.plist",
         "<key>CFBundleName</key>\n\t<string>Glide</string>",
         "The bundle name must be Glide.",
+    )
+    require_contains(
+        "ZenFireBrowser.xcodeproj/project.pbxproj",
+        "SUPPORTS_MACCATALYST = YES;",
+        "The ZenFireBrowser target must support Mac Catalyst builds.",
+    )
+    require_contains(
+        "ZenFireBrowser.xcodeproj/project.pbxproj",
+        "macosx",
+        "The ZenFireBrowser target must include macOS as a supported platform for Catalyst.",
     )
     require_contains(
         "ZenFireBrowser.xcodeproj/project.pbxproj",
@@ -476,6 +488,26 @@ def main() -> int:
         "ZenFireBrowser/BrowserViewModel.swift",
         "topSearchBarEnabled",
         "The top search bar preference must persist in the encrypted browser model.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "desktopZenModeEnabled",
+        "Desktop Zen Mode must persist in the encrypted browser model.",
+    )
+    require_contains(
+        "ZenFireBrowser/BrowserViewModel.swift",
+        "targetEnvironment(macCatalyst)",
+        "Desktop Zen Mode must be gated to the Mac Catalyst build.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        "DesktopZenBrowserLayout",
+        "The Mac desktop experience must include hover-revealed chrome.",
+    )
+    require_contains(
+        "ZenFireBrowser/ContentView.swift",
+        'Toggle("Desktop Zen Mode"',
+        "Settings must expose a toggle for Desktop Zen Mode.",
     )
     require_contains(
         "ZenFireBrowser/BrowserViewModel.swift",
@@ -876,6 +908,26 @@ def main() -> int:
         ".github/workflows/build-ipa.yml",
         "softprops/action-gh-release",
         "The IPA workflow must publish tag builds to GitHub Releases.",
+    )
+    require_contains(
+        ".github/workflows/build-mac-dmg.yml",
+        "Glide-macOS.dmg",
+        "The Mac workflow must upload a Glide macOS DMG artifact.",
+    )
+    require_contains(
+        "scripts/build_mac_dmg.sh",
+        "variant=Mac Catalyst",
+        "The Mac build script must build the Catalyst destination.",
+    )
+    require_contains(
+        "scripts/build_mac_dmg.sh",
+        "Mach-O",
+        "The Mac build script must verify the app executable is Mach-O.",
+    )
+    require_contains(
+        "scripts/build_mac_dmg.sh",
+        "hdiutil create",
+        "The Mac build script must package the app into a DMG.",
     )
     require_contains(
         "GlideEmu/Info.plist",
