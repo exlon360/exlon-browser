@@ -5536,6 +5536,8 @@ private struct BrowserSettingsView: View {
                     DisclosureGroup {
                         Toggle("Auto compact after iPhone search", isOn: $model.autoCompactAfterSearchOnPhone)
                         Toggle("Hide quick buttons in compact", isOn: $model.compactModeHidesQuickControls)
+                        Toggle("Hide top search bar in compact", isOn: $model.compactModeHidesTopSearchBar)
+                        Toggle("Show top search bar on reveal", isOn: $model.compactModeRevealsTopSearchBar)
                         Toggle("Two-finger double tap on iPad", isOn: $model.isTwoFingerDoubleTapCompactEnabledOnIPad)
 
                         Button {

@@ -1004,6 +1004,19 @@ final class BrowserViewModel: ObservableObject {
             vault.save(autoCompactAfterSearchOnPhone, forKey: Self.StorageKey.autoCompactAfterSearchOnPhone)
         }
     }
+    @Published var compactModeHidesTopSearchBar: Bool {
+        didSet {
+            vault.save(compactModeHidesTopSearchBar, forKey: Self.StorageKey.compactModeHidesTopSearchBar)
+            if isCompactModeActive && compactModeHidesTopSearchBar {
+                isTopSearchBarEnabled = false
+            }
+        }
+    }
+    @Published var compactModeRevealsTopSearchBar: Bool {
+        didSet {
+            vault.save(compactModeRevealsTopSearchBar, forKey: Self.StorageKey.compactModeRevealsTopSearchBar)
+        }
+    }
     @Published var isTopSearchBarEnabled: Bool {
         didSet {
             vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
@@ -1285,6 +1298,8 @@ final class BrowserViewModel: ObservableObject {
         self.isDevWebKitEnabled = devWebKitEnabled
         self.devCustomEngineIdentifier = savedDevCustomEngineIdentifier
         self.deviceExperienceOverride = savedDeviceExperienceOverride
+        self.compactModeHidesTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesTopSearchBar, default: true)
+        self.compactModeRevealsTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeRevealsTopSearchBar, default: false)
         self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
         self.topSearchBarPositionX = savedTopSearchBarPositionX
@@ -1877,7 +1892,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     var isCompactModeActive: Bool {
-        areSideTabsCollapsed && isTopSearchBarEnabled == false
+        areSideTabsCollapsed && (compactModeHidesTopSearchBar == false || isTopSearchBarEnabled == false)
     }
 
     func setTabBarCollapsed(_ collapsed: Bool) {
@@ -1893,7 +1908,9 @@ final class BrowserViewModel: ObservableObject {
     func enterCompactMode() {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
             isFloatingSearchPresented = false
-            isTopSearchBarEnabled = false
+            if compactModeHidesTopSearchBar {
+                isTopSearchBarEnabled = false
+            }
             areSideTabsCollapsed = true
             arePageControlsCollapsed = compactModeHidesQuickControls
         }
@@ -1902,7 +1919,9 @@ final class BrowserViewModel: ObservableObject {
     func revealCompactMode() {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
             isFloatingSearchPresented = false
-            isTopSearchBarEnabled = true
+            if compactModeRevealsTopSearchBar {
+                isTopSearchBarEnabled = true
+            }
             areSideTabsCollapsed = false
             arePageControlsCollapsed = false
         }
@@ -2290,6 +2309,8 @@ final class BrowserViewModel: ObservableObject {
             chromePlacement: chromePlacement.rawValue,
             sideTabsCollapsed: areSideTabsCollapsed,
             compactModeHidesQuickControls: compactModeHidesQuickControls,
+            compactModeHidesTopSearchBar: compactModeHidesTopSearchBar,
+            compactModeRevealsTopSearchBar: compactModeRevealsTopSearchBar,
             twoFingerDoubleTapCompactOnIPad: isTwoFingerDoubleTapCompactEnabledOnIPad,
             searchEngine: searchEngine.rawValue,
             customSearchTemplate: customSearchTemplate,
@@ -2368,6 +2389,8 @@ final class BrowserViewModel: ObservableObject {
         }
         areSideTabsCollapsed = config.sideTabsCollapsed
         compactModeHidesQuickControls = config.compactModeHidesQuickControls ?? true
+        compactModeHidesTopSearchBar = config.compactModeHidesTopSearchBar ?? true
+        compactModeRevealsTopSearchBar = config.compactModeRevealsTopSearchBar ?? false
         isTwoFingerDoubleTapCompactEnabledOnIPad = config.twoFingerDoubleTapCompactOnIPad ?? false
         customSearchTemplate = config.customSearchTemplate
         newTabOpensSearch = config.newTabOpensSearch ?? true
@@ -2788,6 +2811,8 @@ final class BrowserViewModel: ObservableObject {
         areSideTabsCollapsed = false
         arePageControlsCollapsed = false
         compactModeHidesQuickControls = true
+        compactModeHidesTopSearchBar = true
+        compactModeRevealsTopSearchBar = false
         isTwoFingerDoubleTapCompactEnabledOnIPad = false
         sideChromeWidthFraction = 0.3
         pageControlsOffsetX = 0
@@ -3227,6 +3252,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
         vault.save(compactModeHidesQuickControls, forKey: Self.StorageKey.compactModeHidesQuickControls)
+        vault.save(compactModeHidesTopSearchBar, forKey: Self.StorageKey.compactModeHidesTopSearchBar)
+        vault.save(compactModeRevealsTopSearchBar, forKey: Self.StorageKey.compactModeRevealsTopSearchBar)
         vault.save(isTwoFingerDoubleTapCompactEnabledOnIPad, forKey: Self.StorageKey.twoFingerDoubleTapCompactOnIPad)
         vault.save(sideChromeWidthFraction, forKey: Self.StorageKey.sideChromeWidthFraction)
         vault.save(pageControlsOffsetX, forKey: Self.StorageKey.pageControlsOffsetX)
@@ -3480,6 +3507,8 @@ final class BrowserViewModel: ObservableObject {
         static let pageControlsOffsetX = "ZenFireBrowser.pageControlsOffsetX"
         static let pageControlsOffsetY = "ZenFireBrowser.pageControlsOffsetY"
         static let compactModeHidesQuickControls = "ZenFireBrowser.compactModeHidesQuickControls"
+        static let compactModeHidesTopSearchBar = "ZenFireBrowser.compactModeHidesTopSearchBar"
+        static let compactModeRevealsTopSearchBar = "ZenFireBrowser.compactModeRevealsTopSearchBar"
         static let twoFingerDoubleTapCompactOnIPad = "ZenFireBrowser.twoFingerDoubleTapCompactOnIPad"
         static let topSearchBarEnabled = "ZenFireBrowser.topSearchBarEnabled"
         static let topSearchBarPlacement = "ZenFireBrowser.topSearchBarPlacement"

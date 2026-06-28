@@ -431,6 +431,8 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var chromePlacement: String
     var sideTabsCollapsed: Bool
     var compactModeHidesQuickControls: Bool?
+    var compactModeHidesTopSearchBar: Bool?
+    var compactModeRevealsTopSearchBar: Bool?
     var twoFingerDoubleTapCompactOnIPad: Bool?
     var searchEngine: String
     var customSearchTemplate: String
