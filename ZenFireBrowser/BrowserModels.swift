@@ -430,6 +430,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var topSearchBarPositionY: Double?
     var chromePlacement: String
     var sideTabsCollapsed: Bool
+    var desktopZenModeEnabled: Bool?
     var compactModeHidesQuickControls: Bool?
     var compactModeHidesTopSearchBar: Bool?
     var compactModeRevealsTopSearchBar: Bool?
