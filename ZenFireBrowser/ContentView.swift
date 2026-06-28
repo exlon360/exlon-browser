@@ -430,6 +430,9 @@ private struct BrowserShell: View {
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
+            .onChange(of: experience) { _, newExperience in
+                model.setPhoneExperienceActive(newExperience == .phone)
+            }
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView(
@@ -539,6 +542,7 @@ private struct BrowserShell: View {
                 Text(model.closeAllTabsWarningMessage)
             }
             .onAppear {
+                model.setPhoneExperienceActive(experience == .phone)
                 security.presentCrashLogsIfNeeded()
             }
         }
@@ -2119,7 +2123,7 @@ private struct SelectableAddressTextField: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextField {
         let textField = UITextField(frame: .zero)
         textField.delegate = context.coordinator
-        textField.keyboardType = .URL
+        textField.keyboardType = .webSearch
         textField.returnKeyType = .go
         textField.autocorrectionType = .no
         textField.autocapitalizationType = .none

@@ -755,6 +755,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isFloatingSearchPresented = false
     @Published var floatingSearchText = ""
     @Published var shouldSelectFloatingSearchText = false
+    @Published private(set) var isPhoneExperienceActive = UIDevice.current.userInterfaceIdiom == .phone
     @Published var isTabFinderPresented = false
     @Published var isSettingsPresented = false
     @Published var isHistoryPresented = false
@@ -1723,9 +1724,14 @@ final class BrowserViewModel: ObservableObject {
         floatingSearchText = selectedTab?.addressText ?? submittedText
         shouldSelectFloatingSearchText = false
         isFloatingSearchPresented = false
-        if autoCompactChrome {
+        if shouldCompactAfterSearch(autoCompactChrome: autoCompactChrome) {
             enterCompactMode()
         }
+    }
+
+    func setPhoneExperienceActive(_ isActive: Bool) {
+        guard isPhoneExperienceActive != isActive else { return }
+        isPhoneExperienceActive = isActive
     }
 
     func openFloatingSearch() {
@@ -2575,9 +2581,13 @@ final class BrowserViewModel: ObservableObject {
         selectedTab?.addressText = result.url.absoluteString
         selectedTab?.load(result.url)
         isFloatingSearchPresented = false
-        if autoCompactChrome {
+        if shouldCompactAfterSearch(autoCompactChrome: autoCompactChrome) {
             enterCompactMode()
         }
+    }
+
+    private func shouldCompactAfterSearch(autoCompactChrome: Bool) -> Bool {
+        autoCompactChrome || (isPhoneExperienceActive && autoCompactAfterSearchOnPhone)
     }
 
     func requestWebFileImport(allowsMultipleSelection: Bool, completion: @escaping ([URL]?) -> Void) {
