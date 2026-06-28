@@ -479,6 +479,7 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
     case brazil
     case india
     case singapore
+    case china
 
     var id: String { rawValue }
 
@@ -504,6 +505,8 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return "India"
         case .singapore:
             return "Singapore"
+        case .china:
+            return "China"
         }
     }
 
@@ -513,7 +516,7 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return "globe.americas.fill"
         case .unitedKingdom, .germany, .france:
             return "globe.europe.africa.fill"
-        case .japan, .india, .singapore:
+        case .japan, .india, .singapore, .china:
             return "globe.asia.australia.fill"
         case .australia:
             return "globe.asia.australia.fill"
@@ -544,6 +547,8 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return "IN"
         case .singapore:
             return "SG"
+        case .china:
+            return "CN"
         }
     }
 
@@ -569,6 +574,8 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return "en-IN"
         case .singapore:
             return "en-SG"
+        case .china:
+            return "zh-CN"
         }
     }
 
@@ -594,6 +601,8 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return ["en-IN", "hi-IN", "en", "hi"]
         case .singapore:
             return ["en-SG", "zh-SG", "ms-SG", "ta-SG", "en"]
+        case .china:
+            return ["zh-CN", "zh", "en"]
         }
     }
 
@@ -619,6 +628,8 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return "Asia/Kolkata"
         case .singapore:
             return "Asia/Singapore"
+        case .china:
+            return "Asia/Shanghai"
         }
     }
 
@@ -638,7 +649,7 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return 180
         case .india:
             return -330
-        case .singapore:
+        case .singapore, .china:
             return -480
         }
     }
@@ -665,6 +676,8 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
             return (28.6139, 77.2090)
         case .singapore:
             return (1.3521, 103.8198)
+        case .china:
+            return (39.9042, 116.4074)
         }
     }
 
