@@ -430,9 +430,12 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var topSearchBarPositionY: Double?
     var chromePlacement: String
     var sideTabsCollapsed: Bool
+    var compactModeHidesQuickControls: Bool?
+    var twoFingerDoubleTapCompactOnIPad: Bool?
     var searchEngine: String
     var customSearchTemplate: String
     var newTabOpensSearch: Bool?
+    var autoCompactAfterSearchOnPhone: Bool?
     var darkReaderTheme: String?
     var stylusCatppuccinEnabled: Bool?
     var fpsForcerEnabled: Bool?

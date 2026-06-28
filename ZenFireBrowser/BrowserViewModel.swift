@@ -999,6 +999,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
         }
     }
+    @Published var autoCompactAfterSearchOnPhone: Bool {
+        didSet {
+            vault.save(autoCompactAfterSearchOnPhone, forKey: Self.StorageKey.autoCompactAfterSearchOnPhone)
+        }
+    }
     @Published var isTopSearchBarEnabled: Bool {
         didSet {
             vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
@@ -1040,6 +1045,19 @@ final class BrowserViewModel: ObservableObject {
     @Published var arePageControlsCollapsed: Bool {
         didSet {
             vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
+        }
+    }
+    @Published var compactModeHidesQuickControls: Bool {
+        didSet {
+            vault.save(compactModeHidesQuickControls, forKey: Self.StorageKey.compactModeHidesQuickControls)
+            if isCompactModeActive {
+                arePageControlsCollapsed = compactModeHidesQuickControls
+            }
+        }
+    }
+    @Published var isTwoFingerDoubleTapCompactEnabledOnIPad: Bool {
+        didSet {
+            vault.save(isTwoFingerDoubleTapCompactEnabledOnIPad, forKey: Self.StorageKey.twoFingerDoubleTapCompactOnIPad)
         }
     }
     @Published var sideChromeWidthFraction: Double {
@@ -1151,6 +1169,7 @@ final class BrowserViewModel: ObservableObject {
     private let browserMusicPlayer = BrowserMusicPlayer()
     private var pendingWebFileImportCompletion: (([URL]?) -> Void)?
     private var lastTwoFingerSwipeAt = Date.distantPast
+    private var lastTwoFingerDoubleTapAt = Date.distantPast
     private var lastThreeFingerSwipeAt = Date.distantPast
 
     init(vault: SecureBrowserVault) {
@@ -1251,6 +1270,8 @@ final class BrowserViewModel: ObservableObject {
         self.chromePlacement = placement
         self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
         self.arePageControlsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.pageControlsCollapsed, default: false)
+        self.compactModeHidesQuickControls = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesQuickControls, default: true)
+        self.isTwoFingerDoubleTapCompactEnabledOnIPad = vault.load(Bool.self, forKey: Self.StorageKey.twoFingerDoubleTapCompactOnIPad, default: false)
         self.sideChromeWidthFraction = Self.clampedSideChromeWidthFraction(
             vault.load(Double.self, forKey: Self.StorageKey.sideChromeWidthFraction, default: 0.3)
         )
@@ -1299,6 +1320,7 @@ final class BrowserViewModel: ObservableObject {
         self.browserMusicVolume = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.browserMusicVolume, default: 0.34))
         self.importedBrowserMusicFilename = vault.load(String.self, forKey: Self.StorageKey.importedBrowserMusicFilename, default: "")
         self.newTabOpensSearch = vault.load(Bool.self, forKey: Self.StorageKey.newTabOpensSearch, default: true)
+        self.autoCompactAfterSearchOnPhone = vault.load(Bool.self, forKey: Self.StorageKey.autoCompactAfterSearchOnPhone, default: true)
         self.localAIName = vault.load(String.self, forKey: Self.StorageKey.localAIName, default: "Local AI")
         self.localAIURLText = vault.load(String.self, forKey: Self.StorageKey.localAIURLText, default: "")
         self.vpnProfile = savedVPNProfile
@@ -1679,13 +1701,16 @@ final class BrowserViewModel: ObservableObject {
         selectedTab?.reloadOrStop()
     }
 
-    func submitAddress() {
+    func submitAddress(autoCompactChrome: Bool = false) {
         let submittedText = isFloatingSearchPresented ? floatingSearchText : selectedTab?.addressText ?? ""
         selectedTab?.addressText = submittedText
         selectedTab?.submitAddress(searchEngine: searchEngine, customSearchTemplate: customSearchTemplate)
         floatingSearchText = selectedTab?.addressText ?? submittedText
         shouldSelectFloatingSearchText = false
         isFloatingSearchPresented = false
+        if autoCompactChrome {
+            enterCompactMode()
+        }
     }
 
     func openFloatingSearch() {
@@ -1870,7 +1895,7 @@ final class BrowserViewModel: ObservableObject {
             isFloatingSearchPresented = false
             isTopSearchBarEnabled = false
             areSideTabsCollapsed = true
-            arePageControlsCollapsed = true
+            arePageControlsCollapsed = compactModeHidesQuickControls
         }
     }
 
@@ -1954,6 +1979,11 @@ final class BrowserViewModel: ObservableObject {
         }
 
         setTabBarCollapsed(deltaX < 0)
+    }
+
+    func handleTwoFingerDoubleTap() {
+        guard shouldAcceptGestureEvent(lastAcceptedAt: &lastTwoFingerDoubleTapAt) else { return }
+        toggleCompactMode()
     }
 
     func completeTutorial() {
@@ -2259,9 +2289,12 @@ final class BrowserViewModel: ObservableObject {
             topSearchBarPositionY: topSearchBarPositionY,
             chromePlacement: chromePlacement.rawValue,
             sideTabsCollapsed: areSideTabsCollapsed,
+            compactModeHidesQuickControls: compactModeHidesQuickControls,
+            twoFingerDoubleTapCompactOnIPad: isTwoFingerDoubleTapCompactEnabledOnIPad,
             searchEngine: searchEngine.rawValue,
             customSearchTemplate: customSearchTemplate,
             newTabOpensSearch: newTabOpensSearch,
+            autoCompactAfterSearchOnPhone: autoCompactAfterSearchOnPhone,
             darkReaderTheme: darkReaderTheme.rawValue,
             stylusCatppuccinEnabled: isStylusCatppuccinEnabled,
             fpsForcerEnabled: isFPSForcerEnabled,
@@ -2334,8 +2367,11 @@ final class BrowserViewModel: ObservableObject {
             self.topSearchBarPlacement = Self.nearestTopSearchBarPlacement(for: topSearchBarPositionY)
         }
         areSideTabsCollapsed = config.sideTabsCollapsed
+        compactModeHidesQuickControls = config.compactModeHidesQuickControls ?? true
+        isTwoFingerDoubleTapCompactEnabledOnIPad = config.twoFingerDoubleTapCompactOnIPad ?? false
         customSearchTemplate = config.customSearchTemplate
         newTabOpensSearch = config.newTabOpensSearch ?? true
+        autoCompactAfterSearchOnPhone = config.autoCompactAfterSearchOnPhone ?? true
         if let darkReaderThemeValue = config.darkReaderTheme,
            let theme = BrowserDarkReaderTheme(rawValue: darkReaderThemeValue) {
             darkReaderTheme = theme
@@ -2510,12 +2546,15 @@ final class BrowserViewModel: ObservableObject {
         return Array(results.prefix(12))
     }
 
-    func openSearchResult(_ result: BrowserSearchResult) {
+    func openSearchResult(_ result: BrowserSearchResult, autoCompactChrome: Bool = false) {
         floatingSearchText = result.url.absoluteString
         shouldSelectFloatingSearchText = false
         selectedTab?.addressText = result.url.absoluteString
         selectedTab?.load(result.url)
         isFloatingSearchPresented = false
+        if autoCompactChrome {
+            enterCompactMode()
+        }
     }
 
     func requestWebFileImport(allowsMultipleSelection: Bool, completion: @escaping ([URL]?) -> Void) {
@@ -2748,6 +2787,8 @@ final class BrowserViewModel: ObservableObject {
         chromePlacement = .left
         areSideTabsCollapsed = false
         arePageControlsCollapsed = false
+        compactModeHidesQuickControls = true
+        isTwoFingerDoubleTapCompactEnabledOnIPad = false
         sideChromeWidthFraction = 0.3
         pageControlsOffsetX = 0
         pageControlsOffsetY = 0
@@ -2767,6 +2808,7 @@ final class BrowserViewModel: ObservableObject {
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         newTabOpensSearch = true
+        autoCompactAfterSearchOnPhone = true
         localAIName = "Local AI"
         localAIURLText = ""
     }
@@ -3184,6 +3226,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(chromePlacement.rawValue, forKey: Self.StorageKey.chromePlacement)
         vault.save(areSideTabsCollapsed, forKey: Self.StorageKey.sideTabsCollapsed)
         vault.save(arePageControlsCollapsed, forKey: Self.StorageKey.pageControlsCollapsed)
+        vault.save(compactModeHidesQuickControls, forKey: Self.StorageKey.compactModeHidesQuickControls)
+        vault.save(isTwoFingerDoubleTapCompactEnabledOnIPad, forKey: Self.StorageKey.twoFingerDoubleTapCompactOnIPad)
         vault.save(sideChromeWidthFraction, forKey: Self.StorageKey.sideChromeWidthFraction)
         vault.save(pageControlsOffsetX, forKey: Self.StorageKey.pageControlsOffsetX)
         vault.save(pageControlsOffsetY, forKey: Self.StorageKey.pageControlsOffsetY)
@@ -3229,6 +3273,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
         vault.save(importedBrowserMusicFilename, forKey: Self.StorageKey.importedBrowserMusicFilename)
         vault.save(newTabOpensSearch, forKey: Self.StorageKey.newTabOpensSearch)
+        vault.save(autoCompactAfterSearchOnPhone, forKey: Self.StorageKey.autoCompactAfterSearchOnPhone)
         vault.save(BrowserContentBlocker.engineVersion, forKey: Self.StorageKey.shieldEngineVersion)
         vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
         vault.save(selectedVPNCountry, forKey: Self.StorageKey.selectedVPNCountry)
@@ -3434,6 +3479,8 @@ final class BrowserViewModel: ObservableObject {
         static let sideChromeWidthFraction = "ZenFireBrowser.sideChromeWidthFraction"
         static let pageControlsOffsetX = "ZenFireBrowser.pageControlsOffsetX"
         static let pageControlsOffsetY = "ZenFireBrowser.pageControlsOffsetY"
+        static let compactModeHidesQuickControls = "ZenFireBrowser.compactModeHidesQuickControls"
+        static let twoFingerDoubleTapCompactOnIPad = "ZenFireBrowser.twoFingerDoubleTapCompactOnIPad"
         static let topSearchBarEnabled = "ZenFireBrowser.topSearchBarEnabled"
         static let topSearchBarPlacement = "ZenFireBrowser.topSearchBarPlacement"
         static let topSearchBarPositionX = "ZenFireBrowser.topSearchBarPositionX"
@@ -3474,6 +3521,7 @@ final class BrowserViewModel: ObservableObject {
         static let browserMusicVolume = "ZenFireBrowser.browserMusicVolume"
         static let importedBrowserMusicFilename = "ZenFireBrowser.importedBrowserMusicFilename"
         static let newTabOpensSearch = "ZenFireBrowser.newTabOpensSearch"
+        static let autoCompactAfterSearchOnPhone = "ZenFireBrowser.autoCompactAfterSearchOnPhone"
         static let hasCompletedTutorial = "ZenFireBrowser.hasCompletedTutorial"
         static let downloads = "ZenFireBrowser.downloads"
         static let passwordEntries = "ZenFireBrowser.passwordEntries"

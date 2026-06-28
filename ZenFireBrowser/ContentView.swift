@@ -294,6 +294,10 @@ private enum GlideDeviceExperience: Equatable {
             return .iPad
         }
 
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return .iPad
+        }
+
         return min(size.width, size.height) >= 600 ? GlideDeviceExperience.iPad : GlideDeviceExperience.phone
     }
 }
@@ -359,7 +363,8 @@ private struct BrowserShell: View {
                     MovableTopSearchBar(
                         containerSize: proxy.size,
                         topInset: topSearchBarTopPadding,
-                        bottomInset: topSearchBarBottomPadding
+                        bottomInset: topSearchBarBottomPadding,
+                        experience: experience
                     )
                         .transition(topSearchBarTransition)
                 }
@@ -402,16 +407,20 @@ private struct BrowserShell: View {
                 }
 
                 if model.isFloatingSearchPresented {
-                    FloatingSearchOverlay()
+                    FloatingSearchOverlay(experience: experience)
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                 }
 
                 BrowserShellGestureInstaller(
+                    isTwoFingerDoubleTapEnabled: experience == .phone || model.isTwoFingerDoubleTapCompactEnabledOnIPad,
                     onTwoFingerSwipe: { deltaX, deltaY in
                         model.handleTwoFingerSwipe(deltaX: deltaX, deltaY: deltaY)
                     },
                     onThreeFingerSwipe: { deltaX in
                         model.handleThreeFingerSwipe(deltaX: deltaX)
+                    },
+                    onTwoFingerDoubleTap: {
+                        model.handleTwoFingerDoubleTap()
                     }
                 )
                 .frame(width: 1, height: 1)
@@ -623,8 +632,10 @@ private struct BrowserShell: View {
 }
 
 private struct BrowserShellGestureInstaller: UIViewRepresentable {
+    let isTwoFingerDoubleTapEnabled: Bool
     let onTwoFingerSwipe: (CGFloat, CGFloat) -> Void
     let onThreeFingerSwipe: (CGFloat) -> Void
+    let onTwoFingerDoubleTap: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -655,6 +666,7 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
         private weak var installedView: UIView?
         private let twoFingerPan = UIPanGestureRecognizer()
         private let threeFingerPan = UIPanGestureRecognizer()
+        private let twoFingerDoubleTap = UITapGestureRecognizer()
         private let minimumDistance: CGFloat = 154
         private let directionRatio: CGFloat = 1.6
         private let pinchDistanceTolerance: CGFloat = 28
@@ -671,6 +683,14 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
             twoFingerPan.cancelsTouchesInView = false
             twoFingerPan.delegate = self
 
+            twoFingerDoubleTap.addTarget(self, action: #selector(handleTwoFingerDoubleTap(_:)))
+            twoFingerDoubleTap.numberOfTouchesRequired = 2
+            twoFingerDoubleTap.numberOfTapsRequired = 2
+            twoFingerDoubleTap.cancelsTouchesInView = false
+            twoFingerDoubleTap.delaysTouchesBegan = false
+            twoFingerDoubleTap.delaysTouchesEnded = false
+            twoFingerDoubleTap.delegate = self
+
             threeFingerPan.addTarget(self, action: #selector(handleThreeFingerPan(_:)))
             threeFingerPan.minimumNumberOfTouches = 3
             threeFingerPan.maximumNumberOfTouches = 3
@@ -680,16 +700,19 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
 
         func install(from view: UIView) {
             guard let target = view.superview else { return }
+            twoFingerDoubleTap.isEnabled = parent.isTwoFingerDoubleTapEnabled
             guard installedView !== target else { return }
             uninstall()
             target.addGestureRecognizer(twoFingerPan)
             target.addGestureRecognizer(threeFingerPan)
+            target.addGestureRecognizer(twoFingerDoubleTap)
             installedView = target
         }
 
         func uninstall() {
             installedView?.removeGestureRecognizer(twoFingerPan)
             installedView?.removeGestureRecognizer(threeFingerPan)
+            installedView?.removeGestureRecognizer(twoFingerDoubleTap)
             installedView = nil
         }
 
@@ -736,10 +759,19 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
             parent.onThreeFingerSwipe(translation.x)
         }
 
+        @objc private func handleTwoFingerDoubleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .recognized,
+                  parent.isTwoFingerDoubleTapEnabled else { return }
+            parent.onTwoFingerDoubleTap()
+        }
+
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if gestureRecognizer === twoFingerDoubleTap || otherGestureRecognizer === twoFingerDoubleTap {
+                return true
+            }
             if gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer {
                 return false
             }
@@ -747,7 +779,10 @@ private struct BrowserShellGestureInstaller: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            touch.view?.hasSuperview(of: WKWebView.self) == false
+            if gestureRecognizer === twoFingerDoubleTap {
+                return parent.isTwoFingerDoubleTapEnabled
+            }
+            return touch.view?.hasSuperview(of: WKWebView.self) == false
         }
 
         private func twoFingerDistance(in recognizer: UIPanGestureRecognizer) -> CGFloat? {
@@ -2000,6 +2035,7 @@ private struct AddressField: View {
     @EnvironmentObject private var theme: BrowserTheme
     let style: AddressFieldStyle
     let focusOnAppear: Bool
+    let autoCompactOnSubmit: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -2021,12 +2057,12 @@ private struct AddressField: View {
                 shouldFocus: focusOnAppear,
                 shouldSelectText: selectTextBinding
             ) {
-                model.submitAddress()
+                model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
             }
             .frame(height: 34)
 
             Button {
-                model.submitAddress()
+                model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
             } label: {
                 BrowserIcon(slot: .go, systemName: "arrow.up.circle.fill", size: 25, weight: .semibold)
                     .frame(width: 30, height: 30)
@@ -2150,6 +2186,7 @@ private struct SelectableAddressTextField: UIViewRepresentable {
 private struct FloatingSearchOverlay: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    let experience: GlideDeviceExperience
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -2160,8 +2197,15 @@ private struct FloatingSearchOverlay: View {
                 }
 
             VStack(spacing: 12) {
-                AddressField(style: .floating, focusOnAppear: true)
-                SearchResultsList(query: model.floatingSearchText)
+                AddressField(
+                    style: .floating,
+                    focusOnAppear: true,
+                    autoCompactOnSubmit: shouldAutoCompactAfterSubmit
+                )
+                SearchResultsList(
+                    query: model.floatingSearchText,
+                    autoCompactOnOpen: shouldAutoCompactAfterSubmit
+                )
 
                 if let tab = model.selectedTab {
                     HStack(spacing: 8) {
@@ -2182,12 +2226,17 @@ private struct FloatingSearchOverlay: View {
             .padding(.horizontal, 16)
         }
     }
+
+    private var shouldAutoCompactAfterSubmit: Bool {
+        experience == .phone && model.autoCompactAfterSearchOnPhone
+    }
 }
 
 private struct SearchResultsList: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     let query: String
+    let autoCompactOnOpen: Bool
 
     var body: some View {
         let results = model.searchResults(for: query)
@@ -2195,7 +2244,7 @@ private struct SearchResultsList: View {
         if results.isEmpty == false {
             VStack(spacing: 0) {
                 ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
-                    SearchResultRow(result: result)
+                    SearchResultRow(result: result, autoCompactOnOpen: autoCompactOnOpen)
 
                     if index < results.count - 1 {
                         Rectangle()
@@ -2221,11 +2270,15 @@ private struct MovableTopSearchBar: View {
     let containerSize: CGSize
     let topInset: CGFloat
     let bottomInset: CGFloat
+    let experience: GlideDeviceExperience
 
     var body: some View {
         let metrics = layoutMetrics
 
-        BrowserTopSearchBar(isMoving: model.isTopSearchBarMoveMode)
+        BrowserTopSearchBar(
+            isMoving: model.isTopSearchBarMoveMode,
+            autoCompactOnSubmit: experience == .phone && model.autoCompactAfterSearchOnPhone
+        )
             .frame(width: metrics.width, height: metrics.height)
             .position(
                 x: position(from: model.displayedTopSearchBarX, min: metrics.minX, max: metrics.maxX),
@@ -2398,9 +2451,11 @@ private struct BrowserTopSearchBar: View {
     @EnvironmentObject private var theme: BrowserTheme
     @State private var shouldSelectText = false
     let isMoving: Bool
+    let autoCompactOnSubmit: Bool
 
-    init(isMoving: Bool = false) {
+    init(isMoving: Bool = false, autoCompactOnSubmit: Bool = false) {
         self.isMoving = isMoving
+        self.autoCompactOnSubmit = autoCompactOnSubmit
     }
 
     var body: some View {
@@ -2423,12 +2478,12 @@ private struct BrowserTopSearchBar: View {
                 shouldFocus: false,
                 shouldSelectText: $shouldSelectText
             ) {
-                model.submitAddress()
+                model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
             }
             .frame(height: 32)
 
             Button {
-                model.submitAddress()
+                model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
             } label: {
                 BrowserIcon(slot: .go, systemName: "arrow.up.circle.fill", size: 24, weight: .semibold)
                     .frame(width: 28, height: 28)
@@ -2481,10 +2536,11 @@ private struct SearchResultRow: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     let result: BrowserSearchResult
+    let autoCompactOnOpen: Bool
 
     var body: some View {
         Button {
-            model.openSearchResult(result)
+            model.openSearchResult(result, autoCompactChrome: autoCompactOnOpen)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: result.symbolName)
@@ -5477,6 +5533,33 @@ private struct BrowserSettingsView: View {
                             Label("Move Top Search Bar", systemImage: "hand.draw")
                         }
                     }
+                    DisclosureGroup {
+                        Toggle("Auto compact after iPhone search", isOn: $model.autoCompactAfterSearchOnPhone)
+                        Toggle("Hide quick buttons in compact", isOn: $model.compactModeHidesQuickControls)
+                        Toggle("Two-finger double tap on iPad", isOn: $model.isTwoFingerDoubleTapCompactEnabledOnIPad)
+
+                        Button {
+                            presentAfterDismiss {
+                                model.beginPageControlsMove()
+                            }
+                        } label: {
+                            Label("Move Reveal Arrow", systemImage: "arrow.up.left.and.arrow.down.right")
+                        }
+
+                        Button {
+                            model.resetPageControlsPosition()
+                        } label: {
+                            Label("Reset Reveal Arrow", systemImage: "arrow.counterclockwise")
+                        }
+
+                        Button {
+                            model.toggleCompactMode()
+                        } label: {
+                            Label(model.isCompactModeActive ? "Reveal Chrome" : "Enter Compact Mode", systemImage: model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                        }
+                    } label: {
+                        Label("Compact Mode", systemImage: "arrow.down.right.and.arrow.up.left")
+                    }
                     Picker("Chrome placement", selection: $model.chromePlacement) {
                         ForEach(BrowserChromePlacement.allCases) { placement in
                             Label(placement.title, systemImage: placement.symbolName)
@@ -5489,14 +5572,6 @@ private struct BrowserSettingsView: View {
                         }
                     } label: {
                         Label("Drag Chrome Width", systemImage: "arrow.left.and.right")
-                    }
-
-                    Button {
-                        presentAfterDismiss {
-                            model.beginPageControlsMove()
-                        }
-                    } label: {
-                        Label("Move Reveal Arrow", systemImage: "arrow.up.left.and.arrow.down.right")
                     }
 
                     Picker("Search engine", selection: $model.searchEngine) {
