@@ -315,6 +315,7 @@ private struct BrowserShell: View {
                     for: proxy.size,
                     override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
                 )
+                PhoneExperienceSyncView(isPhoneExperience: experience == .phone)
 
                 switch model.chromePlacement {
                 case .left:
@@ -430,9 +431,6 @@ private struct BrowserShell: View {
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
-            .onChange(of: experience) { _, newExperience in
-                model.setPhoneExperienceActive(newExperience == .phone)
-            }
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView(
@@ -542,7 +540,6 @@ private struct BrowserShell: View {
                 Text(model.closeAllTabsWarningMessage)
             }
             .onAppear {
-                model.setPhoneExperienceActive(experience == .phone)
                 security.presentCrashLogsIfNeeded()
             }
         }
@@ -632,6 +629,23 @@ private struct BrowserShell: View {
         case .bottom:
             return .move(edge: .bottom).combined(with: .opacity)
         }
+    }
+}
+
+private struct PhoneExperienceSyncView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    let isPhoneExperience: Bool
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .onAppear {
+                model.setPhoneExperienceActive(isPhoneExperience)
+            }
+            .onChange(of: isPhoneExperience) { _, newValue in
+                model.setPhoneExperienceActive(newValue)
+            }
     }
 }
 
