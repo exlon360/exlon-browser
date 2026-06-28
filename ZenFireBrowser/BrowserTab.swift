@@ -51,6 +51,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var isTrackingParameterStrippingEnabled: Bool
     @Published var isBounceTrackingProtectionEnabled: Bool
     @Published var isWebRTCProtectionEnabled: Bool
+    @Published var isRegionTricksEnabled: Bool
+    @Published var regionTrickProfile: BrowserRegionTrickProfile
     @Published var isFPSForcerEnabled: Bool
     @Published var forcedFPS: Double
     @Published var websiteDisplayMode: BrowserWebsiteDisplayMode
@@ -72,6 +74,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private nonisolated(unsafe) var navigationHTTPSUpgradeEnabled: Bool
     private nonisolated(unsafe) var navigationTrackingParameterStrippingEnabled: Bool
     private nonisolated(unsafe) var navigationBounceTrackingProtectionEnabled: Bool
+    private nonisolated(unsafe) var navigationRegionTricksEnabled: Bool
+    private nonisolated(unsafe) var navigationRegionTrickProfile: BrowserRegionTrickProfile
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -91,6 +95,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         isTrackingParameterStrippingEnabled: Bool = true,
         isBounceTrackingProtectionEnabled: Bool = true,
         isWebRTCProtectionEnabled: Bool = true,
+        isRegionTricksEnabled: Bool = false,
+        regionTrickProfile: BrowserRegionTrickProfile = .unitedStates,
         isFPSForcerEnabled: Bool = false,
         forcedFPS: Double = 60,
         websiteDisplayMode: BrowserWebsiteDisplayMode = .automatic,
@@ -113,10 +119,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.isTrackingParameterStrippingEnabled = isTrackingParameterStrippingEnabled
         self.isBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
         self.isWebRTCProtectionEnabled = isWebRTCProtectionEnabled
+        self.isRegionTricksEnabled = isRegionTricksEnabled
+        self.regionTrickProfile = regionTrickProfile
         self.navigationScriptBlockingEnabled = isScriptBlockingEnabled
         self.navigationHTTPSUpgradeEnabled = isHTTPSUpgradeEnabled
         self.navigationTrackingParameterStrippingEnabled = isTrackingParameterStrippingEnabled
         self.navigationBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
+        self.navigationRegionTricksEnabled = isRegionTricksEnabled
+        self.navigationRegionTrickProfile = regionTrickProfile
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
         self.websiteDisplayMode = websiteDisplayMode
@@ -178,7 +188,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             return
         }
 
-        webView.load(Self.websiteRequest(for: destination))
+        webView.load(Self.websiteRequest(for: destination, regionProfile: activeRegionTrickProfile))
     }
 
     func submitAddress(searchEngine: BrowserSearchEngine, customSearchTemplate: String) {
@@ -319,6 +329,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         applyPrivacyOverrides(forceCleanup: true)
     }
 
+    func setRegionTricks(enabled: Bool, profile: BrowserRegionTrickProfile) {
+        isRegionTricksEnabled = enabled
+        regionTrickProfile = profile
+        navigationRegionTricksEnabled = enabled
+        navigationRegionTrickProfile = profile
+        rebuildWebKitUserContent(reloadAfterChange: true)
+    }
+
     private func applyPageStyleOverrides(forceCleanup: Bool = false) {
         guard forceCleanup || hasActivePageStyleOverrides else { return }
         webView.evaluateJavaScript(Self.pageControlsScript(
@@ -336,6 +354,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             popupBlocking: isPopupBlockingEnabled,
             webRTCProtection: isWebRTCProtectionEnabled
         ))
+        applyRegionTricks()
+    }
+
+    private func applyRegionTricks() {
+        guard let profile = activeRegionTrickProfile else { return }
+        webView.evaluateJavaScript(Self.regionTricksScript(profile: profile))
     }
 
     private func privacyAdjustedURL(for url: URL) -> URL {
@@ -401,6 +425,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             )
         }
 
+        if let profile = activeRegionTrickProfile {
+            scripts.append(
+                WKUserScript(
+                    source: Self.regionTricksScript(profile: profile),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
+
         return scripts
     }
 
@@ -439,6 +473,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private var hasActivePrivacyOverrides: Bool {
         isFingerprintProtectionEnabled || isSocialBlockingEnabled || isPopupBlockingEnabled || isWebRTCProtectionEnabled
+    }
+
+    private var activeRegionTrickProfile: BrowserRegionTrickProfile? {
+        isRegionTricksEnabled ? regionTrickProfile : nil
     }
 
     private func loadInitialContent(_ startURL: URL) {
@@ -570,9 +608,15 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         "www.duckduckgo.com"
     ]
 
-    private nonisolated static func websiteRequest(for url: URL) -> URLRequest {
+    private nonisolated static func websiteRequest(
+        for url: URL,
+        regionProfile: BrowserRegionTrickProfile? = nil
+    ) -> URLRequest {
         var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30)
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        if let regionProfile {
+            request.setValue(regionProfile.acceptLanguageHeader, forHTTPHeaderField: "Accept-Language")
+        }
         if #available(iOS 12.0, *) {
             request.networkServiceType = .responsiveData
         }
@@ -1643,6 +1687,120 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         """
     }
 
+    private static func regionTricksScript(profile: BrowserRegionTrickProfile) -> String {
+        let coordinate = profile.coordinate
+        let languages = profile.languages
+            .map { "\"\(javaScriptEscaped($0))\"" }
+            .joined(separator: ", ")
+        let locale = javaScriptEscaped(profile.localeIdentifier)
+        let timeZone = javaScriptEscaped(profile.timeZoneIdentifier)
+        let countryCode = javaScriptEscaped(profile.countryCode)
+
+        return """
+        (() => {
+          const profile = {
+            countryCode: "\(countryCode)",
+            locale: "\(locale)",
+            language: "\(javaScriptEscaped(profile.languages.first ?? profile.localeIdentifier))",
+            languages: [\(languages)],
+            timeZone: "\(timeZone)",
+            timeZoneOffsetMinutes: \(profile.timeZoneOffsetMinutes),
+            latitude: \(coordinate.latitude),
+            longitude: \(coordinate.longitude),
+            accuracy: 24
+          };
+
+          window.__glideRegionTricks = profile;
+          const defineGetter = (target, name, getter) => {
+            try { Object.defineProperty(target, name, { configurable: true, get: getter }); } catch (_) {}
+          };
+
+          try {
+            defineGetter(Navigator.prototype, "language", () => profile.language);
+            defineGetter(Navigator.prototype, "languages", () => profile.languages.slice());
+            defineGetter(Navigator.prototype, "webdriver", () => false);
+            defineGetter(navigator, "language", () => profile.language);
+            defineGetter(navigator, "languages", () => profile.languages.slice());
+          } catch (_) {}
+
+          try {
+            document.documentElement.setAttribute("lang", profile.language);
+          } catch (_) {}
+
+          try {
+            const nativeDateTimeFormat = Intl.DateTimeFormat;
+            const wrappedDateTimeFormat = function(locale, options) {
+              const nextOptions = Object.assign({}, options || {});
+              if (!nextOptions.timeZone) { nextOptions.timeZone = profile.timeZone; }
+              return new nativeDateTimeFormat(locale || profile.locale, nextOptions);
+            };
+            wrappedDateTimeFormat.prototype = nativeDateTimeFormat.prototype;
+            wrappedDateTimeFormat.supportedLocalesOf = nativeDateTimeFormat.supportedLocalesOf.bind(nativeDateTimeFormat);
+            Object.defineProperty(Intl, "DateTimeFormat", {
+              configurable: true,
+              writable: true,
+              value: wrappedDateTimeFormat
+            });
+          } catch (_) {}
+
+          try {
+            const nativeResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+            Intl.DateTimeFormat.prototype.resolvedOptions = function(...args) {
+              const options = nativeResolvedOptions.apply(this, args);
+              return Object.assign({}, options, {
+                locale: options.locale || profile.locale,
+                timeZone: profile.timeZone
+              });
+            };
+          } catch (_) {}
+
+          try {
+            Date.prototype.getTimezoneOffset = function() {
+              return profile.timeZoneOffsetMinutes;
+            };
+          } catch (_) {}
+
+          try {
+            const makePosition = () => ({
+              coords: {
+                latitude: profile.latitude,
+                longitude: profile.longitude,
+                altitude: null,
+                accuracy: profile.accuracy,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null
+              },
+              timestamp: Date.now()
+            });
+            const activeWatches = new Map();
+            const geolocation = navigator.geolocation || {};
+            geolocation.getCurrentPosition = function(success, error, options) {
+              if (typeof success === "function") {
+                setTimeout(() => success(makePosition()), 0);
+              }
+            };
+            geolocation.watchPosition = function(success, error, options) {
+              const id = Math.floor(Math.random() * 1000000) + Date.now();
+              const send = () => {
+                if (typeof success === "function") { success(makePosition()); }
+              };
+              send();
+              activeWatches.set(id, setInterval(send, 60000));
+              return id;
+            };
+            geolocation.clearWatch = function(id) {
+              const timer = activeWatches.get(id);
+              if (timer) { clearInterval(timer); }
+              activeWatches.delete(id);
+            };
+            defineGetter(Navigator.prototype, "geolocation", () => geolocation);
+            defineGetter(navigator, "geolocation", () => geolocation);
+          } catch (_) {}
+        })();
+        """
+    }
+
     private static func pageControlsScript(
         darkReaderCSS: String,
         stylusCSS: String,
@@ -2626,7 +2784,10 @@ extension BrowserTab: WKNavigationDelegate {
         preferences.allowsContentJavaScript = !navigationScriptBlockingEnabled
         if let promotedURL = Self.promotedContainedURL(from: navigationAction) {
             decisionHandler(.cancel, preferences)
-            webView.load(Self.websiteRequest(for: promotedURL))
+            webView.load(Self.websiteRequest(
+                for: promotedURL,
+                regionProfile: navigationRegionTricksEnabled ? navigationRegionTrickProfile : nil
+            ))
         } else if let requestURL = navigationAction.request.url {
             let adjustedURL = Self.privacyAdjustedURL(
                 for: requestURL,
@@ -2636,7 +2797,10 @@ extension BrowserTab: WKNavigationDelegate {
             )
             if adjustedURL != requestURL {
                 decisionHandler(.cancel, preferences)
-                webView.load(Self.websiteRequest(for: adjustedURL))
+                webView.load(Self.websiteRequest(
+                    for: adjustedURL,
+                    regionProfile: navigationRegionTricksEnabled ? navigationRegionTrickProfile : nil
+                ))
                 return
             }
 
@@ -2678,6 +2842,7 @@ extension BrowserTab: WKNavigationDelegate {
             self.isLoading = false
             self.applyPageStyleOverrides()
             self.applyPrivacyOverrides()
+            self.applyRegionTricks()
             self.onNavigationFinished?(self)
         }
     }
@@ -2751,7 +2916,10 @@ extension BrowserTab: WKUIDelegate {
         guard navigationAction.targetFrame == nil else { return nil }
 
         if let requestURL = navigationAction.request.url {
-            webView.load(URLRequest(url: requestURL))
+            webView.load(Self.websiteRequest(
+                for: requestURL,
+                regionProfile: navigationRegionTricksEnabled ? navigationRegionTrickProfile : nil
+            ))
         }
 
         return nil

@@ -5495,6 +5495,41 @@ private struct BrowserSettingsView: View {
                     }
                 }
 
+                Section("Region Tricks") {
+                    DisclosureGroup {
+                        Toggle("Enable Region Tricks", isOn: $model.isRegionTricksEnabled)
+
+                        Picker("Region", selection: $model.regionTrickProfile) {
+                            ForEach(BrowserRegionTrickProfile.allCases) { profile in
+                                Label(profile.title, systemImage: profile.symbolName)
+                                    .tag(profile)
+                            }
+                        }
+                        .disabled(model.isRegionTricksEnabled == false)
+
+                        LabeledContent("Browser region") {
+                            Label(model.regionTrickProfile.title, systemImage: model.regionTrickProfile.symbolName)
+                                .foregroundStyle(model.isRegionTricksEnabled ? theme.color(.accent) : theme.color(.mutedText))
+                        }
+
+                        LabeledContent("Language") {
+                            Text(model.regionTrickProfile.localeIdentifier)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        LabeledContent("Timezone") {
+                            Text(model.regionTrickProfile.timeZoneIdentifier)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        Label("Not a VPN", systemImage: "network.slash")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    } label: {
+                        Label("Region Tricks", systemImage: "globe")
+                    }
+                }
+
                 Section("Browsing") {
                     DisclosureGroup {
                     LabeledContent("Experience") {

@@ -965,6 +965,18 @@ final class BrowserViewModel: ObservableObject {
             }
         }
     }
+    @Published var isRegionTricksEnabled: Bool {
+        didSet {
+            vault.save(isRegionTricksEnabled, forKey: Self.StorageKey.regionTricksEnabled)
+            applyRegionTricksToTabs()
+        }
+    }
+    @Published var regionTrickProfile: BrowserRegionTrickProfile {
+        didSet {
+            vault.save(regionTrickProfile.rawValue, forKey: Self.StorageKey.regionTrickProfile)
+            applyRegionTricksToTabs()
+        }
+    }
     @Published var isBrowserMusicEnabled: Bool {
         didSet {
             vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
@@ -1219,6 +1231,10 @@ final class BrowserViewModel: ObservableObject {
         let trackingParameterStrippingEnabled = vault.load(Bool.self, forKey: Self.StorageKey.trackingParameterStrippingEnabled, default: true)
         let bounceTrackingProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.bounceTrackingProtectionEnabled, default: true)
         let webRTCProtectionEnabled = vault.load(Bool.self, forKey: Self.StorageKey.webRTCProtectionEnabled, default: true)
+        let regionTricksEnabled = vault.load(Bool.self, forKey: Self.StorageKey.regionTricksEnabled, default: false)
+        let savedRegionTrickProfile = BrowserRegionTrickProfile(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.regionTrickProfile, default: "")
+        ) ?? .unitedStates
         let placement = BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
@@ -1264,6 +1280,8 @@ final class BrowserViewModel: ObservableObject {
             isTrackingParameterStrippingEnabled: trackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: bounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: webRTCProtectionEnabled,
+            isRegionTricksEnabled: regionTricksEnabled,
+            regionTrickProfile: savedRegionTrickProfile,
             isDeveloperModeEnabled: developerModeEnabled,
             websiteDisplayMode: savedWebsiteDisplayMode
         )
@@ -1331,6 +1349,8 @@ final class BrowserViewModel: ObservableObject {
         self.isTrackingParameterStrippingEnabled = trackingParameterStrippingEnabled
         self.isBounceTrackingProtectionEnabled = bounceTrackingProtectionEnabled
         self.isWebRTCProtectionEnabled = webRTCProtectionEnabled
+        self.isRegionTricksEnabled = regionTricksEnabled
+        self.regionTrickProfile = savedRegionTrickProfile
         self.isBrowserMusicEnabled = vault.load(Bool.self, forKey: Self.StorageKey.browserMusicEnabled, default: false)
         self.browserMusicTrack = savedBrowserMusicTrack
         self.browserMusicVolume = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.browserMusicVolume, default: 0.34))
@@ -1534,6 +1554,8 @@ final class BrowserViewModel: ObservableObject {
             isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
+            isRegionTricksEnabled: isRegionTricksEnabled,
+            regionTrickProfile: regionTrickProfile,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
             websiteDisplayMode: websiteDisplayMode,
@@ -1596,6 +1618,8 @@ final class BrowserViewModel: ObservableObject {
             isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
             isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
             isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
+            isRegionTricksEnabled: isRegionTricksEnabled,
+            regionTrickProfile: regionTrickProfile,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
             websiteDisplayMode: websiteDisplayMode,
@@ -1775,6 +1799,15 @@ final class BrowserViewModel: ObservableObject {
         }
         for tab in containedTabs {
             tab.setAdBlockerEnabled(enabled)
+        }
+    }
+
+    private func applyRegionTricksToTabs() {
+        for tab in tabs {
+            tab.setRegionTricks(enabled: isRegionTricksEnabled, profile: regionTrickProfile)
+        }
+        for tab in containedTabs {
+            tab.setRegionTricks(enabled: isRegionTricksEnabled, profile: regionTrickProfile)
         }
     }
 
@@ -2341,6 +2374,8 @@ final class BrowserViewModel: ObservableObject {
             stripTrackingParameters: isTrackingParameterStrippingEnabled,
             blockBounceTracking: isBounceTrackingProtectionEnabled,
             webRTCProtection: isWebRTCProtectionEnabled,
+            regionTricksEnabled: isRegionTricksEnabled,
+            regionTrickProfile: regionTrickProfile.rawValue,
             moreMenuActions: BrowserToolbarAction.allCases
                 .map(\.rawValue)
                 .filter { moreMenuActionIDs.contains($0) },
@@ -2431,6 +2466,11 @@ final class BrowserViewModel: ObservableObject {
         isTrackingParameterStrippingEnabled = config.stripTrackingParameters ?? true
         isBounceTrackingProtectionEnabled = config.blockBounceTracking ?? true
         isWebRTCProtectionEnabled = config.webRTCProtection ?? true
+        if let regionProfileValue = config.regionTrickProfile,
+           let profile = BrowserRegionTrickProfile(rawValue: regionProfileValue) {
+            regionTrickProfile = profile
+        }
+        isRegionTricksEnabled = config.regionTricksEnabled ?? false
         moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
             BrowserToolbarAction(rawValue: actionID) != nil
         })
@@ -2813,6 +2853,8 @@ final class BrowserViewModel: ObservableObject {
         isTrackingParameterStrippingEnabled = true
         isBounceTrackingProtectionEnabled = true
         isWebRTCProtectionEnabled = true
+        isRegionTricksEnabled = false
+        regionTrickProfile = .unitedStates
         saveVPNProfile(.empty)
     }
 
@@ -3300,6 +3342,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(isTrackingParameterStrippingEnabled, forKey: Self.StorageKey.trackingParameterStrippingEnabled)
         vault.save(isBounceTrackingProtectionEnabled, forKey: Self.StorageKey.bounceTrackingProtectionEnabled)
         vault.save(isWebRTCProtectionEnabled, forKey: Self.StorageKey.webRTCProtectionEnabled)
+        vault.save(isRegionTricksEnabled, forKey: Self.StorageKey.regionTricksEnabled)
+        vault.save(regionTrickProfile.rawValue, forKey: Self.StorageKey.regionTrickProfile)
         vault.save(isDarkReaderEnabled, forKey: Self.StorageKey.darkReaderEnabled)
         vault.save(darkReaderTheme.rawValue, forKey: Self.StorageKey.darkReaderTheme)
         vault.save(isStylusCatppuccinEnabled, forKey: Self.StorageKey.stylusCatppuccinEnabled)
@@ -3335,6 +3379,8 @@ final class BrowserViewModel: ObservableObject {
         isTrackingParameterStrippingEnabled: Bool,
         isBounceTrackingProtectionEnabled: Bool,
         isWebRTCProtectionEnabled: Bool,
+        isRegionTricksEnabled: Bool,
+        regionTrickProfile: BrowserRegionTrickProfile,
         isDeveloperModeEnabled: Bool,
         websiteDisplayMode: BrowserWebsiteDisplayMode
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
@@ -3355,6 +3401,8 @@ final class BrowserViewModel: ObservableObject {
                 isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
+                isRegionTricksEnabled: isRegionTricksEnabled,
+                regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
                 websiteDisplayMode: websiteDisplayMode
@@ -3384,6 +3432,8 @@ final class BrowserViewModel: ObservableObject {
                 isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
+                isRegionTricksEnabled: isRegionTricksEnabled,
+                regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
                 websiteDisplayMode: websiteDisplayMode,
@@ -3413,6 +3463,8 @@ final class BrowserViewModel: ObservableObject {
                 isTrackingParameterStrippingEnabled: isTrackingParameterStrippingEnabled,
                 isBounceTrackingProtectionEnabled: isBounceTrackingProtectionEnabled,
                 isWebRTCProtectionEnabled: isWebRTCProtectionEnabled,
+                isRegionTricksEnabled: isRegionTricksEnabled,
+                regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
                 websiteDisplayMode: websiteDisplayMode
@@ -3551,6 +3603,8 @@ final class BrowserViewModel: ObservableObject {
         static let trackingParameterStrippingEnabled = "ZenFireBrowser.trackingParameterStrippingEnabled"
         static let bounceTrackingProtectionEnabled = "ZenFireBrowser.bounceTrackingProtectionEnabled"
         static let webRTCProtectionEnabled = "ZenFireBrowser.webRTCProtectionEnabled"
+        static let regionTricksEnabled = "ZenFireBrowser.regionTricksEnabled"
+        static let regionTrickProfile = "ZenFireBrowser.regionTrickProfile"
         static let darkReaderTheme = "ZenFireBrowser.darkReaderTheme"
         static let stylusCatppuccinEnabled = "ZenFireBrowser.stylusCatppuccinEnabled"
         static let fpsForcerEnabled = "ZenFireBrowser.fpsForcerEnabled"

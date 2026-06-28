@@ -457,6 +457,8 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var stripTrackingParameters: Bool?
     var blockBounceTracking: Bool?
     var webRTCProtection: Bool?
+    var regionTricksEnabled: Bool?
+    var regionTrickProfile: String?
     var moreMenuActions: [String]
     var customIcons: [String: String]
     var tabBarTransparencyEnabled: Bool
@@ -464,6 +466,216 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var userBackgroundEnabled: Bool
     var colors: [String: String]
     var gradientColors: [String: String]?
+}
+
+enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
+    case unitedStates
+    case unitedKingdom
+    case canada
+    case germany
+    case france
+    case japan
+    case australia
+    case brazil
+    case india
+    case singapore
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .unitedStates:
+            return "United States"
+        case .unitedKingdom:
+            return "United Kingdom"
+        case .canada:
+            return "Canada"
+        case .germany:
+            return "Germany"
+        case .france:
+            return "France"
+        case .japan:
+            return "Japan"
+        case .australia:
+            return "Australia"
+        case .brazil:
+            return "Brazil"
+        case .india:
+            return "India"
+        case .singapore:
+            return "Singapore"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .unitedStates, .canada:
+            return "globe.americas.fill"
+        case .unitedKingdom, .germany, .france:
+            return "globe.europe.africa.fill"
+        case .japan, .india, .singapore:
+            return "globe.asia.australia.fill"
+        case .australia:
+            return "globe.asia.australia.fill"
+        case .brazil:
+            return "globe.americas.fill"
+        }
+    }
+
+    var countryCode: String {
+        switch self {
+        case .unitedStates:
+            return "US"
+        case .unitedKingdom:
+            return "GB"
+        case .canada:
+            return "CA"
+        case .germany:
+            return "DE"
+        case .france:
+            return "FR"
+        case .japan:
+            return "JP"
+        case .australia:
+            return "AU"
+        case .brazil:
+            return "BR"
+        case .india:
+            return "IN"
+        case .singapore:
+            return "SG"
+        }
+    }
+
+    var localeIdentifier: String {
+        switch self {
+        case .unitedStates:
+            return "en-US"
+        case .unitedKingdom:
+            return "en-GB"
+        case .canada:
+            return "en-CA"
+        case .germany:
+            return "de-DE"
+        case .france:
+            return "fr-FR"
+        case .japan:
+            return "ja-JP"
+        case .australia:
+            return "en-AU"
+        case .brazil:
+            return "pt-BR"
+        case .india:
+            return "en-IN"
+        case .singapore:
+            return "en-SG"
+        }
+    }
+
+    var languages: [String] {
+        switch self {
+        case .unitedStates:
+            return ["en-US", "en"]
+        case .unitedKingdom:
+            return ["en-GB", "en"]
+        case .canada:
+            return ["en-CA", "fr-CA", "en", "fr"]
+        case .germany:
+            return ["de-DE", "de", "en"]
+        case .france:
+            return ["fr-FR", "fr", "en"]
+        case .japan:
+            return ["ja-JP", "ja", "en"]
+        case .australia:
+            return ["en-AU", "en"]
+        case .brazil:
+            return ["pt-BR", "pt", "en"]
+        case .india:
+            return ["en-IN", "hi-IN", "en", "hi"]
+        case .singapore:
+            return ["en-SG", "zh-SG", "ms-SG", "ta-SG", "en"]
+        }
+    }
+
+    var timeZoneIdentifier: String {
+        switch self {
+        case .unitedStates:
+            return "America/New_York"
+        case .unitedKingdom:
+            return "Europe/London"
+        case .canada:
+            return "America/Toronto"
+        case .germany:
+            return "Europe/Berlin"
+        case .france:
+            return "Europe/Paris"
+        case .japan:
+            return "Asia/Tokyo"
+        case .australia:
+            return "Australia/Sydney"
+        case .brazil:
+            return "America/Sao_Paulo"
+        case .india:
+            return "Asia/Kolkata"
+        case .singapore:
+            return "Asia/Singapore"
+        }
+    }
+
+    var timeZoneOffsetMinutes: Int {
+        switch self {
+        case .unitedStates, .canada:
+            return 300
+        case .unitedKingdom:
+            return 0
+        case .germany, .france:
+            return -60
+        case .japan:
+            return -540
+        case .australia:
+            return -600
+        case .brazil:
+            return 180
+        case .india:
+            return -330
+        case .singapore:
+            return -480
+        }
+    }
+
+    var coordinate: (latitude: Double, longitude: Double) {
+        switch self {
+        case .unitedStates:
+            return (40.7128, -74.0060)
+        case .unitedKingdom:
+            return (51.5074, -0.1278)
+        case .canada:
+            return (43.6532, -79.3832)
+        case .germany:
+            return (52.5200, 13.4050)
+        case .france:
+            return (48.8566, 2.3522)
+        case .japan:
+            return (35.6762, 139.6503)
+        case .australia:
+            return (-33.8688, 151.2093)
+        case .brazil:
+            return (-23.5558, -46.6396)
+        case .india:
+            return (28.6139, 77.2090)
+        case .singapore:
+            return (1.3521, 103.8198)
+        }
+    }
+
+    var acceptLanguageHeader: String {
+        languages.enumerated().map { index, language in
+            guard index > 0 else { return language }
+            let quality = max(0.1, 1.0 - (Double(index) * 0.1))
+            return String(format: "%@;q=%.1f", language, quality)
+        }
+        .joined(separator: ",")
+    }
 }
 
 struct CustomVPNProfile: Codable, Equatable {
