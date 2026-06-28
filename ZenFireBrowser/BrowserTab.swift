@@ -801,8 +801,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               background: #07090d;
             }
             .browser {
-              display: grid;
-              grid-template-rows: auto 1fr;
+              position: relative;
+              display: block;
               width: 100%;
               height: 100%;
               background:
@@ -810,9 +810,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                 linear-gradient(135deg, #07090d 0%, #101218 46%, #07090d 100%);
             }
             header {
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              z-index: 3;
               display: grid;
               gap: 9px;
-              padding: 12px;
+              padding: calc(env(safe-area-inset-top) + 12px) 12px 12px;
               border-bottom: 1px solid rgba(169, 180, 200, 0.22);
               background: rgba(16, 18, 24, 0.82);
               backdrop-filter: blur(24px);
@@ -919,8 +924,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               font-size: 12px;
             }
             .viewport {
-              position: relative;
-              min-height: 0;
+              position: absolute;
+              inset: 0;
+              z-index: 1;
               background: #05070a;
             }
             iframe {
@@ -934,7 +940,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             .status {
               position: absolute;
               left: 12px;
-              bottom: 12px;
+              bottom: calc(env(safe-area-inset-bottom) + 12px);
               max-width: min(560px, calc(100% - 24px));
               padding: 8px 10px;
               border-radius: 8px;
@@ -953,7 +959,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               transform: translateY(0);
             }
             @media (max-width: 680px) {
-              header { padding: 10px; }
+              header { padding: calc(env(safe-area-inset-top) + 10px) 10px 10px; }
               .toolbar { grid-template-columns: 1fr; }
               .nav { order: 2; }
               form { order: 1; }

@@ -1011,23 +1011,14 @@ private struct BrowserContent: View {
 
                 BrowserWebView(tab: tab)
                     .id(tab.id)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea()
                     .overlay(alignment: .top) {
                         LoadingProgress(tab: tab)
                     }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(theme.color(.border).opacity(0.5), lineWidth: 1)
-                    }
-                    .padding(browserPadding)
             }
         }
-    }
-
-    private var browserPadding: EdgeInsets {
-        model.chromePlacement == .floating
-            ? EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
-            : EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        .ignoresSafeArea()
     }
 
     private func shouldShowPageBackdrop(for tab: BrowserTab) -> Bool {
@@ -3291,44 +3282,41 @@ private struct ContainedBrowserOverlay: View {
                 theme.color(.canvas)
                     .ignoresSafeArea()
 
-                VStack(spacing: 10) {
-                    ContainedBrowserHeader()
-
-                    if let tab = model.selectedContainedTab {
-                        ContainedTabStrip()
-                        ContainedAddressBar(tab: tab)
-
+                if let tab = model.selectedContainedTab {
+                    ZStack(alignment: .top) {
                         BrowserWebView(tab: tab)
                             .id(tab.id)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .ignoresSafeArea()
                             .overlay(alignment: .top) {
                                 LoadingProgress(tab: tab)
                             }
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(theme.color(.border).opacity(0.8), lineWidth: 1)
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    } else {
-                        VStack(spacing: 12) {
-                            Image(systemName: "rectangle.on.rectangle")
-                                .font(.system(size: 30, weight: .semibold))
-                                .foregroundStyle(theme.color(.accent))
-                            Text("No contained tabs")
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(theme.color(.text))
-                            Button("Create Contained Tab") {
-                                model.openContainedTab()
-                            }
-                            .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
+
+                        VStack(spacing: 10) {
+                            ContainedBrowserHeader()
+                            ContainedTabStrip()
+                            ContainedAddressBar(tab: tab)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, 28)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .background(.ultraThinMaterial)
                     }
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "rectangle.on.rectangle")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(theme.color(.accent))
+                        Text("No contained tabs")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(theme.color(.text))
+                        Button("Create Contained Tab") {
+                            model.openContainedTab()
+                        }
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .primary))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(.top, 28)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.ultraThinMaterial)
             }
             .ignoresSafeArea()
             .onAppear {
