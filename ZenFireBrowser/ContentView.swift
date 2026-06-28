@@ -5499,7 +5499,7 @@ private struct BrowserSettingsView: View {
                     DisclosureGroup {
                         Toggle("Enable Region Tricks", isOn: $model.isRegionTricksEnabled)
 
-                        Picker("Region", selection: $model.regionTrickProfile) {
+                        Picker("Browsing region", selection: $model.regionTrickProfile) {
                             ForEach(BrowserRegionTrickProfile.allCases) { profile in
                                 Label(profile.title, systemImage: profile.symbolName)
                                     .tag(profile)
@@ -5507,18 +5507,28 @@ private struct BrowserSettingsView: View {
                         }
                         .disabled(model.isRegionTricksEnabled == false)
 
-                        LabeledContent("Browser region") {
+                        LabeledContent("Browser thinks") {
                             Label(model.regionTrickProfile.title, systemImage: model.regionTrickProfile.symbolName)
                                 .foregroundStyle(model.isRegionTricksEnabled ? theme.color(.accent) : theme.color(.mutedText))
                         }
 
-                        LabeledContent("Language") {
-                            Text(model.regionTrickProfile.localeIdentifier)
+                        LabeledContent("Location APIs") {
+                            Text(model.regionTrickProfile.countryCode)
                                 .foregroundStyle(theme.color(.mutedText))
                         }
 
                         LabeledContent("Timezone") {
                             Text(model.regionTrickProfile.timeZoneIdentifier)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        LabeledContent("Currency") {
+                            Text(model.regionTrickProfile.currencyCode)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        LabeledContent("Signals") {
+                            Text("Location, time, Intl, requests")
                                 .foregroundStyle(theme.color(.mutedText))
                         }
 

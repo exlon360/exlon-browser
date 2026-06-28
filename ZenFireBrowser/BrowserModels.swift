@@ -654,6 +654,40 @@ enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    var currencyCode: String {
+        switch self {
+        case .unitedStates:
+            return "USD"
+        case .unitedKingdom:
+            return "GBP"
+        case .canada:
+            return "CAD"
+        case .germany, .france:
+            return "EUR"
+        case .japan:
+            return "JPY"
+        case .australia:
+            return "AUD"
+        case .brazil:
+            return "BRL"
+        case .india:
+            return "INR"
+        case .singapore:
+            return "SGD"
+        case .china:
+            return "CNY"
+        }
+    }
+
+    var measurementSystem: String {
+        switch self {
+        case .unitedStates:
+            return "imperial"
+        default:
+            return "metric"
+        }
+    }
+
     var coordinate: (latitude: Double, longitude: Double) {
         switch self {
         case .unitedStates:

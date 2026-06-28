@@ -1695,6 +1695,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         let locale = javaScriptEscaped(profile.localeIdentifier)
         let timeZone = javaScriptEscaped(profile.timeZoneIdentifier)
         let countryCode = javaScriptEscaped(profile.countryCode)
+        let acceptLanguage = javaScriptEscaped(profile.acceptLanguageHeader)
+        let currencyCode = javaScriptEscaped(profile.currencyCode)
+        let measurementSystem = javaScriptEscaped(profile.measurementSystem)
 
         return """
         (() => {
@@ -1703,8 +1706,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             locale: "\(locale)",
             language: "\(javaScriptEscaped(profile.languages.first ?? profile.localeIdentifier))",
             languages: [\(languages)],
+            acceptLanguage: "\(acceptLanguage)",
             timeZone: "\(timeZone)",
             timeZoneOffsetMinutes: \(profile.timeZoneOffsetMinutes),
+            currencyCode: "\(currencyCode)",
+            measurementSystem: "\(measurementSystem)",
             latitude: \(coordinate.latitude),
             longitude: \(coordinate.longitude),
             accuracy: 24
@@ -1725,6 +1731,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
           try {
             document.documentElement.setAttribute("lang", profile.language);
+            document.documentElement.setAttribute("data-glide-region", profile.countryCode);
           } catch (_) {}
 
           try {
@@ -1755,8 +1762,74 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           } catch (_) {}
 
           try {
+            const nativeNumberFormat = Intl.NumberFormat;
+            const wrappedNumberFormat = function(locale, options) {
+              return new nativeNumberFormat(locale || profile.locale, options || {});
+            };
+            wrappedNumberFormat.prototype = nativeNumberFormat.prototype;
+            wrappedNumberFormat.supportedLocalesOf = nativeNumberFormat.supportedLocalesOf.bind(nativeNumberFormat);
+            Object.defineProperty(Intl, "NumberFormat", {
+              configurable: true,
+              writable: true,
+              value: wrappedNumberFormat
+            });
+          } catch (_) {}
+
+          try {
+            const nativeNumberResolvedOptions = Intl.NumberFormat.prototype.resolvedOptions;
+            Intl.NumberFormat.prototype.resolvedOptions = function(...args) {
+              const options = nativeNumberResolvedOptions.apply(this, args);
+              const next = Object.assign({}, options, { locale: options.locale || profile.locale });
+              if (next.style === "currency" && !next.currency) { next.currency = profile.currencyCode; }
+              return next;
+            };
+          } catch (_) {}
+
+          try {
+            const nativeLocale = Intl.Locale;
+            if (nativeLocale) {
+              const wrappedLocale = function(tag, options) {
+                return new nativeLocale(tag || profile.locale, options || {});
+              };
+              wrappedLocale.prototype = nativeLocale.prototype;
+              Object.defineProperty(Intl, "Locale", {
+                configurable: true,
+                writable: true,
+                value: wrappedLocale
+              });
+            }
+          } catch (_) {}
+
+          try {
             Date.prototype.getTimezoneOffset = function() {
               return profile.timeZoneOffsetMinutes;
+            };
+          } catch (_) {}
+
+          try {
+            const nativeDateToLocaleString = Date.prototype.toLocaleString;
+            const nativeDateToLocaleDateString = Date.prototype.toLocaleDateString;
+            const nativeDateToLocaleTimeString = Date.prototype.toLocaleTimeString;
+            const withRegionTimeZone = (options) => {
+              const nextOptions = Object.assign({}, options || {});
+              if (!nextOptions.timeZone) { nextOptions.timeZone = profile.timeZone; }
+              return nextOptions;
+            };
+            Date.prototype.toLocaleString = function(locale, options) {
+              return nativeDateToLocaleString.call(this, locale || profile.locale, withRegionTimeZone(options));
+            };
+            Date.prototype.toLocaleDateString = function(locale, options) {
+              return nativeDateToLocaleDateString.call(this, locale || profile.locale, withRegionTimeZone(options));
+            };
+            Date.prototype.toLocaleTimeString = function(locale, options) {
+              return nativeDateToLocaleTimeString.call(this, locale || profile.locale, withRegionTimeZone(options));
+            };
+          } catch (_) {}
+
+          try {
+            const nativeNumberToLocaleString = Number.prototype.toLocaleString;
+            Number.prototype.toLocaleString = function(locale, options) {
+              return nativeNumberToLocaleString.call(this, locale || profile.locale, options || {});
             };
           } catch (_) {}
 
@@ -1796,6 +1869,64 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             };
             defineGetter(Navigator.prototype, "geolocation", () => geolocation);
             defineGetter(navigator, "geolocation", () => geolocation);
+          } catch (_) {}
+
+          try {
+            const permissions = navigator.permissions;
+            const nativeQuery = permissions && permissions.query ? permissions.query.bind(permissions) : null;
+            if (permissions && nativeQuery) {
+              permissions.query = function(query) {
+                if (query && query.name === "geolocation") {
+                  return Promise.resolve({
+                    name: "geolocation",
+                    state: "granted",
+                    onchange: null,
+                    addEventListener: function() {},
+                    removeEventListener: function() {},
+                    dispatchEvent: function() { return false; }
+                  });
+                }
+                return nativeQuery(query);
+              };
+            }
+          } catch (_) {}
+
+          try {
+            const withRegionHeaders = (headers) => {
+              try {
+                const nextHeaders = new Headers(headers || {});
+                nextHeaders.set("Accept-Language", profile.acceptLanguage);
+                return nextHeaders;
+              } catch (_) {
+                return headers || {};
+              }
+            };
+            if (window.fetch && !window.__glideRegionFetchWrapped) {
+              window.__glideRegionFetchWrapped = true;
+              const nativeFetch = window.fetch.bind(window);
+              window.fetch = function(input, init) {
+                const nextInit = Object.assign({}, init || {});
+                nextInit.headers = withRegionHeaders(nextInit.headers || (input && input.headers));
+                return nativeFetch(input, nextInit);
+              };
+            }
+            if (window.XMLHttpRequest && !window.__glideRegionXHRWrapped) {
+              window.__glideRegionXHRWrapped = true;
+              const nativeOpen = XMLHttpRequest.prototype.open;
+              const nativeSend = XMLHttpRequest.prototype.send;
+              XMLHttpRequest.prototype.open = function(...args) {
+                this.__glideRegionTricksOpen = true;
+                return nativeOpen.apply(this, args);
+              };
+              XMLHttpRequest.prototype.send = function(...args) {
+                try {
+                  if (this.__glideRegionTricksOpen) {
+                    this.setRequestHeader("Accept-Language", profile.acceptLanguage);
+                  }
+                } catch (_) {}
+                return nativeSend.apply(this, args);
+              };
+            }
           } catch (_) {}
         })();
         """
