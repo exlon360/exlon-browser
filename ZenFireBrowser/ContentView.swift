@@ -1102,6 +1102,7 @@ private struct DesktopZenBrowserLayout: View {
     let containerWidth: CGFloat
     let experience: GlideDeviceExperience
     @Binding var isChromeHovered: Bool
+    @State private var chromeHideTask: Task<Void, Never>?
 
     private var isChromeVisible: Bool {
         isChromeHovered || model.isChromeWidthResizeMode
@@ -1196,6 +1197,20 @@ private struct DesktopZenBrowserLayout: View {
     }
 
     private func setChromeHovered(_ hovered: Bool) {
+        chromeHideTask?.cancel()
+        if hovered {
+            updateChromeHovered(true)
+            return
+        }
+
+        chromeHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 240_000_000)
+            guard Task.isCancelled == false else { return }
+            updateChromeHovered(false)
+        }
+    }
+
+    private func updateChromeHovered(_ hovered: Bool) {
         guard isChromeHovered != hovered else { return }
         withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
             isChromeHovered = hovered
@@ -2710,6 +2725,8 @@ private struct BrowserTopSearchBar: View {
                     .padding(.vertical, 4)
                     .background(theme.color(.privateAccent).opacity(0.72), in: Capsule())
             }
+
+            TopSearchOptionsMenu()
         }
         .padding(.horizontal, 14)
         .frame(height: 50)
@@ -2737,6 +2754,87 @@ private struct BrowserTopSearchBar: View {
         Binding(
             get: { model.selectedTab?.addressText ?? "" },
             set: { model.selectedTab?.addressText = $0 }
+        )
+    }
+}
+
+private struct TopSearchOptionsMenu: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Menu {
+            Button {
+                model.openFloatingSearch()
+            } label: {
+                Label("Search Overlay", systemImage: "magnifyingglass")
+            }
+
+            Button {
+                model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
+            } label: {
+                Label(model.isPrivateModeEnabled ? "New Private Tab" : "New Tab", systemImage: model.isPrivateModeEnabled ? "theatermasks" : "plus")
+            }
+
+            Divider()
+
+            if BrowserViewModel.supportsDesktopZenMode {
+                Button {
+                    model.setDesktopZenModeEnabled(!model.isDesktopZenModeEnabled)
+                } label: {
+                    Label(model.isDesktopZenModeEnabled ? "Exit Desktop Zen Mode" : "Enter Desktop Zen Mode", systemImage: "macwindow")
+                }
+            }
+
+            Picker("Search Bar Position", selection: topSearchBarPlacementBinding) {
+                ForEach(BrowserTopSearchBarPlacement.allCases) { placement in
+                    Label(placement.title, systemImage: placement.symbolName)
+                        .tag(placement)
+                }
+            }
+
+            Button {
+                model.beginTopSearchBarMove()
+            } label: {
+                Label("Move Search Bar", systemImage: "hand.draw")
+            }
+
+            Divider()
+
+            Menu {
+                PlacementMenuContent()
+            } label: {
+                Label("Chrome Placement", systemImage: model.chromePlacement.symbolName)
+            }
+
+            Button {
+                model.toggleCompactMode()
+            } label: {
+                Label(model.isCompactModeActive ? "Reveal Chrome" : "Compact Mode", systemImage: model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+            }
+
+            Button {
+                model.isSettingsPresented = true
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+        } label: {
+            BrowserIcon(slot: .more, systemName: "ellipsis", size: 17, weight: .black)
+                .frame(width: 34, height: 34)
+                .foregroundStyle(theme.color(.text))
+                .background(ControlGlassBackground(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.58), lineWidth: 1)
+                }
+        }
+        .accessibilityLabel("Top search options")
+    }
+
+    private var topSearchBarPlacementBinding: Binding<BrowserTopSearchBarPlacement> {
+        Binding(
+            get: { model.topSearchBarPlacement },
+            set: { model.setTopSearchBarPlacement($0) }
         )
     }
 }
@@ -5774,17 +5872,30 @@ private struct BrowserSettingsView: View {
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
                     if BrowserViewModel.supportsDesktopZenMode {
-                        Toggle("Desktop Zen Mode", isOn: $model.isDesktopZenModeEnabled)
+                        Toggle("Desktop Zen Mode", isOn: desktopZenModeBinding)
                     }
                     Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
                     Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
-                    if model.isTopSearchBarEnabled {
+                    if model.isTopSearchBarEnabled || model.isDesktopZenModeEnabled {
+                        Picker("Search bar position", selection: topSearchBarPlacementBinding) {
+                            ForEach(BrowserTopSearchBarPlacement.allCases) { placement in
+                                Label(placement.title, systemImage: placement.symbolName)
+                                    .tag(placement)
+                            }
+                        }
+
                         Button {
                             presentAfterDismiss {
                                 model.beginTopSearchBarMove()
                             }
                         } label: {
                             Label("Move Top Search Bar", systemImage: "hand.draw")
+                        }
+
+                        Button {
+                            model.setTopSearchBarPlacement(.top)
+                        } label: {
+                            Label("Reset Top Search Bar", systemImage: "arrow.counterclockwise")
                         }
                     }
                     DisclosureGroup {
@@ -6522,6 +6633,20 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.websiteDisplayMode },
             set: { model.setWebsiteDisplayMode($0) }
+        )
+    }
+
+    private var desktopZenModeBinding: Binding<Bool> {
+        Binding(
+            get: { model.isDesktopZenModeEnabled },
+            set: { model.setDesktopZenModeEnabled($0) }
+        )
+    }
+
+    private var topSearchBarPlacementBinding: Binding<BrowserTopSearchBarPlacement> {
+        Binding(
+            get: { model.topSearchBarPlacement },
+            set: { model.setTopSearchBarPlacement($0) }
         )
     }
 

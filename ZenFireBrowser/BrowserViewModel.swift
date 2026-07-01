@@ -1083,6 +1083,10 @@ final class BrowserViewModel: ObservableObject {
     @Published var isDesktopZenModeEnabled: Bool {
         didSet {
             vault.save(isDesktopZenModeEnabled, forKey: Self.StorageKey.desktopZenModeEnabled)
+            if isDesktopZenModeEnabled {
+                isTopSearchBarEnabled = true
+                arePageControlsCollapsed = false
+            }
         }
     }
     @Published var arePageControlsCollapsed: Bool {
@@ -1337,7 +1341,7 @@ final class BrowserViewModel: ObservableObject {
         self.deviceExperienceOverride = savedDeviceExperienceOverride
         self.compactModeHidesTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesTopSearchBar, default: true)
         self.compactModeRevealsTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeRevealsTopSearchBar, default: false)
-        self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: false)
+        self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: Self.supportsDesktopZenMode)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
         self.topSearchBarPositionX = savedTopSearchBarPositionX
         self.topSearchBarPositionY = savedTopSearchBarPositionY
@@ -1382,6 +1386,9 @@ final class BrowserViewModel: ObservableObject {
         self.vpnStatusMessage = savedVPNProfile.isConfigured ? "Custom VPN profile saved." : "Custom VPN profile not configured."
         self.tabs = restoredTabs.tabs
         self.selectedTabID = restoredTabs.selectedTabID
+        if isDesktopZenModeEnabled {
+            isTopSearchBarEnabled = true
+        }
 
         for tab in tabs {
             configure(tab)
@@ -1774,6 +1781,21 @@ final class BrowserViewModel: ObservableObject {
     func setPhoneExperienceActive(_ isActive: Bool) {
         guard isPhoneExperienceActive != isActive else { return }
         isPhoneExperienceActive = isActive
+    }
+
+    func setDesktopZenModeEnabled(_ enabled: Bool) {
+        guard Self.supportsDesktopZenMode else {
+            isDesktopZenModeEnabled = false
+            return
+        }
+
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            isDesktopZenModeEnabled = enabled
+            if enabled {
+                isTopSearchBarEnabled = true
+                isFloatingSearchPresented = false
+            }
+        }
     }
 
     func openFloatingSearch() {
@@ -2831,6 +2853,14 @@ final class BrowserViewModel: ObservableObject {
         isTopSearchBarMoveMode = true
     }
 
+    func setTopSearchBarPlacement(_ placement: BrowserTopSearchBarPlacement) {
+        isTopSearchBarEnabled = true
+        topSearchBarPlacement = placement
+        topSearchBarPositionY = Self.defaultTopSearchBarY(for: placement)
+        topSearchBarDraftX = topSearchBarPositionX
+        topSearchBarDraftY = topSearchBarPositionY
+    }
+
     func updateTopSearchBarDraft(x: Double, y: Double) {
         topSearchBarDraftX = Self.clampedUnit(x)
         topSearchBarDraftY = Self.clampedUnit(y)
@@ -2892,7 +2922,7 @@ final class BrowserViewModel: ObservableObject {
         pageControlsOffsetY = 0
         isChromeWidthResizeMode = false
         isPageControlsMoveMode = false
-        isTopSearchBarEnabled = false
+        isTopSearchBarEnabled = Self.supportsDesktopZenMode
         topSearchBarPlacement = .top
         topSearchBarPositionX = 0.5
         topSearchBarPositionY = 0.0

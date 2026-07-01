@@ -10,3 +10,6 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 artifacts/
+dist/**/DerivedData-*/
+dist/**/dmg-stage/
+dist/**/ipa-stage/
