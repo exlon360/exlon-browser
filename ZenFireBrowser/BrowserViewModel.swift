@@ -1734,6 +1734,30 @@ final class BrowserViewModel: ObservableObject {
         persistOpenTabs()
     }
 
+    func closeSelectedTab() {
+        guard let tab = selectedTab else { return }
+        close(tab)
+    }
+
+    func selectNextTab() {
+        selectAdjacentTab(offset: 1)
+    }
+
+    func selectPreviousTab() {
+        selectAdjacentTab(offset: -1)
+    }
+
+    private func selectAdjacentTab(offset: Int) {
+        let visibleTabs = isPrivateModeEnabled ? privateTabs : normalTabs
+        guard visibleTabs.isEmpty == false else { return }
+
+        let currentIndex = selectedTabID.flatMap { id in
+            visibleTabs.firstIndex { $0.id == id }
+        } ?? 0
+        let nextIndex = (currentIndex + offset + visibleTabs.count) % visibleTabs.count
+        select(visibleTabs[nextIndex])
+    }
+
     func requestCloseAllTabs() {
         isCloseAllTabsWarningPresented = true
     }

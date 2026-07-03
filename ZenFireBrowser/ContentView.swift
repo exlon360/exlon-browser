@@ -436,6 +436,8 @@ private struct BrowserShell: View {
                 )
                 .frame(width: 1, height: 1)
                 .allowsHitTesting(false)
+
+                BrowserKeyboardShortcutHost()
             }
             .coordinateSpace(name: "browserShell")
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
@@ -679,6 +681,89 @@ private struct PhoneExperienceSyncView: View {
             .onChange(of: isPhoneExperience) { _, newValue in
                 model.setPhoneExperienceActive(newValue)
             }
+    }
+}
+
+private struct BrowserKeyboardShortcutHost: View {
+    @EnvironmentObject private var model: BrowserViewModel
+
+    var body: some View {
+        Group {
+            shortcutButton("New Tab", key: "t", modifiers: [.control]) {
+                model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
+            }
+            shortcutButton("New Tab", key: "t", modifiers: [.command]) {
+                model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
+            }
+            shortcutButton("Close Tab", key: "w", modifiers: [.control]) {
+                model.closeSelectedTab()
+            }
+            shortcutButton("Close Tab", key: "w", modifiers: [.command]) {
+                model.closeSelectedTab()
+            }
+            shortcutButton("Search or Address", key: "l", modifiers: [.control]) {
+                model.openFloatingSearch()
+            }
+            shortcutButton("Search or Address", key: "l", modifiers: [.command]) {
+                model.openFloatingSearch()
+            }
+            shortcutButton("Reload", key: "r", modifiers: [.control]) {
+                model.reloadOrStop()
+            }
+            shortcutButton("Reload", key: "r", modifiers: [.command]) {
+                model.reloadOrStop()
+            }
+            shortcutButton("Back", key: "[", modifiers: [.control]) {
+                model.goBack()
+            }
+            shortcutButton("Back", key: "[", modifiers: [.command]) {
+                model.goBack()
+            }
+            shortcutButton("Forward", key: "]", modifiers: [.control]) {
+                model.goForward()
+            }
+            shortcutButton("Forward", key: "]", modifiers: [.command]) {
+                model.goForward()
+            }
+            shortcutButton("Next Tab", key: .tab, modifiers: [.control]) {
+                model.selectNextTab()
+            }
+            shortcutButton("Previous Tab", key: .tab, modifiers: [.control, .shift]) {
+                model.selectPreviousTab()
+            }
+            shortcutButton("Previous Tab", key: "[", modifiers: [.control, .shift]) {
+                model.selectPreviousTab()
+            }
+            shortcutButton("Previous Tab", key: "[", modifiers: [.command, .shift]) {
+                model.selectPreviousTab()
+            }
+            shortcutButton("Next Tab", key: "]", modifiers: [.control, .shift]) {
+                model.selectNextTab()
+            }
+            shortcutButton("Next Tab", key: "]", modifiers: [.command, .shift]) {
+                model.selectNextTab()
+            }
+            shortcutButton("Settings", key: ",", modifiers: [.control]) {
+                model.isSettingsPresented = true
+            }
+            shortcutButton("Settings", key: ",", modifiers: [.command]) {
+                model.isSettingsPresented = true
+            }
+        }
+        .frame(width: 1, height: 1)
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func shortcutButton(
+        _ title: String,
+        key: KeyEquivalent,
+        modifiers: EventModifiers,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(title, action: action)
+            .keyboardShortcut(key, modifiers: modifiers)
     }
 }
 
