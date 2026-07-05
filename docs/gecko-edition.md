@@ -31,6 +31,8 @@ When installing the IPA through AltStore, SideStore, or a similar sideloader, ke
 
 For TrollStore, build the dedicated TIPA with `scripts/build_glide_gecko_reynard_trollstore_tipa.sh`. It uses Reynard's `Reynard-TrollStore.tipa`, reapplies the original ldid entitlements after skinning the package, and outputs `build/glide-gecko-reynard-trollstore-tipa/Glide-Gecko-Reynard-TrollStore.tipa`.
 
+Some sideload signers miss nonstandard nested Mach-O files such as `GeckoView.framework/XUL`. The package builder copies XUL to `Frameworks/libXUL.dylib` and updates the app and `GeckoView.framework/GeckoView` load commands to use that top-level dylib, which gives common signers a normal framework-root dylib to sign.
+
 The Gecko package includes Mozilla's XPI add-on provider and Reynard's add-on UI/runtime, including `.xpi` / `.zip` import support and AMO compatibility handling. Desktop-only Firefox extension APIs may still be unsupported by Gecko on iOS, so the goal is broad Firefox add-on compatibility rather than a guarantee that every desktop extension runs.
 
 Reynard is licensed under GPLv3, with Gecko patches under MPL 2.0. Keep those license obligations in mind before publishing a modified/repackaged build.

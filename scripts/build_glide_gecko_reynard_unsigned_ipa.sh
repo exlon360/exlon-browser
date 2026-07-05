@@ -19,6 +19,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 TROLLSTORE_SIGN="${TROLLSTORE_SIGN:-0}"
 STRIP_SIGNATURES="${STRIP_SIGNATURES:-1}"
 LDID_BIN="${LDID_BIN:-ldid}"
+NORMALIZE_XUL_FOR_SIDELOADERS="${NORMALIZE_XUL_FOR_SIDELOADERS:-1}"
 
 WORK_DIR="${BUILD_ROOT}/work"
 PAYLOAD_DIR="${WORK_DIR}/Payload"
@@ -109,6 +110,32 @@ skin_app_assets() {
 
   plutil -replace CFBundleIcons -xml "$(plutil -extract CFBundleIcons xml1 -o - "${partial_plist}")" "${app_path}/Info.plist"
   plutil -replace "CFBundleIcons~ipad" -xml "$(plutil -extract "CFBundleIcons~ipad" xml1 -o - "${partial_plist}")" "${app_path}/Info.plist"
+}
+
+normalize_xul_for_sideloaders() {
+  local app_path="$1"
+  local app_executable
+  app_executable="$(plutil -extract CFBundleExecutable raw "${app_path}/Info.plist")"
+
+  local app_binary="${app_path}/${app_executable}"
+  local geckoview_binary="${app_path}/Frameworks/GeckoView.framework/GeckoView"
+  local source_xul="${app_path}/Frameworks/GeckoView.framework/XUL"
+  local root_xul="${app_path}/Frameworks/libXUL.dylib"
+
+  if [[ "${NORMALIZE_XUL_FOR_SIDELOADERS}" != "1" || ! -f "${source_xul}" ]]; then
+    return
+  fi
+
+  cp -f "${source_xul}" "${root_xul}"
+  install_name_tool -id "@rpath/libXUL.dylib" "${root_xul}"
+
+  if [[ -f "${app_binary}" ]] && otool -L "${app_binary}" | grep -q "@rpath/XUL"; then
+    install_name_tool -change "@rpath/XUL" "@rpath/libXUL.dylib" "${app_binary}"
+  fi
+
+  if [[ -f "${geckoview_binary}" ]] && otool -L "${geckoview_binary}" | grep -q "@rpath/XUL"; then
+    install_name_tool -change "@rpath/XUL" "@rpath/libXUL.dylib" "${geckoview_binary}"
+  fi
 }
 
 save_entitlements() {
@@ -221,6 +248,7 @@ if [[ -d "${APP_PATH}/PlugIns/OpenIn.appex" ]]; then
   fi
 fi
 
+normalize_xul_for_sideloaders "${APP_PATH}"
 skin_app_assets "${APP_PATH}"
 
 if [[ "${TROLLSTORE_SIGN}" == "1" ]]; then
