@@ -25,6 +25,10 @@ The fallback Gecko sideload package uses Reynard Browser `0.6.0`, an experimenta
 - Expected SHA-256: `d3b84c86f8b7e72270be0e079fe14e4b481ef8590695c0791a347d69f5b12a35`
 - Output: `build/glide-gecko-reynard-unsigned-ipa/Glide-Gecko-Reynard-unsigned.ipa`
 
+For launch stability, the default package keeps Reynard's original internal app and extension bundle identifiers and only applies the Glide display name and Glide-style icon assets. The helper extension and Gecko process bootstrap are sensitive to sideload signing and extension wiring, so changing those identifiers is opt-in with `REBRAND_BUNDLE_IDS=1`.
+
+When installing the IPA through AltStore, SideStore, or a similar sideloader, keep app extensions enabled. Reynard's Gecko process bootstrap depends on its helper extension and can crash on launch if the helper is removed during installation.
+
 Reynard is licensed under GPLv3, with Gecko patches under MPL 2.0. Keep those license obligations in mind before publishing a modified/repackaged build.
 
 ## Current State

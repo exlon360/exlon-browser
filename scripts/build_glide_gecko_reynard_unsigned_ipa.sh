@@ -11,6 +11,9 @@ SOURCE_IPA="${SOURCE_IPA:-${DOWNLOAD_DIR}/Reynard-${REYNARD_VERSION}.ipa}"
 IPA_NAME="${IPA_NAME:-Glide-Gecko-Reynard-unsigned.ipa}"
 DISPLAY_NAME="${DISPLAY_NAME:-Glide Gecko}"
 BUNDLE_IDENTIFIER="${BUNDLE_IDENTIFIER:-com.exlon.ZenFireBrowser.gecko}"
+REBRAND_BUNDLE_IDS="${REBRAND_BUNDLE_IDS:-0}"
+GLIDE_ICON_SOURCE="${GLIDE_ICON_SOURCE:-ZenFireBrowser/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 WORK_DIR="${BUILD_ROOT}/work"
 PAYLOAD_DIR="${WORK_DIR}/Payload"
@@ -43,18 +46,51 @@ fi
 
 plutil -replace CFBundleDisplayName -string "${DISPLAY_NAME}" "${APP_PATH}/Info.plist"
 plutil -replace CFBundleName -string "${DISPLAY_NAME}" "${APP_PATH}/Info.plist"
-plutil -replace CFBundleIdentifier -string "${BUNDLE_IDENTIFIER}" "${APP_PATH}/Info.plist"
+
+if [[ "${REBRAND_BUNDLE_IDS}" == "1" ]]; then
+  plutil -replace CFBundleIdentifier -string "${BUNDLE_IDENTIFIER}" "${APP_PATH}/Info.plist"
+fi
 
 if [[ -d "${APP_PATH}/PlugIns/Reynard Helper.appex" ]]; then
   plutil -replace CFBundleDisplayName -string "${DISPLAY_NAME} Helper" "${APP_PATH}/PlugIns/Reynard Helper.appex/Info.plist"
   plutil -replace CFBundleName -string "${DISPLAY_NAME} Helper" "${APP_PATH}/PlugIns/Reynard Helper.appex/Info.plist"
-  plutil -replace CFBundleIdentifier -string "${BUNDLE_IDENTIFIER}.Helper" "${APP_PATH}/PlugIns/Reynard Helper.appex/Info.plist"
+  if [[ "${REBRAND_BUNDLE_IDS}" == "1" ]]; then
+    plutil -replace CFBundleIdentifier -string "${BUNDLE_IDENTIFIER}.Helper" "${APP_PATH}/PlugIns/Reynard Helper.appex/Info.plist"
+  fi
 fi
 
 if [[ -d "${APP_PATH}/PlugIns/OpenIn.appex" ]]; then
   plutil -replace CFBundleDisplayName -string "Open in ${DISPLAY_NAME}" "${APP_PATH}/PlugIns/OpenIn.appex/Info.plist"
   plutil -replace CFBundleName -string "Open in ${DISPLAY_NAME}" "${APP_PATH}/PlugIns/OpenIn.appex/Info.plist"
-  plutil -replace CFBundleIdentifier -string "${BUNDLE_IDENTIFIER}.OpenIn" "${APP_PATH}/PlugIns/OpenIn.appex/Info.plist"
+  if [[ "${REBRAND_BUNDLE_IDS}" == "1" ]]; then
+    plutil -replace CFBundleIdentifier -string "${BUNDLE_IDENTIFIER}.OpenIn" "${APP_PATH}/PlugIns/OpenIn.appex/Info.plist"
+  fi
+fi
+
+if [[ -f "${GLIDE_ICON_SOURCE}" ]]; then
+  if ! "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
+from PIL import Image
+PY
+  then
+    bundled_python="/Users/orion/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+    if [[ -x "${bundled_python}" ]]; then
+      PYTHON_BIN="${bundled_python}"
+    fi
+  fi
+
+  if "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
+from PIL import Image
+PY
+  then
+    "${PYTHON_BIN}" "$(dirname "$0")/render_glide_gecko_icon.py" \
+      --source "${GLIDE_ICON_SOURCE}" \
+      --output-dir "${APP_PATH}" \
+      --preview "${BUILD_ROOT}/Glide-Gecko-AppIcon-1024.png"
+    plutil -remove CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName "${APP_PATH}/Info.plist" 2>/dev/null || true
+    plutil -remove "CFBundleIcons~ipad.CFBundlePrimaryIcon.CFBundleIconName" "${APP_PATH}/Info.plist" 2>/dev/null || true
+  else
+    echo "Pillow is unavailable; keeping the source app icon." >&2
+  fi
 fi
 
 # This output is intentionally unsigned so a sideloading tool can apply the
