@@ -2,17 +2,8 @@
 set -euo pipefail
 
 if [[ -z "${GECKO_ENGINE_ROOT:-}" || ! -d "${GECKO_ENGINE_ROOT}" ]]; then
-  cat >&2 <<'EOF'
-GECKO_ENGINE_ROOT must point to a real iOS Gecko/BrowserEngineKit engine bundle before
-building the GitHub Gecko sideload IPA.
-
-This script intentionally refuses to package a fake Gecko build over WKWebView.
-Expected next inputs:
-  - Gecko engine binaries built for iOS
-  - BrowserEngineKit networking/rendering/web-content extension targets
-  - matching browser-engine entitlements/provisioning profile
-EOF
-  exit 2
+  echo "GECKO_ENGINE_ROOT is not set; packaging the verified Reynard Gecko release instead." >&2
+  exec bash "$(dirname "$0")/build_glide_gecko_reynard_unsigned_ipa.sh"
 fi
 
 export BUILD_ROOT="${BUILD_ROOT:-build/glide-gecko-github-unsigned-ipa}"
