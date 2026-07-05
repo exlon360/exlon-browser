@@ -6824,11 +6824,49 @@ private struct AddOnsLibraryView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
+    @State private var isWebExtensionImporterPresented = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Add-ons") {
+                Section("Installed Add-ons") {
+                    if model.installedWebExtensions.isEmpty {
+                        Text("No Firefox add-ons installed.")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    } else {
+                        ForEach(model.installedWebExtensions) { webExtension in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Toggle(isOn: webExtensionEnabledBinding(for: webExtension)) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(webExtension.displayName)
+                                            .font(.body.weight(.semibold))
+                                            .foregroundStyle(theme.color(.text))
+                                        Text(webExtension.detailText)
+                                            .font(.caption)
+                                            .foregroundStyle(theme.color(.mutedText))
+                                    }
+                                }
+
+                                Button(role: .destructive) {
+                                    model.deleteWebExtension(webExtension.id)
+                                } label: {
+                                    Label("Remove Add-on", systemImage: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+
+                Section("Install") {
+                    Button {
+                        isWebExtensionImporterPresented = true
+                    } label: {
+                        Label("Install Firefox Add-on File", systemImage: "square.and.arrow.down")
+                    }
+
                     ForEach(BrowserAddOnLibrary.allCases) { library in
                         Button {
                             model.openAddOnLibrary(library)
@@ -6854,10 +6892,21 @@ private struct AddOnsLibraryView: View {
                             }
                         }
                     }
+
+                    if model.webExtensionImportMessage.isEmpty == false {
+                        Label(
+                            model.webExtensionImportMessage,
+                            systemImage: model.webExtensionImportMessage.hasPrefix("Installed") || model.webExtensionImportMessage.hasPrefix("Updated")
+                                ? "checkmark.circle"
+                                : "info.circle"
+                        )
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                    }
                 }
 
                 Section("Compatibility") {
-                    Text("Glide can browse Firefox and Brave add-on libraries. iOS WKWebView does not expose desktop extension installation, so add-ons open as web pages.")
+                    Text("Glide installs Firefox .xpi and .zip packages that use WebExtension content scripts. Background pages and full Gecko-only APIs need a bundled Gecko engine through BrowserEngineKit.")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.color(.mutedText))
                 }
@@ -6873,7 +6922,25 @@ private struct AddOnsLibraryView: View {
                     }
                 }
             }
+            .fileImporter(
+                isPresented: $isWebExtensionImporterPresented,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: false
+            ) { result in
+                model.importWebExtension(from: result)
+            }
         }
+    }
+
+    private func webExtensionEnabledBinding(for webExtension: BrowserWebExtension) -> Binding<Bool> {
+        Binding(
+            get: {
+                model.installedWebExtensions.first(where: { $0.id == webExtension.id })?.isEnabled ?? false
+            },
+            set: { enabled in
+                model.setWebExtension(webExtension.id, enabled: enabled)
+            }
+        )
     }
 }
 

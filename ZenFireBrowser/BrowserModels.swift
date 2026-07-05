@@ -1,4 +1,455 @@
+import Compression
 import Foundation
+
+struct BrowserWebExtension: Codable, Identifiable, Equatable {
+    let id: UUID
+    var extensionIdentifier: String
+    var name: String
+    var version: String
+    var description: String
+    var homepageURLString: String
+    var manifestVersion: Int
+    var contentScripts: [BrowserWebExtensionContentScript]
+    var resources: [String: String]
+    var permissions: [String]
+    var isEnabled: Bool
+    var installedAt: Date
+    var sourceFilename: String
+
+    init(
+        id: UUID = UUID(),
+        extensionIdentifier: String,
+        name: String,
+        version: String,
+        description: String = "",
+        homepageURLString: String = "",
+        manifestVersion: Int,
+        contentScripts: [BrowserWebExtensionContentScript],
+        resources: [String: String],
+        permissions: [String] = [],
+        isEnabled: Bool = true,
+        installedAt: Date = Date(),
+        sourceFilename: String
+    ) {
+        self.id = id
+        self.extensionIdentifier = extensionIdentifier
+        self.name = name
+        self.version = version
+        self.description = description
+        self.homepageURLString = homepageURLString
+        self.manifestVersion = manifestVersion
+        self.contentScripts = contentScripts
+        self.resources = resources
+        self.permissions = permissions
+        self.isEnabled = isEnabled
+        self.installedAt = installedAt
+        self.sourceFilename = sourceFilename
+    }
+
+    var displayName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? sourceFilename : trimmed
+    }
+
+    var detailText: String {
+        let scriptCount = contentScripts.reduce(0) { partialResult, script in
+            partialResult + script.js.count + script.css.count
+        }
+        let versionText = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = versionText.isEmpty ? "Installed" : "Version \(versionText)"
+        return "\(prefix) - \(scriptCount) content file\(scriptCount == 1 ? "" : "s")"
+    }
+
+    var supportedScriptCount: Int {
+        contentScripts.reduce(0) { partialResult, script in
+            partialResult + script.js.count + script.css.count
+        }
+    }
+
+    func resourceText(for path: String) -> String? {
+        let normalized = BrowserWebExtensionPackageReader.normalizedPath(path)
+        return resources[normalized]
+    }
+}
+
+struct BrowserWebExtensionContentScript: Codable, Equatable {
+    var matches: [String]
+    var excludeMatches: [String]
+    var js: [String]
+    var css: [String]
+    var runAt: BrowserWebExtensionRunAt
+    var allFrames: Bool
+
+    var hasRunnableContent: Bool {
+        js.isEmpty == false || css.isEmpty == false
+    }
+}
+
+enum BrowserWebExtensionRunAt: String, Codable {
+    case documentStart
+    case documentEnd
+    case documentIdle
+
+    init(manifestValue: String?) {
+        switch manifestValue {
+        case "document_start":
+            self = .documentStart
+        case "document_idle":
+            self = .documentIdle
+        default:
+            self = .documentEnd
+        }
+    }
+}
+
+enum BrowserWebExtensionInstallError: LocalizedError {
+    case unsupportedFile
+    case packageTooLarge
+    case invalidPackage
+    case missingManifest
+    case invalidManifest
+    case noSupportedContentScripts
+    case unsupportedCompression(String)
+    case resourceTooLarge(String)
+    case missingResource(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedFile:
+            return "Choose a Firefox .xpi, .zip, or manifest.json file."
+        case .packageTooLarge:
+            return "That add-on package is too large for Glide's WebExtension importer."
+        case .invalidPackage:
+            return "That add-on package could not be read."
+        case .missingManifest:
+            return "The add-on package does not include manifest.json."
+        case .invalidManifest:
+            return "The add-on manifest could not be parsed."
+        case .noSupportedContentScripts:
+            return "This add-on does not include WebExtension content scripts Glide can inject yet."
+        case .unsupportedCompression(let path):
+            return "The add-on uses unsupported ZIP compression for \(path)."
+        case .resourceTooLarge(let path):
+            return "\(path) is too large to import as a content script."
+        case .missingResource(let path):
+            return "The manifest references \(path), but it was not found in the package."
+        }
+    }
+}
+
+enum BrowserWebExtensionPackageReader {
+    private static let maxPackageBytes = 24 * 1024 * 1024
+    private static let maxTextResourceBytes = 1 * 1024 * 1024
+
+    static func installableExtension(from data: Data, sourceFilename: String) throws -> BrowserWebExtension {
+        guard data.count <= maxPackageBytes else { throw BrowserWebExtensionInstallError.packageTooLarge }
+
+        let lowercasedName = sourceFilename.lowercased()
+        if lowercasedName.hasSuffix(".json") {
+            return try installableExtensionFromManifest(data, sourceFilename: sourceFilename)
+        }
+
+        guard lowercasedName.hasSuffix(".xpi") || lowercasedName.hasSuffix(".zip") else {
+            throw BrowserWebExtensionInstallError.unsupportedFile
+        }
+
+        let archive = try BrowserZipArchive(data: data)
+        guard let manifestData = try archive.data(for: "manifest.json") else {
+            throw BrowserWebExtensionInstallError.missingManifest
+        }
+
+        let manifest = try decodedManifest(from: manifestData)
+        let contentScripts = normalizedContentScripts(from: manifest)
+        guard contentScripts.contains(where: \.hasRunnableContent) else {
+            throw BrowserWebExtensionInstallError.noSupportedContentScripts
+        }
+
+        var resources: [String: String] = [:]
+        for path in Set(contentScripts.flatMap { $0.js + $0.css }) {
+            let normalized = normalizedPath(path)
+            guard let resourceData = try archive.data(for: normalized) else {
+                throw BrowserWebExtensionInstallError.missingResource(normalized)
+            }
+            guard resourceData.count <= maxTextResourceBytes else {
+                throw BrowserWebExtensionInstallError.resourceTooLarge(normalized)
+            }
+            guard let text = String(data: resourceData, encoding: .utf8) else {
+                throw BrowserWebExtensionInstallError.missingResource(normalized)
+            }
+            resources[normalized] = text
+        }
+
+        return BrowserWebExtension(
+            extensionIdentifier: manifest.extensionIdentifier(sourceFilename: sourceFilename),
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description ?? "",
+            homepageURLString: manifest.homepageURL ?? "",
+            manifestVersion: manifest.manifestVersion,
+            contentScripts: contentScripts,
+            resources: resources,
+            permissions: manifest.permissions ?? [],
+            sourceFilename: sourceFilename
+        )
+    }
+
+    static func normalizedPath(_ path: String) -> String {
+        path
+            .replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .filter { $0 != "." && $0 != ".." }
+            .joined(separator: "/")
+    }
+
+    private static func installableExtensionFromManifest(_ data: Data, sourceFilename: String) throws -> BrowserWebExtension {
+        let manifest = try decodedManifest(from: data)
+        let contentScripts = normalizedContentScripts(from: manifest)
+        guard contentScripts.contains(where: \.hasRunnableContent) else {
+            throw BrowserWebExtensionInstallError.noSupportedContentScripts
+        }
+
+        return BrowserWebExtension(
+            extensionIdentifier: manifest.extensionIdentifier(sourceFilename: sourceFilename),
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description ?? "",
+            homepageURLString: manifest.homepageURL ?? "",
+            manifestVersion: manifest.manifestVersion,
+            contentScripts: contentScripts,
+            resources: [:],
+            permissions: manifest.permissions ?? [],
+            sourceFilename: sourceFilename
+        )
+    }
+
+    private static func decodedManifest(from data: Data) throws -> BrowserWebExtensionManifest {
+        do {
+            return try JSONDecoder().decode(BrowserWebExtensionManifest.self, from: data)
+        } catch {
+            throw BrowserWebExtensionInstallError.invalidManifest
+        }
+    }
+
+    private static func normalizedContentScripts(from manifest: BrowserWebExtensionManifest) -> [BrowserWebExtensionContentScript] {
+        (manifest.contentScripts ?? []).map { script in
+            BrowserWebExtensionContentScript(
+                matches: script.matches?.isEmpty == false ? script.matches ?? [] : ["<all_urls>"],
+                excludeMatches: script.excludeMatches ?? [],
+                js: (script.js ?? []).map(normalizedPath),
+                css: (script.css ?? []).map(normalizedPath),
+                runAt: BrowserWebExtensionRunAt(manifestValue: script.runAt),
+                allFrames: script.allFrames ?? false
+            )
+        }
+    }
+}
+
+private struct BrowserWebExtensionManifest: Decodable {
+    let manifestVersion: Int
+    let name: String
+    let version: String
+    let description: String?
+    let homepageURL: String?
+    let permissions: [String]?
+    let contentScripts: [BrowserWebExtensionManifestContentScript]?
+    let browserSpecificSettings: BrowserWebExtensionGeckoSettings?
+    let applications: BrowserWebExtensionApplications?
+
+    enum CodingKeys: String, CodingKey {
+        case manifestVersion = "manifest_version"
+        case name
+        case version
+        case description
+        case homepageURL = "homepage_url"
+        case permissions
+        case contentScripts = "content_scripts"
+        case browserSpecificSettings = "browser_specific_settings"
+        case applications
+    }
+
+    func extensionIdentifier(sourceFilename: String) -> String {
+        let explicitID = browserSpecificSettings?.gecko?.id ?? applications?.gecko?.id
+        if let explicitID,
+           explicitID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return explicitID
+        }
+
+        let fallback = "\(name)-\(version)-\(sourceFilename)"
+        return fallback
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
+    }
+}
+
+private struct BrowserWebExtensionManifestContentScript: Decodable {
+    let matches: [String]?
+    let excludeMatches: [String]?
+    let js: [String]?
+    let css: [String]?
+    let runAt: String?
+    let allFrames: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case matches
+        case excludeMatches = "exclude_matches"
+        case js
+        case css
+        case runAt = "run_at"
+        case allFrames = "all_frames"
+    }
+}
+
+private struct BrowserWebExtensionGeckoSettings: Decodable {
+    let gecko: BrowserWebExtensionGeckoID?
+}
+
+private struct BrowserWebExtensionApplications: Decodable {
+    let gecko: BrowserWebExtensionGeckoID?
+}
+
+private struct BrowserWebExtensionGeckoID: Decodable {
+    let id: String?
+}
+
+private struct BrowserZipArchive {
+    private struct Entry {
+        let path: String
+        let compressionMethod: UInt16
+        let compressedSize: Int
+        let uncompressedSize: Int
+        let localHeaderOffset: Int
+    }
+
+    private let data: Data
+    private let entries: [String: Entry]
+
+    init(data: Data) throws {
+        self.data = data
+        self.entries = try Self.readEntries(from: data)
+    }
+
+    func data(for path: String) throws -> Data? {
+        let normalized = BrowserWebExtensionPackageReader.normalizedPath(path)
+        guard let entry = entries[normalized] else { return nil }
+        guard entry.localHeaderOffset + 30 <= data.count,
+              data.uint32LE(at: entry.localHeaderOffset) == 0x04034b50 else {
+            throw BrowserWebExtensionInstallError.invalidPackage
+        }
+
+        let nameLength = Int(data.uint16LE(at: entry.localHeaderOffset + 26))
+        let extraLength = Int(data.uint16LE(at: entry.localHeaderOffset + 28))
+        let payloadStart = entry.localHeaderOffset + 30 + nameLength + extraLength
+        let payloadEnd = payloadStart + entry.compressedSize
+        guard payloadStart >= 0, payloadEnd <= data.count else {
+            throw BrowserWebExtensionInstallError.invalidPackage
+        }
+
+        let payload = data[payloadStart..<payloadEnd]
+        switch entry.compressionMethod {
+        case 0:
+            return Data(payload)
+        case 8:
+            return try inflate(payload, uncompressedSize: entry.uncompressedSize, path: normalized)
+        default:
+            throw BrowserWebExtensionInstallError.unsupportedCompression(normalized)
+        }
+    }
+
+    private static func readEntries(from data: Data) throws -> [String: Entry] {
+        guard let endOfCentralDirectory = data.endOfCentralDirectoryOffset else {
+            throw BrowserWebExtensionInstallError.invalidPackage
+        }
+
+        let entryCount = Int(data.uint16LE(at: endOfCentralDirectory + 10))
+        var offset = Int(data.uint32LE(at: endOfCentralDirectory + 16))
+        var entries: [String: Entry] = [:]
+
+        for _ in 0..<entryCount {
+            guard offset + 46 <= data.count,
+                  data.uint32LE(at: offset) == 0x02014b50 else {
+                throw BrowserWebExtensionInstallError.invalidPackage
+            }
+
+            let method = data.uint16LE(at: offset + 10)
+            let compressedSize = Int(data.uint32LE(at: offset + 20))
+            let uncompressedSize = Int(data.uint32LE(at: offset + 24))
+            let nameLength = Int(data.uint16LE(at: offset + 28))
+            let extraLength = Int(data.uint16LE(at: offset + 30))
+            let commentLength = Int(data.uint16LE(at: offset + 32))
+            let localHeaderOffset = Int(data.uint32LE(at: offset + 42))
+            let nameStart = offset + 46
+            let nameEnd = nameStart + nameLength
+            guard nameEnd <= data.count else {
+                throw BrowserWebExtensionInstallError.invalidPackage
+            }
+
+            if let rawName = String(data: data[nameStart..<nameEnd], encoding: .utf8) {
+                let path = BrowserWebExtensionPackageReader.normalizedPath(rawName)
+                if path.isEmpty == false && rawName.hasSuffix("/") == false {
+                    entries[path] = Entry(
+                        path: path,
+                        compressionMethod: method,
+                        compressedSize: compressedSize,
+                        uncompressedSize: uncompressedSize,
+                        localHeaderOffset: localHeaderOffset
+                    )
+                }
+            }
+
+            offset += 46 + nameLength + extraLength + commentLength
+        }
+
+        return entries
+    }
+
+    private func inflate(_ payload: Data.SubSequence, uncompressedSize: Int, path: String) throws -> Data {
+        guard uncompressedSize >= 0 else {
+            throw BrowserWebExtensionInstallError.invalidPackage
+        }
+
+        var output = Data(count: uncompressedSize)
+        let decodedCount = output.withUnsafeMutableBytes { outputBuffer in
+            payload.withUnsafeBytes { inputBuffer in
+                compression_decode_buffer(
+                    outputBuffer.bindMemory(to: UInt8.self).baseAddress!,
+                    uncompressedSize,
+                    inputBuffer.bindMemory(to: UInt8.self).baseAddress!,
+                    payload.count,
+                    nil,
+                    COMPRESSION_ZLIB
+                )
+            }
+        }
+
+        guard decodedCount == uncompressedSize else {
+            throw BrowserWebExtensionInstallError.unsupportedCompression(path)
+        }
+
+        return output
+    }
+}
+
+private extension Data {
+    func uint16LE(at offset: Int) -> UInt16 {
+        guard offset + 1 < count else { return 0 }
+        return UInt16(self[offset]) | (UInt16(self[offset + 1]) << 8)
+    }
+
+    func uint32LE(at offset: Int) -> UInt32 {
+        UInt32(uint16LE(at: offset)) | (UInt32(uint16LE(at: offset + 2)) << 16)
+    }
+
+    var endOfCentralDirectoryOffset: Int? {
+        guard count >= 22 else { return nil }
+        let minimumOffset = Swift.max(0, count - 65_557)
+        for offset in stride(from: count - 22, through: minimumOffset, by: -1) {
+            if uint32LE(at: offset) == 0x06054b50 {
+                return offset
+            }
+        }
+        return nil
+    }
+}
 
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case duckDuckGo

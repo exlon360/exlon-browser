@@ -56,6 +56,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var isFPSForcerEnabled: Bool
     @Published var forcedFPS: Double
     @Published var websiteDisplayMode: BrowserWebsiteDisplayMode
+    @Published var webExtensions: [BrowserWebExtension]
     @Published var folderID: UUID?
 
     var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
@@ -101,6 +102,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         forcedFPS: Double = 60,
         websiteDisplayMode: BrowserWebsiteDisplayMode = .automatic,
         folderID: UUID? = nil,
+        webExtensions: [BrowserWebExtension] = [],
         webKitProfile: BrowserWebKitProfile = .standard
     ) {
         self.isPrivate = isPrivate
@@ -130,6 +132,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
         self.websiteDisplayMode = websiteDisplayMode
+        self.webExtensions = webExtensions
         self.folderID = folderID
         self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
         self.url = startURL
@@ -337,6 +340,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         rebuildWebKitUserContent(reloadAfterChange: true)
     }
 
+    func setWebExtensions(_ extensions: [BrowserWebExtension], reloadAfterChange: Bool = true) {
+        webExtensions = extensions
+        rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)
+    }
+
     private func applyPageStyleOverrides(forceCleanup: Bool = false) {
         guard forceCleanup || hasActivePageStyleOverrides else { return }
         webView.evaluateJavaScript(Self.pageControlsScript(
@@ -434,6 +442,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
                 )
             )
         }
+
+        scripts.append(contentsOf: Self.webExtensionUserScripts(for: webExtensions))
 
         return scripts
     }
@@ -644,6 +654,217 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private static func mobileSafariUserAgent() -> String {
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    }
+
+    private static func webExtensionUserScripts(for extensions: [BrowserWebExtension]) -> [WKUserScript] {
+        var scripts: [WKUserScript] = []
+
+        for webExtension in extensions where webExtension.isEnabled {
+            for contentScript in webExtension.contentScripts where contentScript.hasRunnableContent {
+                let injectionTime = webExtensionInjectionTime(for: contentScript.runAt)
+                let forMainFrameOnly = contentScript.allFrames == false
+
+                for cssPath in contentScript.css {
+                    guard let css = webExtension.resourceText(for: cssPath) else { continue }
+                    scripts.append(
+                        WKUserScript(
+                            source: webExtensionWrappedSource(
+                                extension: webExtension,
+                                contentScript: contentScript,
+                                resourcePath: cssPath,
+                                body: webExtensionCSSInjectionBody(css, path: cssPath)
+                            ),
+                            injectionTime: injectionTime,
+                            forMainFrameOnly: forMainFrameOnly
+                        )
+                    )
+                }
+
+                for jsPath in contentScript.js {
+                    guard let source = webExtension.resourceText(for: jsPath) else { continue }
+                    scripts.append(
+                        WKUserScript(
+                            source: webExtensionWrappedSource(
+                                extension: webExtension,
+                                contentScript: contentScript,
+                                resourcePath: jsPath,
+                                body: webExtensionJavaScriptBody(source, path: jsPath)
+                            ),
+                            injectionTime: injectionTime,
+                            forMainFrameOnly: forMainFrameOnly
+                        )
+                    )
+                }
+            }
+        }
+
+        return scripts
+    }
+
+    private static func webExtensionInjectionTime(for runAt: BrowserWebExtensionRunAt) -> WKUserScriptInjectionTime {
+        switch runAt {
+        case .documentStart:
+            return .atDocumentStart
+        case .documentEnd, .documentIdle:
+            return .atDocumentEnd
+        }
+    }
+
+    private static func webExtensionWrappedSource(
+        extension webExtension: BrowserWebExtension,
+        contentScript: BrowserWebExtensionContentScript,
+        resourcePath: String,
+        body: String
+    ) -> String {
+        let matchesLiteral = javascriptJSONLiteral(contentScript.matches)
+        let excludeMatchesLiteral = javascriptJSONLiteral(contentScript.excludeMatches)
+        let extensionIDLiteral = javascriptJSONLiteral(webExtension.extensionIdentifier)
+        let extensionNameLiteral = javascriptJSONLiteral(webExtension.displayName)
+        let resourcePathLiteral = javascriptJSONLiteral(resourcePath)
+
+        return """
+        (() => {
+          const glideExtensionName = \(extensionNameLiteral);
+          const glideExtensionID = \(extensionIDLiteral);
+          const glideResourcePath = \(resourcePathLiteral);
+          const glideMatches = \(matchesLiteral);
+          const glideExcludeMatches = \(excludeMatchesLiteral);
+          const glideEscapeRegex = (value) => String(value).replace(/[|\\\\{}()[\\]^$+*?.-]/g, '\\\\$&');
+          const glidePathRegex = (patternPath) => new RegExp('^' + glideEscapeRegex(patternPath || '/*').replace(/\\\\\\*/g, '.*') + '$');
+          const glidePatternMatches = (pattern, href) => {
+            try {
+              if (pattern === '<all_urls>') {
+                return /^(https?|file):/i.test(href);
+              }
+              const parsed = new URL(href);
+              const match = String(pattern).match(/^(\\*|http|https|file):\\/\\/([^/]*)(\\/.*)$/);
+              if (!match) { return false; }
+              const scheme = match[1];
+              const hostPattern = match[2];
+              const pathPattern = match[3] || '/*';
+              if (scheme !== '*' && parsed.protocol.replace(':', '') !== scheme) { return false; }
+              if (scheme === '*' && !['http:', 'https:'].includes(parsed.protocol)) { return false; }
+              const host = parsed.hostname.toLowerCase();
+              const wantedHost = hostPattern.toLowerCase();
+              const hostMatches = wantedHost === '*' ||
+                (wantedHost.startsWith('*.') &&
+                  (host === wantedHost.slice(2) || host.endsWith('.' + wantedHost.slice(2)))) ||
+                host === wantedHost;
+              return hostMatches && glidePathRegex(pathPattern).test(parsed.pathname + parsed.search + parsed.hash);
+            } catch (_) {
+              return false;
+            }
+          };
+          const glideShouldRun = () => {
+            const href = String(location.href || '');
+            const included = glideMatches.length === 0 || glideMatches.some((pattern) => glidePatternMatches(pattern, href));
+            const excluded = glideExcludeMatches.some((pattern) => glidePatternMatches(pattern, href));
+            return included && !excluded;
+          };
+          if (!glideShouldRun()) { return; }
+          \(webExtensionCompatibilityBridgeScript())
+          try {
+            \(body)
+          } catch (error) {
+            console.warn('[Glide WebExtension]', glideExtensionName, glideResourcePath, error);
+          }
+        })();
+        """
+    }
+
+    private static func webExtensionCSSInjectionBody(_ css: String, path: String) -> String {
+        let cssLiteral = javascriptJSONLiteral(css)
+        let pathLiteral = javascriptJSONLiteral(path)
+        return """
+        const glideCSS = \(cssLiteral);
+        const glideCSSPath = \(pathLiteral);
+        const style = document.createElement('style');
+        style.dataset.glideWebExtension = glideExtensionID;
+        style.dataset.glideWebExtensionResource = glideCSSPath;
+        style.textContent = glideCSS;
+        (document.head || document.documentElement).appendChild(style);
+        """
+    }
+
+    private static func webExtensionJavaScriptBody(_ source: String, path: String) -> String {
+        let pathLiteral = javascriptJSONLiteral(path)
+        return """
+        const glideJavaScriptPath = \(pathLiteral);
+        \(source)
+        """
+    }
+
+    private static func webExtensionCompatibilityBridgeScript() -> String {
+        """
+        const glideStoragePrefix = '__glide_webextension_' + glideExtensionID + '_';
+        window.browser = window.browser || {};
+        window.browser.runtime = window.browser.runtime || {};
+        window.browser.runtime.id = window.browser.runtime.id || glideExtensionID;
+        window.browser.runtime.getURL = window.browser.runtime.getURL || ((path = '') => 'glide-extension://' + glideExtensionID + '/' + String(path).replace(/^\\/+/, ''));
+        window.browser.runtime.sendMessage = window.browser.runtime.sendMessage || (() => Promise.resolve(undefined));
+        window.browser.storage = window.browser.storage || {};
+        window.browser.storage.local = window.browser.storage.local || {
+          get(keys) {
+            const read = (key) => {
+              const value = localStorage.getItem(glideStoragePrefix + key);
+              if (value === null) { return undefined; }
+              try { return JSON.parse(value); } catch (_) { return value; }
+            };
+            if (keys == null) {
+              const all = {};
+              for (let index = 0; index < localStorage.length; index += 1) {
+                const key = localStorage.key(index);
+                if (key && key.startsWith(glideStoragePrefix)) {
+                  all[key.slice(glideStoragePrefix.length)] = read(key.slice(glideStoragePrefix.length));
+                }
+              }
+              return Promise.resolve(all);
+            }
+            if (typeof keys === 'string') {
+              return Promise.resolve({ [keys]: read(keys) });
+            }
+            if (Array.isArray(keys)) {
+              return Promise.resolve(keys.reduce((result, key) => {
+                result[key] = read(key);
+                return result;
+              }, {}));
+            }
+            return Promise.resolve(Object.keys(keys).reduce((result, key) => {
+              const value = read(key);
+              result[key] = value === undefined ? keys[key] : value;
+              return result;
+            }, {}));
+          },
+          set(items) {
+            Object.entries(items || {}).forEach(([key, value]) => {
+              localStorage.setItem(glideStoragePrefix + key, JSON.stringify(value));
+            });
+            return Promise.resolve();
+          },
+          remove(keys) {
+            (Array.isArray(keys) ? keys : [keys]).forEach((key) => localStorage.removeItem(glideStoragePrefix + key));
+            return Promise.resolve();
+          },
+          clear() {
+            const keys = [];
+            for (let index = 0; index < localStorage.length; index += 1) {
+              const key = localStorage.key(index);
+              if (key && key.startsWith(glideStoragePrefix)) { keys.push(key); }
+            }
+            keys.forEach((key) => localStorage.removeItem(key));
+            return Promise.resolve();
+          }
+        };
+        window.chrome = window.chrome || window.browser;
+        """
+    }
+
+    private static func javascriptJSONLiteral<T: Encodable>(_ value: T) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let literal = String(data: data, encoding: .utf8) else {
+            return "null"
+        }
+        return literal
     }
 
     private static func credentialFillScript(username: String, password: String) -> String {

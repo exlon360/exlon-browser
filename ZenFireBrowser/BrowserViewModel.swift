@@ -776,6 +776,13 @@ final class BrowserViewModel: ObservableObject {
     @Published var isVPNPresented = false
     @Published var isPasswordManagerPresented = false
     @Published var isAddOnsPresented = false
+    @Published var installedWebExtensions: [BrowserWebExtension] {
+        didSet {
+            vault.save(installedWebExtensions, forKey: Self.StorageKey.webExtensions)
+            applyWebExtensionsToTabs(reloadAfterChange: true)
+        }
+    }
+    @Published var webExtensionImportMessage = ""
     @Published var isAdvancedConfigPresented = false
     @Published var isCustomIconsPresented = false
     @Published var isDeveloperModeEnabled: Bool {
@@ -1277,6 +1284,11 @@ final class BrowserViewModel: ObservableObject {
         let savedDownloads = Self.loadDownloads(vault: vault)
         let savedPasswordEntries = Self.loadPasswordEntries(vault: vault)
         let savedVPNProfile = Self.loadVPNProfile(vault: vault)
+        let savedWebExtensions = vault.load(
+            [BrowserWebExtension].self,
+            forKey: Self.StorageKey.webExtensions,
+            default: []
+        )
         let savedWebsiteDisplayMode = BrowserWebsiteDisplayMode(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.websiteDisplayMode, default: "")
         ) ?? .automatic
@@ -1304,7 +1316,8 @@ final class BrowserViewModel: ObservableObject {
             isRegionTricksEnabled: regionTricksEnabled,
             regionTrickProfile: savedRegionTrickProfile,
             isDeveloperModeEnabled: developerModeEnabled,
-            websiteDisplayMode: savedWebsiteDisplayMode
+            websiteDisplayMode: savedWebsiteDisplayMode,
+            webExtensions: savedWebExtensions
         )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
@@ -1354,6 +1367,8 @@ final class BrowserViewModel: ObservableObject {
         self.tabFolders = savedTabFolders
         self.downloads = savedDownloads
         self.passwordEntries = savedPasswordEntries
+        self.installedWebExtensions = savedWebExtensions
+        self.webExtensionImportMessage = ""
         self.websiteDisplayMode = savedWebsiteDisplayMode
         self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
@@ -1584,6 +1599,7 @@ final class BrowserViewModel: ObservableObject {
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
             websiteDisplayMode: websiteDisplayMode,
+            webExtensions: installedWebExtensions,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configure(tab)
@@ -1648,6 +1664,7 @@ final class BrowserViewModel: ObservableObject {
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
             websiteDisplayMode: websiteDisplayMode,
+            webExtensions: installedWebExtensions,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configureContained(tab)
@@ -2734,6 +2751,63 @@ final class BrowserViewModel: ObservableObject {
         isAddOnsPresented = false
     }
 
+    func importWebExtension(from result: Result<[URL], Error>) {
+        do {
+            guard let sourceURL = try result.get().first else { return }
+            webExtensionImportMessage = "Importing \(sourceURL.lastPathComponent)..."
+            let didAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if didAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let packageData = try Data(contentsOf: sourceURL)
+            let sourceFilename = sourceURL.lastPathComponent
+            Task {
+                do {
+                    let importedExtension = try await Task.detached(priority: .utility) {
+                        try BrowserWebExtensionPackageReader.installableExtension(
+                            from: packageData,
+                            sourceFilename: sourceFilename
+                        )
+                    }.value
+
+                    if let existingIndex = installedWebExtensions.firstIndex(where: {
+                        $0.extensionIdentifier == importedExtension.extensionIdentifier
+                    }) {
+                        let wasEnabled = installedWebExtensions[existingIndex].isEnabled
+                        var replacement = importedExtension
+                        replacement.isEnabled = wasEnabled
+                        installedWebExtensions[existingIndex] = replacement
+                        webExtensionImportMessage = "Updated \(replacement.displayName)."
+                    } else {
+                        installedWebExtensions.insert(importedExtension, at: 0)
+                        webExtensionImportMessage = "Installed \(importedExtension.displayName)."
+                    }
+                } catch {
+                    webExtensionImportMessage = error.localizedDescription
+                }
+            }
+        } catch {
+            webExtensionImportMessage = error.localizedDescription
+        }
+    }
+
+    func setWebExtension(_ extensionID: BrowserWebExtension.ID, enabled: Bool) {
+        guard let index = installedWebExtensions.firstIndex(where: { $0.id == extensionID }) else { return }
+        installedWebExtensions[index].isEnabled = enabled
+        webExtensionImportMessage = enabled
+            ? "Enabled \(installedWebExtensions[index].displayName)."
+            : "Disabled \(installedWebExtensions[index].displayName)."
+    }
+
+    func deleteWebExtension(_ extensionID: BrowserWebExtension.ID) {
+        guard let index = installedWebExtensions.firstIndex(where: { $0.id == extensionID }) else { return }
+        let removed = installedWebExtensions.remove(at: index)
+        webExtensionImportMessage = "Removed \(removed.displayName)."
+    }
+
     func importLocalAI(name: String, urlText: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         localAIName = trimmedName.isEmpty ? "Local AI" : trimmedName
@@ -3047,6 +3121,15 @@ final class BrowserViewModel: ObservableObject {
 
     private func applyDeveloperOptions(to tab: BrowserTab) {
         tab.setWebInspectorEnabled(isDeveloperModeEnabled && isWebInspectorEnabled)
+    }
+
+    private func applyWebExtensionsToTabs(reloadAfterChange: Bool) {
+        for tab in tabs {
+            tab.setWebExtensions(installedWebExtensions, reloadAfterChange: reloadAfterChange)
+        }
+        for tab in containedTabs {
+            tab.setWebExtensions(installedWebExtensions, reloadAfterChange: reloadAfterChange)
+        }
     }
 
     private func recordVisit(from tab: BrowserTab) {
@@ -3400,6 +3483,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(deviceExperienceOverride.rawValue, forKey: Self.StorageKey.deviceExperienceOverride)
         vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
         vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
+        vault.save(installedWebExtensions, forKey: Self.StorageKey.webExtensions)
         vault.save(history, forKey: Self.StorageKey.history)
         vault.save(essentials, forKey: Self.StorageKey.essentials)
         vault.save(tabFolders, forKey: Self.StorageKey.tabFolders)
@@ -3458,7 +3542,8 @@ final class BrowserViewModel: ObservableObject {
         isRegionTricksEnabled: Bool,
         regionTrickProfile: BrowserRegionTrickProfile,
         isDeveloperModeEnabled: Bool,
-        websiteDisplayMode: BrowserWebsiteDisplayMode
+        websiteDisplayMode: BrowserWebsiteDisplayMode,
+        webExtensions: [BrowserWebExtension]
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
@@ -3481,7 +3566,8 @@ final class BrowserViewModel: ObservableObject {
                 regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
-                websiteDisplayMode: websiteDisplayMode
+                websiteDisplayMode: websiteDisplayMode,
+                webExtensions: webExtensions
             )
             return ([firstTab], firstTab.id)
         }
@@ -3514,6 +3600,7 @@ final class BrowserViewModel: ObservableObject {
                 forcedFPS: forcedFPS,
                 websiteDisplayMode: websiteDisplayMode,
                 folderID: savedTab.folderID,
+                webExtensions: webExtensions,
                 webKitProfile: usesDevWebKitProfile ? .dev : .standard
             )
             tab.title = savedTab.title
@@ -3543,7 +3630,8 @@ final class BrowserViewModel: ObservableObject {
                 regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
-                websiteDisplayMode: websiteDisplayMode
+                websiteDisplayMode: websiteDisplayMode,
+                webExtensions: webExtensions
             )
             return ([firstTab], firstTab.id)
         }
@@ -3663,6 +3751,7 @@ final class BrowserViewModel: ObservableObject {
         static let deviceExperienceOverride = "ZenFireBrowser.deviceExperienceOverride"
         static let customIconNames = "ZenFireBrowser.customIconNames"
         static let customIconImageDataBySlot = "ZenFireBrowser.customIconImageDataBySlot"
+        static let webExtensions = "ZenFireBrowser.webExtensions"
         static let history = "ZenFireBrowser.history"
         static let essentials = "ZenFireBrowser.essentials"
         static let tabFolders = "ZenFireBrowser.tabFolders"
