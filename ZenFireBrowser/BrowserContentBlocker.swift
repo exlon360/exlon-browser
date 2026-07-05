@@ -2,10 +2,10 @@ import Foundation
 import WebKit
 
 enum BrowserContentBlocker {
-    static let engineVersion = 4
+    static let engineVersion = 5
 
-    private static let identifier = "ZenFireBrowser.AdBlocker.v4"
-    private static let fallbackIdentifier = "ZenFireBrowser.AdBlocker.v4.fallback"
+    private static let identifier = "ZenFireBrowser.AdBlocker.v5"
+    private static let fallbackIdentifier = "ZenFireBrowser.AdBlocker.v5.fallback"
 
     private static let blockedDomains = [
         "doubleclick.net",
@@ -352,7 +352,24 @@ enum BrowserContentBlocker {
         "w55c.net",
         "webads.eu",
         "yldbt.com",
-        "zergnet.com"
+        "zergnet.com",
+        "adsterra.com",
+        "adsterra.org",
+        "propellerads.com",
+        "propeller-tracking.com",
+        "popads.net",
+        "popcash.net",
+        "onclickads.net",
+        "exoclick.com",
+        "trafficfactory.biz",
+        "hilltopads.net",
+        "juicyads.com",
+        "a-ads.com",
+        "coinzilla.com",
+        "adcash.com",
+        "evadav.com",
+        "pushengage.com",
+        "pushnami.com"
     ]
 
     private static let cosmeticSelectors = [
@@ -377,6 +394,7 @@ enum BrowserContentBlocker {
         "[class*='ad-banner']",
         "[class*='adbox']",
         "[class*='ad-box']",
+        "[class*='adsbox']",
         "[class*='ad-placement']",
         "[class*='adlabel']",
         "[class*='ad-label']",
@@ -424,6 +442,7 @@ enum BrowserContentBlocker {
         "[id*='ad-wrapper']",
         "[id*='adbanner']",
         "[id*='ad-banner']",
+        "[id*='adsbox']",
         "[id*='advert']",
         "[id*='sponsor']",
         "[id*='promoted']",
@@ -476,6 +495,19 @@ enum BrowserContentBlocker {
         "iframe[src*='mgid']",
         "iframe[id*='ad']",
         "ins.adsbygoogle",
+        ".adsbygoogle",
+        ".adsbox",
+        "#adsbox",
+        ".ad-banner",
+        "#ad-banner",
+        ".ad-unit",
+        "#ad-unit",
+        ".pub_300x250",
+        ".pub_300x250m",
+        ".pub_728x90",
+        ".text-ad",
+        ".textAd",
+        ".sponsorPost",
         "div[id^='google_ads']",
         "div[id^='div-gpt-ad']",
         "div[id*='google_ads_iframe']",
@@ -495,7 +527,7 @@ enum BrowserContentBlocker {
     private static let blockedURLPatterns = [
         ".*(/|%2F)(ad|ads|adv|advert|advertise|advertising|adserver|adservice|admanager|adunit|adslot|adzone|banner|banners|sponsor|sponsored|promoted|promotion|prebid|bidder|bid-request|bid_request|header-bid|headerbid|gampad|pagead|pubads|securepubads|vast|vpaid|ima|ima3|outstream|interstitial|popunder|popup|native-ad|native_ad|affiliate)(/|\\.|-|_|\\?|=|&|%2F).*",
         ".*[?&](ad|ads|adid|ad_id|adunit|ad_unit|adslot|ad_slot|adzone|ad_zone|adserver|ad_server|adtype|ad_type|adsize|ad_size|adpos|ad_pos|iu|sz|cust_params|correlator|output)=.*",
-        ".*(doubleclick|googlesyndication|googleadservices|google-analytics|googletagmanager|googletagservices|adnxs|adsrvr|rubicon|pubmatic|openx|criteo|taboola|outbrain|revcontent|mgid|prebid|amazon-adsystem|facebook\\.com/tr|bat\\.bing|clarity\\.ms).*"
+        ".*(doubleclick|googlesyndication|googleadservices|google-analytics|googletagmanager|googletagservices|adnxs|adsrvr|rubicon|pubmatic|openx|criteo|taboola|outbrain|revcontent|mgid|prebid|amazon-adsystem|facebook\\.com/tr|bat\\.bing|clarity\\.ms|adsterra|propellerads|popads|onclickads|exoclick).*"
     ]
 
     private static let aggressiveFirstPartyBlockedURLPatterns = [
@@ -511,6 +543,8 @@ enum BrowserContentBlocker {
         "^https?://([^/]+\\.)?googletagmanager\\.com/gtag/js.*",
         "^https?://([^/]+\\.)?google-analytics\\.com/(analytics|ga|gtag|collect).*",
         "^https?://([^/]+\\.)?adblock-tester\\.com/banners/.*(ad|ads|advert|advertising|banner).*",
+        "^https?://([^/]+\\.)?adblock-tester\\.com/.*/(ad|ads|advert|advertising|banner|sponsor|analytics|tracker|popup).*",
+        "^https?://([^/]+\\.)?adblock-tester\\.com/.*[?&](ad|ads|banner|sponsor|tracker)=",
         "^https?://([^/]+\\.)?sentry-cdn\\.com/.*",
         "^https?://browser\\.sentry-cdn\\.com/.*",
         "^https?://js\\.sentry-cdn\\.com/.*",
@@ -520,6 +554,7 @@ enum BrowserContentBlocker {
         "googletagmanager\\.com/gtag/js.*",
         "google-analytics\\.com/(analytics|ga|gtag|collect).*",
         "adblock-tester\\.com/banners/.*(ad|ads|advert|advertising|banner).*",
+        "adblock-tester\\.com/.*/(ad|ads|advert|advertising|banner|sponsor|analytics|tracker|popup).*",
         "/banners/pr_advertising_ads_banner\\.(swf|gif|png).*",
         "an\\.yandex\\.ru/system/context\\.js.*",
         "mc\\.yandex\\.ru/metrika/tag\\.js.*",
@@ -543,6 +578,7 @@ enum BrowserContentBlocker {
         "doubleclick\\.net/.*",
         "googleadservices\\.com/.*",
         "adblock-tester\\.com/banners/.*",
+        "adblock-tester\\.com/.*/(ad|ads|advert|advertising|banner|sponsor|analytics|tracker|popup).*",
         "/banners/pr_advertising_ads_banner\\.(swf|gif|png).*",
         "an\\.yandex\\.ru/system/context\\.js.*",
         "mc\\.yandex\\.ru/metrika/tag\\.js.*",
@@ -690,10 +726,17 @@ enum BrowserContentBlocker {
         "sentry-cdn.com",
         "bugsnag.com",
         "d2wy8f7a9ursnm.cloudfront.net",
-        "static.cloudflareinsights.com"
+        "static.cloudflareinsights.com",
+        "adsterra.com",
+        "propellerads.com",
+        "propeller-tracking.com",
+        "popads.net",
+        "popcash.net",
+        "onclickads.net",
+        "exoclick.com"
       ];
       const adblockTesterHost = currentHost === "adblock-tester.com" || currentHost.endsWith(".adblock-tester.com");
-      const adPathPattern = /\\/(ad|ads|adv|advert|advertising|adserver|adservice|banner|banners|pagead|pubads|gampad|sponsor)(\\/|\\.|-|_|\\?|=|&|$)/i;
+      const adPathPattern = /(^|\\/|_|-|\\.)(ad|ads|adv|advert|advertising|adserver|adservice|adunit|adslot|adzone|banner|banners|pagead|pubads|gampad|sponsor|sponsored|prebid|bidder|tracker|tracking)(\\/|\\.|-|_|\\?|=|&|$)/i;
 
       const urlFromInput = (input) => {
         try {
@@ -728,7 +771,7 @@ enum BrowserContentBlocker {
           return true;
         }
 
-        if (adblockTesterHost && /\\/banners\\/.*(ad|ads|advert|advertising|banner)/i.test(path)) {
+        if (adblockTesterHost && /(\\/|_|-|\\.)(ad|ads|advert|advertising|banner|sponsor|tracker|analytics|popup)(\\/|\\.|-|_|\\?|=|&|$)/i.test(path)) {
           return true;
         }
 

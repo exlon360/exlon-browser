@@ -63,6 +63,8 @@ if ! file "${BINARY_PATH}" | grep -q "Mach-O"; then
   exit 1
 fi
 
+codesign --remove-signature "${BINARY_PATH}" 2>/dev/null || true
+
 hdiutil create \
   -volname "${APP_NAME}" \
   -srcfolder "${DMG_STAGING}" \

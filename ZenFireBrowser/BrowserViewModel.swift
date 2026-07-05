@@ -97,6 +97,19 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    static var customizationCases: [BrowserToolbarAction] {
+        allCases.filter { $0.isLeanBuildUtility == false }
+    }
+
+    var isLeanBuildUtility: Bool {
+        switch self {
+        case .browserMusic, .containedTabs, .vpnCountry:
+            return true
+        default:
+            return false
+        }
+    }
+
     var title: String {
         switch self {
         case .back:
@@ -396,7 +409,6 @@ enum BrowserPrivateModeAuthAction: Equatable {
 
 enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
     case firefox
-    case brave
 
     var id: String { rawValue }
 
@@ -404,8 +416,6 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return "Firefox Add-ons"
-        case .brave:
-            return "Brave Add-ons"
         }
     }
 
@@ -413,8 +423,6 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return "Browse Mozilla's extension and theme library."
-        case .brave:
-            return "Browse the Chrome Web Store used by Brave desktop."
         }
     }
 
@@ -422,8 +430,6 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return "flame"
-        case .brave:
-            return "shield.lefthalf.filled"
         }
     }
 
@@ -431,8 +437,6 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return URL(string: "https://addons.mozilla.org/firefox/")!
-        case .brave:
-            return URL(string: "https://chromewebstore.google.com/category/extensions")!
         }
     }
 }
@@ -1263,10 +1267,15 @@ final class BrowserViewModel: ObservableObject {
         let savedRegionTrickProfile = BrowserRegionTrickProfile(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.regionTrickProfile, default: "")
         ) ?? .unitedStates
-        let placement = BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left
+        let savedLeanProfileVersion = vault.load(Int.self, forKey: Self.StorageKey.leanProfileVersion, default: 0)
+        let shouldApplyLeanProfile = savedLeanProfileVersion < 1
+        let placement = shouldApplyLeanProfile
+            ? BrowserChromePlacement.left
+            : (BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left)
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
         let savedMoreMenuActionIDs = vault.load(Set<String>.self, forKey: Self.StorageKey.moreMenuActionIDs, default: [])
+            .filter { BrowserToolbarAction(rawValue: $0)?.isLeanBuildUtility == false }
         let savedCustomIconNames = vault.load([String: String].self, forKey: Self.StorageKey.customIconNames, default: [:])
         let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
         let developerModeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.developerModeEnabled, default: false)
@@ -1334,13 +1343,13 @@ final class BrowserViewModel: ObservableObject {
         )
 
         self.chromePlacement = placement
-        self.areSideTabsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
-        self.isDesktopZenModeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.desktopZenModeEnabled, default: false)
+        self.areSideTabsCollapsed = shouldApplyLeanProfile ? false : vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
+        self.isDesktopZenModeEnabled = shouldApplyLeanProfile ? false : vault.load(Bool.self, forKey: Self.StorageKey.desktopZenModeEnabled, default: false)
         self.arePageControlsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.pageControlsCollapsed, default: false)
         self.compactModeHidesQuickControls = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesQuickControls, default: true)
         self.isTwoFingerDoubleTapCompactEnabledOnIPad = vault.load(Bool.self, forKey: Self.StorageKey.twoFingerDoubleTapCompactOnIPad, default: false)
         self.sideChromeWidthFraction = Self.clampedSideChromeWidthFraction(
-            vault.load(Double.self, forKey: Self.StorageKey.sideChromeWidthFraction, default: 0.3)
+            shouldApplyLeanProfile ? 0.34 : vault.load(Double.self, forKey: Self.StorageKey.sideChromeWidthFraction, default: 0.34)
         )
         self.pageControlsOffsetX = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.pageControlsOffsetX, default: 0.0))
         self.pageControlsOffsetY = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.pageControlsOffsetY, default: 0.0))
@@ -1354,7 +1363,7 @@ final class BrowserViewModel: ObservableObject {
         self.deviceExperienceOverride = savedDeviceExperienceOverride
         self.compactModeHidesTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesTopSearchBar, default: true)
         self.compactModeRevealsTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeRevealsTopSearchBar, default: false)
-        self.isTopSearchBarEnabled = vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: Self.supportsDesktopZenMode)
+        self.isTopSearchBarEnabled = shouldApplyLeanProfile ? true : vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: true)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
         self.topSearchBarPositionX = savedTopSearchBarPositionX
         self.topSearchBarPositionY = savedTopSearchBarPositionY
@@ -1370,7 +1379,7 @@ final class BrowserViewModel: ObservableObject {
         self.installedWebExtensions = savedWebExtensions
         self.webExtensionImportMessage = ""
         self.websiteDisplayMode = savedWebsiteDisplayMode
-        self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
+        self.isTutorialPresented = false
         self.isDarkReaderEnabled = darkReaderEnabled
         self.darkReaderTheme = savedDarkReaderTheme
         self.isStylusCatppuccinEnabled = stylusCatppuccinEnabled
@@ -1388,7 +1397,7 @@ final class BrowserViewModel: ObservableObject {
         self.isWebRTCProtectionEnabled = webRTCProtectionEnabled
         self.isRegionTricksEnabled = regionTricksEnabled
         self.regionTrickProfile = savedRegionTrickProfile
-        self.isBrowserMusicEnabled = vault.load(Bool.self, forKey: Self.StorageKey.browserMusicEnabled, default: false)
+        self.isBrowserMusicEnabled = false
         self.browserMusicTrack = savedBrowserMusicTrack
         self.browserMusicVolume = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.browserMusicVolume, default: 0.34))
         self.importedBrowserMusicFilename = vault.load(String.self, forKey: Self.StorageKey.importedBrowserMusicFilename, default: "")
@@ -1411,6 +1420,9 @@ final class BrowserViewModel: ObservableObject {
         applyDeveloperOptionsToTabs()
         migrateLoadedStateToEncryptedVault()
         updateBrowserMusicPlayer()
+        vault.save(true, forKey: Self.StorageKey.hasCompletedTutorial)
+        vault.save(false, forKey: Self.StorageKey.browserMusicEnabled)
+        vault.save(1, forKey: Self.StorageKey.leanProfileVersion)
     }
 
     var forcedFPSLabel: String {
@@ -2352,10 +2364,14 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func isInMoreMenu(_ action: BrowserToolbarAction) -> Bool {
-        moreMenuActionIDs.contains(action.rawValue)
+        if action.isLeanBuildUtility {
+            return true
+        }
+        return moreMenuActionIDs.contains(action.rawValue)
     }
 
     func setMoreMenuAction(_ action: BrowserToolbarAction, enabled: Bool) {
+        guard action.isLeanBuildUtility == false else { return }
         if enabled {
             moreMenuActionIDs.insert(action.rawValue)
         } else {
@@ -2459,6 +2475,7 @@ final class BrowserViewModel: ObservableObject {
             regionTricksEnabled: isRegionTricksEnabled,
             regionTrickProfile: regionTrickProfile.rawValue,
             moreMenuActions: BrowserToolbarAction.allCases
+                .filter { $0.isLeanBuildUtility == false }
                 .map(\.rawValue)
                 .filter { moreMenuActionIDs.contains($0) },
             customIcons: customIconNames,
@@ -2555,7 +2572,8 @@ final class BrowserViewModel: ObservableObject {
         }
         isRegionTricksEnabled = config.regionTricksEnabled ?? false
         moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
-            BrowserToolbarAction(rawValue: actionID) != nil
+            guard let action = BrowserToolbarAction(rawValue: actionID) else { return false }
+            return action.isLeanBuildUtility == false
         })
         customIconNames = Self.sanitizedIconNames(config.customIcons)
         setDarkReaderEnabled(config.darkReaderEnabled)
@@ -2570,6 +2588,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func performToolbarAction(_ action: BrowserToolbarAction) {
+        guard action.isLeanBuildUtility == false else { return }
         switch action {
         case .back:
             goBack()
@@ -3006,6 +3025,19 @@ final class BrowserViewModel: ObservableObject {
         saveVPNProfile(.empty)
     }
 
+    func enableGlideMaxProtection() {
+        setAdBlockerEnabled(true)
+        trackerBlockingLevel = .aggressive
+        isScriptBlockingEnabled = false
+        isHTTPSUpgradeEnabled = true
+        isFingerprintProtectionEnabled = true
+        isSocialBlockingEnabled = true
+        isPopupBlockingEnabled = true
+        isTrackingParameterStrippingEnabled = true
+        isBounceTrackingProtectionEnabled = true
+        isWebRTCProtectionEnabled = true
+    }
+
     func resetLayoutSettings() {
         chromePlacement = .left
         areSideTabsCollapsed = false
@@ -3015,12 +3047,12 @@ final class BrowserViewModel: ObservableObject {
         compactModeHidesTopSearchBar = true
         compactModeRevealsTopSearchBar = false
         isTwoFingerDoubleTapCompactEnabledOnIPad = false
-        sideChromeWidthFraction = 0.3
+        sideChromeWidthFraction = 0.34
         pageControlsOffsetX = 0
         pageControlsOffsetY = 0
         isChromeWidthResizeMode = false
         isPageControlsMoveMode = false
-        isTopSearchBarEnabled = Self.supportsDesktopZenMode
+        isTopSearchBarEnabled = true
         topSearchBarPlacement = .top
         topSearchBarPositionX = 0.5
         topSearchBarPositionY = 0.0
@@ -3787,5 +3819,6 @@ final class BrowserViewModel: ObservableObject {
         static let websiteDisplayMode = "ZenFireBrowser.websiteDisplayMode"
         static let selectedVPNCountry = "ZenFireBrowser.selectedVPNCountry"
         static let vpnProfile = "ZenFireBrowser.vpnProfile"
+        static let leanProfileVersion = "ZenFireBrowser.leanProfileVersion"
     }
 }

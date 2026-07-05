@@ -2971,7 +2971,7 @@ private struct BrowserPageControls: View {
         HStack(spacing: 8) {
             PageControlsCollapseButton()
             if model.arePageControlsCollapsed == false {
-                AITabButton()
+                ShieldQuickButton()
                 if model.isInMoreMenu(.compact) == false {
                     CompactChromeButton()
                 }
@@ -3088,6 +3088,54 @@ private struct CompactChromeButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(model.isCompactModeActive ? "Reveal chrome" : "Compact mode")
+    }
+}
+
+private struct ShieldQuickButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Menu {
+            Button {
+                model.enableGlideMaxProtection()
+            } label: {
+                Label("Glide Shields Max", systemImage: "shield.lefthalf.filled")
+            }
+
+            Button {
+                model.setAdBlockerEnabled(!model.isAdBlockerEnabled)
+            } label: {
+                Label(model.isAdBlockerEnabled ? "Turn Shields Off" : "Turn Shields On", systemImage: model.isAdBlockerEnabled ? "shield.slash" : "shield")
+            }
+
+            Button {
+                model.trackerBlockingLevel = .aggressive
+            } label: {
+                Label("Aggressive Blocking", systemImage: "bolt.shield")
+            }
+
+            Button {
+                model.isSettingsPresented = true
+            } label: {
+                Label("Shield Settings", systemImage: "slider.horizontal.3")
+            }
+        } label: {
+            BrowserIcon(
+                slot: nil,
+                systemName: model.isAdBlockerEnabled ? "shield.checkered" : "shield.slash",
+                size: 15,
+                weight: .bold
+            )
+            .frame(width: 38, height: 38)
+            .foregroundStyle(model.isAdBlockerEnabled ? theme.color(.createTab) : theme.color(.mutedText))
+            .background(ControlGlassBackground(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke((model.isAdBlockerEnabled ? theme.color(.createTab) : theme.color(.border)).opacity(0.7), lineWidth: 1)
+            }
+        }
+        .accessibilityLabel(model.isAdBlockerEnabled ? "Glide Shields active" : "Glide Shields off")
     }
 }
 
@@ -3351,6 +3399,7 @@ private struct MoreTabButton: View {
 
     private var movedActions: [BrowserToolbarAction] {
         BrowserToolbarAction.allCases
+            .filter { $0.isLeanBuildUtility == false }
             .filter { model.isInMoreMenu($0) }
             .filter { $0 != .closeAllTabs }
             .filter { action in
@@ -5815,7 +5864,6 @@ private struct BrowserSettingsView: View {
     let currentExperience: GlideDeviceExperience
     @State private var isBackgroundImporterPresented = false
     @State private var isThemeImporterPresented = false
-    @State private var isBrowserMusicImporterPresented = false
     @State private var isDeveloperModeWarningPresented = false
     @State private var themeExportItem: ThemeExportItem?
     @State private var themeImportMessage = ""
@@ -5845,6 +5893,14 @@ private struct BrowserSettingsView: View {
                         Label("Never experience an ad again", systemImage: "shield.checkered")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(theme.color(.accent))
+
+                        Button {
+                            model.enableGlideMaxProtection()
+                        } label: {
+                            Label("Enable Glide Shields Max", systemImage: "shield.lefthalf.filled")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 42))
 
                         Button {
                             presentAfterDismiss {
@@ -6064,14 +6120,51 @@ private struct BrowserSettingsView: View {
                             model.isTabFoldersPresented = true
                         }
                     }
-
-                    Button("Custom VPN") {
-                        presentAfterDismiss {
-                            model.isVPNPresented = true
-                        }
-                    }
                     } label: {
                         Label("Browsing", systemImage: "safari")
+                    }
+                }
+
+                Section {
+                    DisclosureGroup {
+                    Toggle("Show sidebar tabs", isOn: sidebarTabsVisibleBinding)
+
+                    Picker("Sidebar side", selection: sidebarChromePlacementBinding) {
+                        Label("Left", systemImage: "sidebar.left")
+                            .tag(BrowserChromePlacement.left)
+                        Label("Right", systemImage: "sidebar.right")
+                            .tag(BrowserChromePlacement.right)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Sidebar width")
+                            Spacer()
+                            Text("\(Int(model.sideChromeWidthFraction * 100))%")
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+                        Slider(value: sidebarWidthBinding, in: 0.22...0.46, step: 0.01)
+                    }
+
+                    Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
+
+                    Button {
+                        presentAfterDismiss {
+                            model.beginChromeWidthResize()
+                        }
+                    } label: {
+                        Label("Drag Sidebar Width", systemImage: "arrow.left.and.right")
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            model.isCustomIconsPresented = true
+                        }
+                    } label: {
+                        Label("Customize Icons", systemImage: "app.badge")
+                    }
+                    } label: {
+                        Label("Sidebar Tabs", systemImage: "sidebar.left")
                     }
                 }
 
@@ -6109,73 +6202,9 @@ private struct BrowserSettingsView: View {
 
                 Section {
                     DisclosureGroup {
-                    Toggle("Play browser music", isOn: $model.isBrowserMusicEnabled)
-
-                    Picker("Track", selection: $model.browserMusicTrack) {
-                        ForEach(BrowserMusicTrack.allCases) { track in
-                            Label(track.title, systemImage: track.symbolName)
-                                .tag(track)
-                                .disabled(track == .imported && model.hasImportedBrowserMusic == false)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Volume")
-                            Spacer()
-                            Text("\(Int(model.browserMusicVolume * 100))%")
-                                .foregroundStyle(theme.color(.mutedText))
-                        }
-                        Slider(value: $model.browserMusicVolume, in: 0...1)
-                    }
-
-                    LabeledContent("Now selected") {
-                        Label(model.selectedBrowserMusicTitle, systemImage: model.browserMusicTrack.symbolName)
-                            .foregroundStyle(theme.color(.accent))
-                    }
-
-                    Button {
-                        isBrowserMusicImporterPresented = true
-                    } label: {
-                        Label("Import Audio File", systemImage: "square.and.arrow.down")
-                    }
-
-                    if model.hasImportedBrowserMusic {
-                        LabeledContent("Imported audio") {
-                            Text(model.importedBrowserMusicDisplayName)
-                                .foregroundStyle(theme.color(.mutedText))
-                        }
-
-                        Button {
-                            model.browserMusicTrack = .imported
-                            model.isBrowserMusicEnabled = true
-                        } label: {
-                            Label("Use Imported Audio", systemImage: "music.note.list")
-                        }
-
-                        Button(role: .destructive) {
-                            model.clearImportedBrowserMusic()
-                        } label: {
-                            Label("Clear Imported Audio", systemImage: "trash")
-                        }
-                    }
-
-                    if model.browserMusicImportMessage.isEmpty == false {
-                        Label(model.browserMusicImportMessage, systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundStyle(theme.color(.mutedText))
-                    }
-                    } label: {
-                        Label("Browser Music", systemImage: "music.note")
-                    }
-                }
-
-                Section {
-                    DisclosureGroup {
                     Toggle("Dark Reader", isOn: darkReaderBinding)
                     Toggle("Stylus Catppuccin", isOn: stylusCatppuccinBinding)
                     Toggle("FPS forcer", isOn: fpsForcerBinding)
-                    Toggle("Browser Music", isOn: $model.isBrowserMusicEnabled)
                     Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
 
                     Button {
@@ -6303,7 +6332,7 @@ private struct BrowserSettingsView: View {
 
                 Section("Three-Dot Menu") {
                     DisclosureGroup {
-                    ForEach(BrowserToolbarAction.allCases) { action in
+                    ForEach(BrowserToolbarAction.customizationCases) { action in
                         Toggle(isOn: moreMenuBinding(for: action)) {
                             Label(action.title, systemImage: action.symbolName)
                         }
@@ -6418,22 +6447,6 @@ private struct BrowserSettingsView: View {
                     .disabled(theme.hasUserBackground == false)
                     } label: {
                         Label("Customizing", systemImage: "paintpalette")
-                    }
-                }
-
-                Section {
-                    DisclosureGroup {
-                    TextField("Name", text: $model.localAIName)
-                    TextField("URL or host", text: $model.localAIURLText)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-
-                    Button("Import Local AI") {
-                        model.isLocalAIImporterPresented = true
-                    }
-                    } label: {
-                        Label("Local AI", systemImage: "cpu")
                     }
                 }
 
@@ -6620,13 +6633,6 @@ private struct BrowserSettingsView: View {
             ) { result in
                 importTheme(result)
             }
-            .fileImporter(
-                isPresented: $isBrowserMusicImporterPresented,
-                allowedContentTypes: [.audio],
-                allowsMultipleSelection: false
-            ) { result in
-                model.importBrowserMusic(from: result)
-            }
             .sheet(item: $themeExportItem) { item in
                 ThemeFileExportController(url: item.url) {
                     themeExportItem = nil
@@ -6732,6 +6738,30 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.topSearchBarPlacement },
             set: { model.setTopSearchBarPlacement($0) }
+        )
+    }
+
+    private var sidebarTabsVisibleBinding: Binding<Bool> {
+        Binding(
+            get: { model.areSideTabsCollapsed == false },
+            set: { model.setTabBarCollapsed($0 == false) }
+        )
+    }
+
+    private var sidebarChromePlacementBinding: Binding<BrowserChromePlacement> {
+        Binding(
+            get: { model.chromePlacement == .right ? .right : .left },
+            set: { placement in
+                model.chromePlacement = placement
+                model.setTabBarCollapsed(false)
+            }
+        )
+    }
+
+    private var sidebarWidthBinding: Binding<Double> {
+        Binding(
+            get: { model.sideChromeWidthFraction },
+            set: { model.sideChromeWidthFraction = $0 }
         )
     }
 
