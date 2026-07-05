@@ -11,6 +11,7 @@ SOURCE_APP_PATH="${PRODUCTS_DIR}/${CONFIGURATION}-maccatalyst/ZenFireBrowser.app
 DMG_STAGING="${BUILD_ROOT}/dmg-staging"
 DMG_PATH="${BUILD_ROOT}/${APP_NAME}-macOS.dmg"
 BUILD_LOG="${BUILD_ROOT}/xcodebuild.log"
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 rm -rf "${BUILD_ROOT}"
 mkdir -p "${BUILD_ROOT}"

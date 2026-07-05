@@ -2004,7 +2004,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func requestWKEscapeMode() {
-        devModeStatusMessage = "Dev WebKit is active inside the IPA as a separate WKWebView profile. Full non-WK engine escape still requires BrowserEngineKit, Apple's browser-engine entitlement, and a bundled alternative engine process."
+        devModeStatusMessage = "\(BrowserEngineBuild.engineSummary) \(BrowserEngineBuild.geckoReadinessMessage)"
     }
 
     private var importedBrowserMusicURL: URL? {

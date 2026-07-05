@@ -23,6 +23,7 @@
 		4A1C0E5D2EED000100A17B01 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4A1C0E5C2EED000100A17B01 /* Security.framework */; };
 		4A1C0E5F2EED000100A17B01 /* LocalAuthentication.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4A1C0E5E2EED000100A17B01 /* LocalAuthentication.framework */; };
 		4A1C0E622EED000100A17B01 /* AppCrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E612EED000100A17B01 /* AppCrashReporter.swift */; };
+		4A1C0E642EED000100A17B01 /* BrowserEngineEdition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1C0E632EED000100A17B01 /* BrowserEngineEdition.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +45,7 @@
 		4A1C0E5C2EED000100A17B01 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		4A1C0E5E2EED000100A17B01 /* LocalAuthentication.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = LocalAuthentication.framework; path = System/Library/Frameworks/LocalAuthentication.framework; sourceTree = SDKROOT; };
 		4A1C0E612EED000100A17B01 /* AppCrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCrashReporter.swift; sourceTree = "<group>"; };
+		4A1C0E632EED000100A17B01 /* BrowserEngineEdition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEngineEdition.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -83,6 +85,7 @@
 			children = (
 				4A1C0E382EED000100A17B01 /* ZenFireBrowserApp.swift */,
 				4A1C0E502EED000100A17B01 /* BrowserModels.swift */,
+				4A1C0E632EED000100A17B01 /* BrowserEngineEdition.swift */,
 				4A1C0E522EED000100A17B01 /* BrowserContentBlocker.swift */,
 				4A1C0E3A2EED000100A17B01 /* BrowserTab.swift */,
 				4A1C0E4D2EED000100A17B01 /* BrowserTheme.swift */,
@@ -182,6 +185,7 @@
 				4A1C0E3B2EED000100A17B01 /* BrowserTab.swift in Sources */,
 				4A1C0E3D2EED000100A17B01 /* BrowserViewModel.swift in Sources */,
 				4A1C0E512EED000100A17B01 /* BrowserModels.swift in Sources */,
+				4A1C0E642EED000100A17B01 /* BrowserEngineEdition.swift in Sources */,
 				4A1C0E532EED000100A17B01 /* BrowserContentBlocker.swift in Sources */,
 				4A1C0E4E2EED000100A17B01 /* BrowserTheme.swift in Sources */,
 				4A1C0E622EED000100A17B01 /* AppCrashReporter.swift in Sources */,
