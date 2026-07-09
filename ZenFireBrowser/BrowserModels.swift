@@ -107,6 +107,7 @@ enum BrowserWebExtensionInstallError: LocalizedError {
     case packageTooLarge
     case invalidPackage
     case missingManifest
+    case manifestNeedsPackage
     case invalidManifest
     case noSupportedContentScripts
     case unsupportedCompression(String)
@@ -116,13 +117,15 @@ enum BrowserWebExtensionInstallError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedFile:
-            return "Choose a Firefox .xpi, Chrome or Brave .crx, .zip, or manifest.json file."
+            return "Choose a Firefox .xpi, Chrome or Brave .crx, .zip, manifest.json, .user.js, .js, or .css file."
         case .packageTooLarge:
             return "That add-on package is too large for Glide's WebExtension importer."
         case .invalidPackage:
             return "That add-on package could not be read."
         case .missingManifest:
             return "The add-on package does not include manifest.json."
+        case .manifestNeedsPackage:
+            return "Choose the full .zip, .xpi, or .crx package so Glide can import the files referenced by manifest.json."
         case .invalidManifest:
             return "The add-on manifest could not be parsed."
         case .noSupportedContentScripts:
@@ -145,6 +148,12 @@ enum BrowserWebExtensionPackageReader {
         guard data.count <= maxPackageBytes else { throw BrowserWebExtensionInstallError.packageTooLarge }
 
         let lowercasedName = sourceFilename.lowercased()
+        if lowercasedName.hasSuffix(".js") || lowercasedName.hasSuffix(".user.js") {
+            return installableUserScript(data, sourceFilename: sourceFilename)
+        }
+        if lowercasedName.hasSuffix(".css") {
+            return installableUserStyle(data, sourceFilename: sourceFilename)
+        }
         if lowercasedName.hasSuffix(".json") {
             return try installableExtensionFromManifest(data, sourceFilename: sourceFilename)
         }
@@ -160,7 +169,7 @@ enum BrowserWebExtensionPackageReader {
         }
 
         let manifest = try decodedManifest(from: manifestData)
-        let contentScripts = normalizedContentScripts(from: manifest)
+        let contentScripts = compatibilityContentScripts(from: manifest)
         guard contentScripts.contains(where: \.hasRunnableContent) else {
             throw BrowserWebExtensionInstallError.noSupportedContentScripts
         }
@@ -204,9 +213,13 @@ enum BrowserWebExtensionPackageReader {
 
     private static func installableExtensionFromManifest(_ data: Data, sourceFilename: String) throws -> BrowserWebExtension {
         let manifest = try decodedManifest(from: data)
-        let contentScripts = normalizedContentScripts(from: manifest)
+        let contentScripts = compatibilityContentScripts(from: manifest)
         guard contentScripts.contains(where: \.hasRunnableContent) else {
             throw BrowserWebExtensionInstallError.noSupportedContentScripts
+        }
+
+        guard contentScripts.flatMap({ $0.js + $0.css }).isEmpty else {
+            throw BrowserWebExtensionInstallError.manifestNeedsPackage
         }
 
         return BrowserWebExtension(
@@ -223,12 +236,84 @@ enum BrowserWebExtensionPackageReader {
         )
     }
 
+    private static func installableUserScript(_ data: Data, sourceFilename: String) -> BrowserWebExtension {
+        let source = String(data: data, encoding: .utf8) ?? ""
+        let path = normalizedPath(sourceFilename.isEmpty ? "glide-userscript.js" : sourceFilename)
+        return BrowserWebExtension(
+            extensionIdentifier: "glide-userscript-\(path.lowercased())",
+            name: sourceFilename.replacingOccurrences(of: ".user.js", with: "").replacingOccurrences(of: ".js", with: ""),
+            version: "1.0",
+            description: "Glide user script",
+            homepageURLString: "",
+            manifestVersion: 3,
+            contentScripts: [
+                BrowserWebExtensionContentScript(
+                    matches: ["<all_urls>"],
+                    excludeMatches: [],
+                    js: [path],
+                    css: [],
+                    runAt: .documentEnd,
+                    allFrames: false
+                )
+            ],
+            resources: [path: source],
+            permissions: ["activeTab"],
+            sourceFilename: sourceFilename
+        )
+    }
+
+    private static func installableUserStyle(_ data: Data, sourceFilename: String) -> BrowserWebExtension {
+        let source = String(data: data, encoding: .utf8) ?? ""
+        let path = normalizedPath(sourceFilename.isEmpty ? "glide-userstyle.css" : sourceFilename)
+        return BrowserWebExtension(
+            extensionIdentifier: "glide-userstyle-\(path.lowercased())",
+            name: sourceFilename.replacingOccurrences(of: ".css", with: ""),
+            version: "1.0",
+            description: "Glide user style",
+            homepageURLString: "",
+            manifestVersion: 3,
+            contentScripts: [
+                BrowserWebExtensionContentScript(
+                    matches: ["<all_urls>"],
+                    excludeMatches: [],
+                    js: [],
+                    css: [path],
+                    runAt: .documentStart,
+                    allFrames: false
+                )
+            ],
+            resources: [path: source],
+            permissions: ["activeTab"],
+            sourceFilename: sourceFilename
+        )
+    }
+
     private static func decodedManifest(from data: Data) throws -> BrowserWebExtensionManifest {
         do {
             return try JSONDecoder().decode(BrowserWebExtensionManifest.self, from: data)
         } catch {
             throw BrowserWebExtensionInstallError.invalidManifest
         }
+    }
+
+    private static func compatibilityContentScripts(from manifest: BrowserWebExtensionManifest) -> [BrowserWebExtensionContentScript] {
+        let contentScripts = normalizedContentScripts(from: manifest)
+        if contentScripts.contains(where: \.hasRunnableContent) {
+            return contentScripts
+        }
+
+        let backgroundScripts = manifest.background?.compatibilityScripts ?? []
+        guard backgroundScripts.isEmpty == false else { return contentScripts }
+        return [
+            BrowserWebExtensionContentScript(
+                matches: ["<all_urls>"],
+                excludeMatches: [],
+                js: backgroundScripts.map(normalizedPath),
+                css: [],
+                runAt: .documentEnd,
+                allFrames: false
+            )
+        ]
     }
 
     private static func normalizedContentScripts(from manifest: BrowserWebExtensionManifest) -> [BrowserWebExtensionContentScript] {
@@ -286,6 +371,7 @@ private struct BrowserWebExtensionManifest: Decodable {
     let homepageURL: String?
     let permissions: [String]?
     let contentScripts: [BrowserWebExtensionManifestContentScript]?
+    let background: BrowserWebExtensionManifestBackground?
     let browserSpecificSettings: BrowserWebExtensionGeckoSettings?
     let applications: BrowserWebExtensionApplications?
 
@@ -297,6 +383,7 @@ private struct BrowserWebExtensionManifest: Decodable {
         case homepageURL = "homepage_url"
         case permissions
         case contentScripts = "content_scripts"
+        case background
         case browserSpecificSettings = "browser_specific_settings"
         case applications
     }
@@ -312,6 +399,26 @@ private struct BrowserWebExtensionManifest: Decodable {
         return fallback
             .lowercased()
             .filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
+    }
+}
+
+private struct BrowserWebExtensionManifestBackground: Decodable {
+    let scripts: [String]?
+    let serviceWorker: String?
+
+    enum CodingKeys: String, CodingKey {
+        case scripts
+        case serviceWorker = "service_worker"
+    }
+
+    var compatibilityScripts: [String] {
+        if let scripts, scripts.isEmpty == false {
+            return scripts
+        }
+        if let serviceWorker, serviceWorker.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return [serviceWorker]
+        }
+        return []
     }
 }
 

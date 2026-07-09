@@ -3080,6 +3080,7 @@ private struct BrowserPageControls: View {
             PageControlsCollapseButton()
             if model.arePageControlsCollapsed == false {
                 ShieldQuickButton()
+                FavoriteSettingsButton()
                 if model.isInMoreMenu(.compact) == false {
                     CompactChromeButton()
                 }
@@ -3127,11 +3128,11 @@ private struct MovableBrowserPageControls: View {
     }
 
     private var horizontalRange: CGFloat {
-        max(containerSize.width - 88, 1)
+        max(containerSize.width - 230, 1)
     }
 
     private var verticalRange: CGFloat {
-        max(containerSize.height - 88, 1)
+        max(containerSize.height - 96, 1)
     }
 
     private var moveGesture: some Gesture {
@@ -3147,6 +3148,29 @@ private struct MovableBrowserPageControls: View {
             .onEnded { _ in
                 dragStartOffset = nil
             }
+    }
+}
+
+private struct FavoriteSettingsButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        Button {
+            model.isSettingsPresented = true
+        } label: {
+            Image(systemName: "star.circle.fill")
+                .font(.system(size: 17, weight: .black))
+                .frame(width: 38, height: 38)
+                .foregroundStyle(theme.color(.accent))
+                .background(ControlGlassBackground(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.accent).opacity(0.62), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Favorite settings")
     }
 }
 
@@ -3465,128 +3489,11 @@ private struct PrivateModeAuthView: View {
 private struct MoreTabButton: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @State private var isCommandCenterPresented = false
 
     var body: some View {
-        Menu {
-            Button {
-                model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
-            } label: {
-                Label(model.isPrivateModeEnabled ? "New Private Tab" : "New Tab", systemImage: model.isPrivateModeEnabled ? "theatermasks" : "plus")
-            }
-
-            Button {
-                model.openFloatingSearch()
-            } label: {
-                Label("Search or Address", systemImage: "magnifyingglass")
-            }
-
-            Button {
-                model.isTabFinderPresented = true
-            } label: {
-                Label("Find Tabs", systemImage: "magnifyingglass")
-            }
-
-            Button {
-                model.openAIPanel()
-            } label: {
-                Label("Glide AI", systemImage: "sparkles")
-            }
-
-            Divider()
-
-            Button {
-                model.enterFullscreenBrowsing()
-            } label: {
-                Label("Fullscreen Websites", systemImage: "arrow.down.right.and.arrow.up.left")
-            }
-
-            Button {
-                model.setTabBarCollapsed(!model.areSideTabsCollapsed)
-            } label: {
-                Label(model.areSideTabsCollapsed ? "Reveal Tabs" : "Hide Tabs", systemImage: model.areSideTabsCollapsed ? "sidebar.left" : "sidebar.leading")
-            }
-
-            Button {
-                model.isTopSearchBarEnabled.toggle()
-            } label: {
-                Label(model.isTopSearchBarEnabled ? "Hide Top Search Bar" : "Show Top Search Bar", systemImage: "text.magnifyingglass")
-            }
-
-            Divider()
-
-            Button {
-                model.requestPrivateModeToggle()
-            } label: {
-                Label(model.isPrivateModeEnabled ? "Close Private Mode" : "Private Mode", systemImage: "lock.shield")
-            }
-
-            Menu {
-                Button {
-                    model.enableGlideMaxProtection()
-                } label: {
-                    Label("Shields Max", systemImage: "shield.lefthalf.filled")
-                }
-
-                Button {
-                    model.enableGlideGhostMode()
-                } label: {
-                    Label("Ghost Mode", systemImage: "eye.slash")
-                }
-
-                Toggle("Block Scripts", isOn: $model.isScriptBlockingEnabled)
-                Toggle("Fingerprint Protection", isOn: $model.isFingerprintProtectionEnabled)
-                Toggle("Protect WebRTC IP", isOn: $model.isWebRTCProtectionEnabled)
-
-                Button(role: .destructive) {
-                    model.clearPrivateBrowsingData()
-                } label: {
-                    Label("Clear Private Data", systemImage: "trash")
-                }
-            } label: {
-                Label("Privacy", systemImage: "hand.raised.fill")
-            }
-
-            Button {
-                model.isAddOnsPresented = true
-            } label: {
-                Label("Extensions & Add-ons", systemImage: "puzzlepiece")
-            }
-            .disabled(model.isPrivateModeEnabled)
-
-            Button {
-                model.isPasswordManagerPresented = true
-            } label: {
-                Label("Passwords", systemImage: "key.fill")
-            }
-            .disabled(model.isPrivateModeEnabled)
-
-            Divider()
-
-            let actions = movedActions
-            if actions.isEmpty {
-                Button {} label: {
-                    Label("Move actions here in Settings", systemImage: "slider.horizontal.3")
-                }
-                .disabled(true)
-            } else {
-                ForEach(actions) { action in
-                    menuContent(for: action)
-                }
-
-                Divider()
-            }
-
-            Button {
-                model.isSettingsPresented = true
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-
-            Button(role: .destructive) {
-                model.requestCloseAllTabs()
-            } label: {
-                Label("Close All Tabs", systemImage: "xmark.square")
-            }
+        Button {
+            isCommandCenterPresented = true
         } label: {
             BrowserIcon(slot: .more, systemName: "ellipsis", size: 18, weight: .black)
                 .frame(width: 38, height: 38)
@@ -3596,6 +3503,15 @@ private struct MoreTabButton: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.border).opacity(0.62), lineWidth: 1)
                 }
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isCommandCenterPresented, arrowEdge: .top) {
+            BrowserCommandCenterView(isPresented: $isCommandCenterPresented)
+                .environmentObject(model)
+                .environmentObject(theme)
+                .frame(minWidth: 340, idealWidth: 380, maxWidth: 420)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .accessibilityLabel("More actions")
     }
@@ -3660,6 +3576,367 @@ private struct MoreTabButton: View {
             return model.customIconName(for: .websiteMode, fallback: model.websiteDisplayMode.symbolName)
         }
         return model.customIconName(for: action.customIconSlot, fallback: action.symbolName)
+    }
+}
+
+private struct BrowserCommandCenterView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                header
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 94), spacing: 8)], spacing: 8) {
+                    CommandQuickTile(symbol: "plus", title: model.isPrivateModeEnabled ? "Private Tab" : "New Tab") {
+                        close { model.openNewTabAndSearch(private: model.isPrivateModeEnabled) }
+                    }
+                    CommandQuickTile(symbol: "magnifyingglass", title: "Search") {
+                        close { model.openFloatingSearch() }
+                    }
+                    CommandQuickTile(symbol: "sparkles", title: "AI") {
+                        close { model.openAIPanel() }
+                    }
+                    CommandQuickTile(symbol: "rectangle.expand.vertical", title: "Fullscreen") {
+                        close { model.enterFullscreenBrowsing() }
+                    }
+                    CommandQuickTile(symbol: "puzzlepiece", title: "Extensions", isDisabled: model.isPrivateModeEnabled) {
+                        close { model.isAddOnsPresented = true }
+                    }
+                    CommandQuickTile(symbol: "star.circle.fill", title: "Settings") {
+                        close { model.isSettingsPresented = true }
+                    }
+                }
+
+                CommandCenterSection(title: "Browser", symbol: "safari") {
+                    CommandActionRow(symbol: "square.grid.2x2", title: "Find Tabs", subtitle: "\(model.chromeTabs.count) open") {
+                        close { model.isTabFinderPresented = true }
+                    }
+                    CommandActionRow(symbol: model.areSideTabsCollapsed ? "sidebar.left" : "sidebar.leading", title: model.areSideTabsCollapsed ? "Reveal Tabs" : "Hide Tabs", subtitle: "Zen-style tab rail") {
+                        close { model.setTabBarCollapsed(!model.areSideTabsCollapsed) }
+                    }
+                    CommandActionRow(symbol: "text.magnifyingglass", title: model.isTopSearchBarEnabled ? "Hide Top Search Bar" : "Show Top Search Bar", subtitle: "Keep websites fullscreen when hidden") {
+                        close { model.isTopSearchBarEnabled.toggle() }
+                    }
+                    CommandActionRow(symbol: "hand.draw", title: "Move Menu Button", subtitle: "Drag the floating controls anywhere") {
+                        close { model.beginPageControlsMove() }
+                    }
+                    CommandActionRow(symbol: model.isPrivateModeEnabled ? "lock.open" : "lock.shield", title: model.isPrivateModeEnabled ? "Close Private Mode" : "Private Mode", subtitle: "PIN-gated private tabs") {
+                        close { model.requestPrivateModeToggle() }
+                    }
+                }
+
+                CommandCenterSection(title: "Privacy", symbol: "hand.raised.fill") {
+                    CommandActionRow(symbol: "shield.lefthalf.filled", title: "Shields Max", subtitle: model.isAdBlockerEnabled ? "Ads and trackers blocked" : "Turn protection back on") {
+                        close { model.enableGlideMaxProtection() }
+                    }
+                    CommandActionRow(symbol: "eye.slash", title: "Ghost Mode", subtitle: "Stricter script and fingerprint protection") {
+                        close { model.enableGlideGhostMode() }
+                    }
+                    Toggle("Block Scripts", isOn: $model.isScriptBlockingEnabled)
+                    Toggle("Fingerprint Protection", isOn: $model.isFingerprintProtectionEnabled)
+                    Toggle("Protect WebRTC IP", isOn: $model.isWebRTCProtectionEnabled)
+                    CommandActionRow(symbol: "trash", title: "Clear Private Data", subtitle: "History, downloads, cookies, and cache", role: .destructive) {
+                        close { model.clearPrivateBrowsingData() }
+                    }
+                }
+
+                CommandCenterSection(title: "Extensions", symbol: "puzzlepiece") {
+                    CommandActionRow(symbol: "square.and.arrow.down", title: "Install Extension File", subtitle: ".xpi, .crx, .zip, .js, .css", isDisabled: model.isPrivateModeEnabled) {
+                        close { model.isAddOnsPresented = true }
+                    }
+                    CommandActionRow(symbol: "arrow.clockwise", title: "Reload Extensions", subtitle: "\(enabledExtensionCount) enabled") {
+                        close { model.reloadWebExtensions() }
+                    }
+                    if model.webExtensionImportMessage.isEmpty == false {
+                        Label(model.webExtensionImportMessage, systemImage: "info.circle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(2)
+                    }
+                }
+
+                CommandCenterSection(title: "Tools", symbol: "wrench.and.screwdriver") {
+                    CommandActionRow(symbol: "key.fill", title: "Passwords", subtitle: "Vault autofill", isDisabled: model.isPrivateModeEnabled) {
+                        close { model.isPasswordManagerPresented = true }
+                    }
+                    CommandActionRow(symbol: "clock.arrow.circlepath", title: "History", subtitle: "Recently visited") {
+                        close { model.isHistoryPresented = true }
+                    }
+                    CommandActionRow(symbol: "arrow.down.circle", title: "Downloads", subtitle: "\(model.downloads.count) saved") {
+                        close { model.isDownloadsPresented = true }
+                    }
+                    CommandActionRow(symbol: "gearshape", title: "Favorite Settings", subtitle: "Pinned settings shortcut") {
+                        close { model.isSettingsPresented = true }
+                    }
+                }
+
+                if movedActions.isEmpty == false {
+                    CommandCenterSection(title: "Custom", symbol: "slider.horizontal.3") {
+                        ForEach(movedActions) { action in
+                            commandRow(for: action)
+                        }
+                    }
+                }
+
+                CommandCenterSection(title: "Danger", symbol: "exclamationmark.triangle") {
+                    CommandActionRow(symbol: "xmark.square", title: "Close All Tabs", subtitle: model.closeAllTabsWarningMessage, role: .destructive) {
+                        close { model.requestCloseAllTabs() }
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .background(theme.color(.canvas))
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            BrowserIcon(slot: .more, systemName: "ellipsis", size: 18, weight: .black)
+                .frame(width: 44, height: 44)
+                .foregroundStyle(theme.color(.canvas))
+                .background(ButtonGradientBackground(cornerRadius: 10, prominence: .primary))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Glide Menu")
+                    .font(.system(size: 21, weight: .black))
+                    .foregroundStyle(theme.color(.text))
+                Text(currentSiteLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                close { model.isSettingsPresented = true }
+            } label: {
+                Image(systemName: "star.circle.fill")
+                    .font(.system(size: 22, weight: .black))
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.color(.accent))
+            .accessibilityLabel("Favorite settings")
+        }
+    }
+
+    private var currentSiteLabel: String {
+        if BrowserTab.isStartPageURL(model.selectedTab?.url) {
+            return "Start Page"
+        }
+        return model.selectedTab?.url?.host ?? model.selectedTab?.title ?? "Current page"
+    }
+
+    private var enabledExtensionCount: Int {
+        model.installedWebExtensions.filter(\.isEnabled).count
+    }
+
+    private var movedActions: [BrowserToolbarAction] {
+        BrowserToolbarAction.allCases
+            .filter { $0.isLeanBuildUtility == false }
+            .filter { model.isInMoreMenu($0) }
+            .filter { [.closeAllTabs, .settings, .tabFinder].contains($0) == false }
+            .filter { action in
+                guard model.isPrivateModeEnabled else { return true }
+                return [.tabFolders, .containedTabs, .downloadCurrent, .history, .downloads].contains(action) == false
+            }
+    }
+
+    @ViewBuilder
+    private func commandRow(for action: BrowserToolbarAction) -> some View {
+        if action == .placement {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Chrome Placement", systemImage: model.chromePlacement.symbolName)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(theme.color(.mutedText))
+                Picker("Chrome Placement", selection: $model.chromePlacement) {
+                    ForEach(BrowserChromePlacement.allCases) { placement in
+                        Label(placement.title, systemImage: placement.symbolName)
+                            .tag(placement)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            .padding(.vertical, 4)
+        } else {
+            CommandActionRow(
+                symbol: menuSymbol(for: action),
+                title: menuTitle(for: action),
+                subtitle: action.title,
+                isDisabled: (action == .back && model.selectedTab?.canGoBack != true) ||
+                    (action == .forward && model.selectedTab?.canGoForward != true)
+            ) {
+                close { model.performToolbarAction(action) }
+            }
+        }
+    }
+
+    private func close(_ action: () -> Void) {
+        isPresented = false
+        action()
+    }
+
+    private func menuTitle(for action: BrowserToolbarAction) -> String {
+        if action == .reload {
+            return model.selectedTab?.isLoading == true ? "Stop Loading" : "Reload"
+        }
+        if action == .browserMusic {
+            return model.isBrowserMusicEnabled ? "Pause Browser Music" : "Play Browser Music"
+        }
+        if action == .compact {
+            return model.isCompactModeActive ? "Reveal Chrome" : "Compact Mode"
+        }
+        if action == .websiteMode {
+            return "Website Mode: \(model.websiteDisplayMode.title)"
+        }
+        return action.menuTitle
+    }
+
+    private func menuSymbol(for action: BrowserToolbarAction) -> String {
+        if action == .reload {
+            return model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise"
+        }
+        if action == .browserMusic {
+            return model.isBrowserMusicEnabled ? "pause.fill" : model.customIconName(for: .browserMusic, fallback: action.symbolName)
+        }
+        if action == .compact {
+            return model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : model.customIconName(for: .compact, fallback: action.symbolName)
+        }
+        if action == .websiteMode {
+            return model.customIconName(for: .websiteMode, fallback: model.websiteDisplayMode.symbolName)
+        }
+        return model.customIconName(for: action.customIconSlot, fallback: action.symbolName)
+    }
+}
+
+private struct CommandCenterSection<Content: View>: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let title: String
+    let symbol: String
+    let content: () -> Content
+
+    init(title: String, symbol: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.symbol = symbol
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(theme.color(.mutedText))
+
+            VStack(alignment: .leading, spacing: 8) {
+                content()
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.52), lineWidth: 1)
+            }
+        }
+    }
+}
+
+private struct CommandQuickTile: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let symbol: String
+    let title: String
+    var isDisabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 7) {
+                Image(systemName: symbol)
+                    .font(.system(size: 17, weight: .black))
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(theme.color(.canvas))
+                    .background(ButtonGradientBackground(cornerRadius: 8, prominence: .primary))
+                Text(title)
+                    .font(.system(size: 11, weight: .black))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .foregroundStyle(theme.color(.text))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 74)
+            .background(ControlGlassBackground(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.48), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.42 : 1)
+    }
+}
+
+private struct CommandActionRow: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let symbol: String
+    let title: String
+    let subtitle: String
+    var role: ButtonRole?
+    var isDisabled = false
+    let action: () -> Void
+
+    init(
+        symbol: String,
+        title: String,
+        subtitle: String,
+        role: ButtonRole? = nil,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.symbol = symbol
+        self.title = title
+        self.subtitle = subtitle
+        self.role = role
+        self.isDisabled = isDisabled
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role, action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .bold))
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(role == .destructive ? .red : theme.color(.accent))
+                    .background(ButtonGradientBackground(cornerRadius: 7, prominence: .quiet))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(role == .destructive ? .red : theme.color(.text))
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.42 : 1)
     }
 }
 
@@ -7503,7 +7780,7 @@ private struct AddOnsLibraryView: View {
                     Button {
                         isWebExtensionImporterPresented = true
                     } label: {
-                        Label("Install Add-on File", systemImage: "square.and.arrow.down")
+                        Label("Install Add-on / User Script", systemImage: "square.and.arrow.down")
                     }
 
                     ForEach(BrowserAddOnLibrary.allCases) { library in
@@ -7545,7 +7822,7 @@ private struct AddOnsLibraryView: View {
                 }
 
                 Section("Compatibility") {
-                    Text("Glide imports Firefox .xpi, Chrome/Brave .crx, .zip, and manifest.json packages when they include WebExtension content scripts. Background pages, native messaging, and full desktop-only APIs are not available in the WKWebView build.")
+                    Text("Glide imports Firefox .xpi, Chrome/Brave .crx, .zip, manifest.json, .user.js, .js, and .css files. Content scripts run best; background scripts use Glide compatibility mode. Native messaging and full desktop-only APIs are not available in the WKWebView build.")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.color(.mutedText))
                 }

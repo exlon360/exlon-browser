@@ -891,12 +891,26 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           version: '',
           browser_specific_settings: { gecko: { id: glideExtensionID } }
         }));
-        browserRoot.runtime.sendMessage = browserRoot.runtime.sendMessage || ((...args) => {
-          const callback = args.find((value) => typeof value === 'function');
-          return glideResolveWithCallback(Promise.resolve(undefined), callback);
-        });
         browserRoot.runtime.onMessage = browserRoot.runtime.onMessage || glideMakeEvent();
         browserRoot.runtime.onConnect = browserRoot.runtime.onConnect || glideMakeEvent();
+        browserRoot.runtime.onInstalled = browserRoot.runtime.onInstalled || glideMakeEvent();
+        browserRoot.runtime.onStartup = browserRoot.runtime.onStartup || glideMakeEvent();
+        browserRoot.runtime.sendMessage = browserRoot.runtime.sendMessage || ((...args) => {
+          const callback = args.find((value) => typeof value === 'function');
+          const message = args.find((value) => value && typeof value !== 'function' && typeof value !== 'string') ?? args[0];
+          let response;
+          if (browserRoot.runtime.onMessage.__dispatch) {
+            try { response = browserRoot.runtime.onMessage.__dispatch(message, { id: glideExtensionID, url: location.href }, () => {}); } catch (_) {}
+          }
+          return glideResolveWithCallback(Promise.resolve(response), callback);
+        });
+        browserRoot.runtime.connect = browserRoot.runtime.connect || (() => ({
+          name: 'glide',
+          onMessage: glideMakeEvent(),
+          onDisconnect: glideMakeEvent(),
+          postMessage() {},
+          disconnect() {}
+        }));
         browserRoot.i18n = browserRoot.i18n || {
           getMessage(messageName, substitutions) {
             if (Array.isArray(substitutions)) {
@@ -911,6 +925,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         browserRoot.storage = browserRoot.storage || {};
         browserRoot.storage.onChanged = browserRoot.storage.onChanged || glideMakeEvent();
         browserRoot.storage.local = browserRoot.storage.local || {};
+        browserRoot.storage.sync = browserRoot.storage.sync || browserRoot.storage.local;
         browserRoot.storage.local.get = browserRoot.storage.local.get || ((keys, callback) => {
           return glideResolveWithCallback(Promise.resolve(glideStorageGet(keys)), callback);
         });
@@ -939,16 +954,60 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           return glideResolveWithCallback(Promise.resolve(), callback);
         });
         browserRoot.tabs = browserRoot.tabs || {};
-        browserRoot.tabs.query = browserRoot.tabs.query || ((queryInfo, callback) => glideResolveWithCallback(Promise.resolve([]), callback));
+        const glideCurrentTab = () => ({ id: 1, active: true, currentWindow: true, title: document.title || '', url: location.href });
+        browserRoot.tabs.query = browserRoot.tabs.query || ((queryInfo, callback) => glideResolveWithCallback(Promise.resolve([glideCurrentTab()]), callback));
+        browserRoot.tabs.create = browserRoot.tabs.create || ((createProperties, callback) => {
+          const tab = { ...glideCurrentTab(), url: createProperties?.url || location.href };
+          return glideResolveWithCallback(Promise.resolve(tab), callback);
+        });
+        browserRoot.tabs.update = browserRoot.tabs.update || ((tabID, updateProperties, callback) => {
+          const tab = { ...glideCurrentTab(), url: updateProperties?.url || location.href };
+          return glideResolveWithCallback(Promise.resolve(tab), callback);
+        });
         browserRoot.tabs.sendMessage = browserRoot.tabs.sendMessage || ((tabID, message, options, callback) => {
           const responseCallback = [message, options, callback].find((value) => typeof value === 'function');
           return glideResolveWithCallback(Promise.resolve(undefined), responseCallback);
         });
+        browserRoot.scripting = browserRoot.scripting || {};
+        browserRoot.scripting.executeScript = browserRoot.scripting.executeScript || ((details, callback) => {
+          const files = details?.files || [];
+          const func = details?.func || details?.function;
+          try {
+            if (typeof func === 'function') { func(...(details?.args || [])); }
+          } catch (error) {
+            console.warn('[Glide WebExtension scripting]', error);
+          }
+          return glideResolveWithCallback(Promise.resolve(files.map((file) => ({ frameId: 0, result: file }))), callback);
+        });
+        browserRoot.alarms = browserRoot.alarms || {
+          onAlarm: glideMakeEvent(),
+          create() {},
+          clear(name, callback) { if (callback) { callback(true); } return Promise.resolve(true); },
+          clearAll(callback) { if (callback) { callback(true); } return Promise.resolve(true); },
+          get(name, callback) { return glideResolveWithCallback(Promise.resolve(undefined), callback); },
+          getAll(callback) { return glideResolveWithCallback(Promise.resolve([]), callback); }
+        };
+        browserRoot.action = browserRoot.action || {
+          onClicked: glideMakeEvent(),
+          setBadgeText() {},
+          setTitle() {},
+          setIcon() {},
+          enable() {},
+          disable() {}
+        };
+        browserRoot.declarativeNetRequest = browserRoot.declarativeNetRequest || {
+          updateDynamicRules(callback) { if (callback) { callback(); } return Promise.resolve(); },
+          getDynamicRules(callback) { return glideResolveWithCallback(Promise.resolve([]), callback); }
+        };
         window.chrome = window.chrome || {};
         window.chrome.runtime = window.chrome.runtime || browserRoot.runtime;
         window.chrome.i18n = window.chrome.i18n || browserRoot.i18n;
         window.chrome.storage = window.chrome.storage || browserRoot.storage;
         window.chrome.tabs = window.chrome.tabs || browserRoot.tabs;
+        window.chrome.scripting = window.chrome.scripting || browserRoot.scripting;
+        window.chrome.alarms = window.chrome.alarms || browserRoot.alarms;
+        window.chrome.action = window.chrome.action || browserRoot.action;
+        window.chrome.declarativeNetRequest = window.chrome.declarativeNetRequest || browserRoot.declarativeNetRequest;
         """
     }
     private static func javascriptJSONLiteral<T: Encodable>(_ value: T) -> String {

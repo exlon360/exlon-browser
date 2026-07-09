@@ -2919,6 +2919,14 @@ final class BrowserViewModel: ObservableObject {
         webExtensionImportMessage = "Removed \(removed.displayName)."
     }
 
+    func reloadWebExtensions() {
+        applyWebExtensionsToTabs(reloadAfterChange: true)
+        let enabledCount = installedWebExtensions.filter(\.isEnabled).count
+        webExtensionImportMessage = enabledCount == 1
+            ? "Reloaded 1 enabled extension."
+            : "Reloaded \(enabledCount) enabled extensions."
+    }
+
     func importLocalAI(name: String, urlText: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         localAIName = trimmedName.isEmpty ? "Local AI" : trimmedName
