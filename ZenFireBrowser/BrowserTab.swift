@@ -162,7 +162,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         super.init()
 
         webView.customUserAgent = Self.userAgent(for: websiteDisplayMode)
-        webView.pageZoom = Self.clampedWebsiteResolutionScale(websiteResolutionScale)
+        webView.pageZoom = 1.0
         if #available(iOS 16.4, *), webKitProfile == .dev {
             webView.isInspectable = true
         }
@@ -244,7 +244,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     func setWebsiteResolutionScale(_ scale: Double) {
         let clamped = Self.clampedWebsiteResolutionScale(scale)
         websiteResolutionScale = clamped
-        webView.pageZoom = clamped
+        webView.pageZoom = 1.0
     }
 
     func fillCredentials(username: String, password: String) {

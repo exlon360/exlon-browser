@@ -425,10 +425,7 @@ private struct BrowserShell: View {
     var body: some View {
         GeometryReader { proxy in
             let shellScale = max(CGFloat(model.websiteResolutionScale), 0.01)
-            let virtualSize = CGSize(
-                width: proxy.size.width / shellScale,
-                height: proxy.size.height / shellScale
-            )
+            let virtualSize = proxy.size
 
             ZStack {
                 BrowserBackground()
@@ -562,8 +559,9 @@ private struct BrowserShell: View {
                 BrowserKeyboardShortcutHost()
                 }
                 .frame(width: virtualSize.width, height: virtualSize.height)
-                .scaleEffect(shellScale)
+                .scaleEffect(shellScale, anchor: .center)
                 .frame(width: proxy.size.width, height: proxy.size.height)
+                .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
                 .clipped()
             }
             .coordinateSpace(name: "browserShell")
@@ -1141,39 +1139,50 @@ private struct ButtonGradientBackground: View {
         switch prominence {
         case .primary:
             return LinearGradient(
-                colors: [
-                    theme.color(.createTab).opacity(0.98),
-                    theme.gradientColor(.createTab).opacity(0.94)
-                ] + theme.customGradientColors.map { $0.opacity(0.9) } + [
-                    theme.gradientColor(.accent).opacity(0.84),
-                    theme.color(.surface).opacity(0.76)
-                ],
-                startPoint: theme.gradientStartPoint(for: .createTab),
-                endPoint: theme.gradientEndPoint(for: .createTab)
+                colors: primaryGradientColors,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
         case .standard:
             return LinearGradient(
-                colors: [
-                    theme.color(.field).opacity(controlOpacity),
-                    theme.gradientColor(.field).opacity(max(controlOpacity, 0.64))
-                ] + theme.customGradientColors.map { $0.opacity(0.34) } + [
-                    theme.gradientColor(.accent).opacity(0.28)
-                ],
-                startPoint: theme.gradientStartPoint(for: .field),
-                endPoint: theme.gradientEndPoint(for: .field)
+                colors: standardGradientColors,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
         case .quiet:
             return LinearGradient(
-                colors: [
-                    theme.color(.surface).opacity(max(controlOpacity, 0.48)),
-                    theme.gradientColor(.surface).opacity(max(controlOpacity, 0.42))
-                ] + theme.customGradientColors.map { $0.opacity(0.22) } + [
-                    theme.gradientColor(.accent).opacity(0.16)
-                ],
-                startPoint: theme.gradientStartPoint(for: .surface),
-                endPoint: theme.gradientEndPoint(for: .surface)
+                colors: quietGradientColors,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
         }
+    }
+
+    private var primaryGradientColors: [Color] {
+        var colors = [theme.color(.createTab).opacity(0.98)]
+        colors.append(contentsOf: theme.gradientColors(for: .createTab).map { $0.opacity(0.94) })
+        colors.append(contentsOf: theme.customGradientColors.map { $0.opacity(0.9) })
+        colors.append(contentsOf: theme.gradientColors(for: .accent).map { $0.opacity(0.84) })
+        colors.append(theme.color(.surface).opacity(0.76))
+        return colors
+    }
+
+    private var standardGradientColors: [Color] {
+        var colors = [theme.color(.field).opacity(controlOpacity)]
+        colors.append(contentsOf: theme.gradientColors(for: .field).map { $0.opacity(max(controlOpacity, 0.64)) })
+        colors.append(contentsOf: theme.customGradientColors.map { $0.opacity(0.34) })
+        colors.append(contentsOf: theme.gradientColors(for: .accent).map { $0.opacity(0.28) })
+        colors.append(theme.color(.field).opacity(max(0.18, controlOpacity * 0.82)))
+        return colors
+    }
+
+    private var quietGradientColors: [Color] {
+        var colors = [theme.color(.surface).opacity(max(controlOpacity, 0.48))]
+        colors.append(contentsOf: theme.gradientColors(for: .surface).map { $0.opacity(max(controlOpacity, 0.42)) })
+        colors.append(contentsOf: theme.customGradientColors.map { $0.opacity(0.22) })
+        colors.append(contentsOf: theme.gradientColors(for: .accent).map { $0.opacity(0.16) })
+        colors.append(theme.color(.surface).opacity(max(0.16, controlOpacity * 0.72)))
+        return colors
     }
 
     private var controlOpacity: Double {
@@ -2168,11 +2177,11 @@ private struct ControlGlassBackground: View {
                         LinearGradient(
                             colors: [
                                 theme.color(.accent).opacity(0.20),
-                                theme.gradientColor(.field).opacity(max(controlOpacity, 0.46)),
+                            ] + theme.gradientColors(for: .field).map { $0.opacity(max(controlOpacity, 0.46)) } + [
                                 theme.color(.field).opacity(controlOpacity)
                             ],
-                            startPoint: theme.gradientStartPoint(for: .field),
-                            endPoint: theme.gradientEndPoint(for: .field)
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
                     )
             }
@@ -5901,10 +5910,6 @@ private struct QuickColorStudio: View {
             theme.setGradientColor(Color(hex: accent), for: .createTab)
             theme.setColor(Color(hex: canvas), for: .canvas)
             theme.setGradientColor(Color(hex: glow), for: .chrome)
-            theme.updateGradientFocus(x: end.0, y: end.1, for: .accent)
-            theme.updateGradientFocus(x: start.0, y: start.1, for: .createTab)
-            theme.updateGradientFocus(x: 0.5, y: 0.5, for: .chrome)
-            theme.updateGradientFocus(x: start.0, y: start.1, for: .canvas)
         } label: {
             Text(title)
                 .frame(maxWidth: .infinity)
@@ -5921,25 +5926,31 @@ private struct ThemeColorGradientMenu: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    ColorPicker("Color", selection: theme.binding(for: token), supportsOpacity: false)
-                    ColorPicker("Gradient", selection: theme.gradientBinding(for: token), supportsOpacity: false)
-                }
+                ColorPicker("Base color", selection: theme.binding(for: token), supportsOpacity: false)
 
-                GradientFocusCanvas(
-                    title: "Gradient position",
+                GradientCircleCanvas(
                     baseColor: theme.color(token),
-                    gradientColor: theme.gradientColor(token),
-                    focusX: position.focusX,
-                    focusY: position.focusY
-                ) { x, y in
-                    theme.updateGradientFocus(x: x, y: y, for: token)
+                    circles: theme.gradientCircles(for: token)
+                )
+
+                HStack {
+                    Label("Gradient circles", systemImage: "circle.hexagongrid.fill")
+                        .font(.caption.weight(.black))
+                    Spacer()
+                    Button {
+                        theme.addGradientCircle(for: token)
+                    } label: {
+                        Label("Add Circle", systemImage: "plus.circle.fill")
+                    }
+                    .font(.caption.weight(.bold))
                 }
 
-                HStack(spacing: 8) {
-                    focusButton("Left", x: 0.16, y: 0.5)
-                    focusButton("Center", x: 0.5, y: 0.5)
-                    focusButton("Right", x: 0.84, y: 0.5)
+                ForEach(theme.gradientCircles(for: token)) { circle in
+                    GradientCircleStopRow(
+                        token: token,
+                        circle: circle,
+                        canRemove: theme.gradientCircles(for: token).count > 1
+                    )
                 }
             }
             .padding(.top, 10)
@@ -5948,9 +5959,9 @@ private struct ThemeColorGradientMenu: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [theme.color(token), theme.gradientColor(token)],
-                            startPoint: position.startPoint,
-                            endPoint: position.endPoint
+                            colors: [theme.color(token)] + theme.gradientColors(for: token),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 34, height: 34)
@@ -5962,7 +5973,7 @@ private struct ThemeColorGradientMenu: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(token.title)
                         .font(.system(size: 14, weight: .black))
-                    Text("\(Int((position.focusX * 100).rounded()))% / \(Int((position.focusY * 100).rounded()))%")
+                    Text("\(theme.gradientCircles(for: token).count) circle\(theme.gradientCircles(for: token).count == 1 ? "" : "s")")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(theme.color(.mutedText))
                 }
@@ -5975,19 +5986,71 @@ private struct ThemeColorGradientMenu: View {
                 .stroke(theme.color(.border).opacity(isExpanded ? 0.82 : 0.42), lineWidth: 1)
         }
     }
+}
 
-    private var position: BrowserGradientPosition {
-        theme.gradientPosition(for: token)
+private struct GradientCircleStopRow: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let token: BrowserThemeToken
+    let circle: BrowserThemeGradientCircle
+    let canRemove: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                ColorPicker("Circle color", selection: colorBinding, supportsOpacity: false)
+                    .labelsHidden()
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Circle \(circleNumber)")
+                        .font(.caption.weight(.black))
+                    Text("Intensity \(Int((currentCircle.intensity * 100).rounded()))%")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+
+                Spacer()
+
+                Button(role: .destructive) {
+                    theme.removeGradientCircle(circle, for: token)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .disabled(canRemove == false)
+                .opacity(canRemove ? 1 : 0.36)
+                .accessibilityLabel("Remove gradient circle")
+            }
+
+            Slider(value: intensityBinding, in: 0...1, step: 0.01)
+        }
+        .padding(9)
+        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(hex: currentCircle.colorHex).opacity(max(0.18, currentCircle.intensity)), lineWidth: 1)
+        }
     }
 
-    private func focusButton(_ title: String, x: Double, y: Double) -> some View {
-        Button {
-            theme.updateGradientFocus(x: x, y: y, for: token)
-        } label: {
-            Text(title)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(GlideGradientButtonStyle(prominence: abs(position.focusX - x) < 0.02 && abs(position.focusY - y) < 0.02 ? .primary : .standard, minHeight: 32))
+    private var currentCircle: BrowserThemeGradientCircle {
+        theme.gradientCircles(for: token).first { $0.id == circle.id } ?? circle
+    }
+
+    private var circleNumber: Int {
+        (theme.gradientCircles(for: token).firstIndex { $0.id == circle.id } ?? 0) + 1
+    }
+
+    private var colorBinding: Binding<Color> {
+        Binding(
+            get: { Color(hex: currentCircle.colorHex) },
+            set: { theme.setGradientCircleColor($0, circle: circle, for: token) }
+        )
+    }
+
+    private var intensityBinding: Binding<Double> {
+        Binding(
+            get: { currentCircle.intensity },
+            set: { theme.setGradientCircleIntensity($0, circle: circle, for: token) }
+        )
     }
 }
 
@@ -6038,14 +6101,26 @@ private struct CustomColorStopRow: View {
                     ColorPicker("Gradient", selection: gradientColorBinding, supportsOpacity: false)
                 }
 
-                GradientFocusCanvas(
-                    title: "Gradient position",
+                GradientCircleCanvas(
                     baseColor: Color(hex: currentColor.colorHex),
-                    gradientColor: Color(hex: currentColor.gradientHex),
-                    focusX: currentColor.gradientX ?? currentColor.location,
-                    focusY: currentColor.gradientY ?? 0.5
-                ) { x, y in
-                    theme.setCustomGradientFocus(x: x, y: y, for: color)
+                    circles: [
+                        BrowserThemeGradientCircle(
+                            colorHex: currentColor.gradientHex,
+                            intensity: theme.customColorIntensity(currentColor)
+                        )
+                    ]
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Intensity")
+                        Spacer()
+                        Text("\(Int((theme.customColorIntensity(currentColor) * 100).rounded()))%")
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+                    .font(.caption.weight(.semibold))
+
+                    Slider(value: intensityBinding, in: 0...1, step: 0.01)
                 }
 
                 Button(role: .destructive) {
@@ -6077,7 +6152,7 @@ private struct CustomColorStopRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(currentColor.name)
                         .font(.system(size: 14, weight: .black))
-                    Text("\(Int(((currentColor.gradientX ?? currentColor.location) * 100).rounded()))% / \(Int(((currentColor.gradientY ?? 0.5) * 100).rounded()))%")
+                    Text("Intensity \(Int((theme.customColorIntensity(currentColor) * 100).rounded()))%")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(theme.color(.mutedText))
                 }
@@ -6112,26 +6187,29 @@ private struct CustomColorStopRow: View {
         )
     }
 
+    private var intensityBinding: Binding<Double> {
+        Binding(
+            get: { theme.customColorIntensity(currentColor) },
+            set: { theme.setCustomColorIntensity($0, for: color) }
+        )
+    }
+
     private var currentColor: BrowserCustomThemeColor {
         theme.customColors.first { $0.id == color.id } ?? color
     }
 }
 
-private struct GradientFocusCanvas: View {
+private struct GradientCircleCanvas: View {
     @EnvironmentObject private var theme: BrowserTheme
-    let title: String
     let baseColor: Color
-    let gradientColor: Color
-    let focusX: Double
-    let focusY: Double
-    let onFocusChanged: (Double, Double) -> Void
+    let circles: [BrowserThemeGradientCircle]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text(title)
+                Text("Gradient canvas")
                 Spacer()
-                Text("\(Int((focusX * 100).rounded()))% / \(Int((focusY * 100).rounded()))%")
+                Text("Intensity driven")
                     .foregroundStyle(theme.color(.mutedText))
             }
             .font(.caption.weight(.semibold))
@@ -6141,13 +6219,9 @@ private struct GradientFocusCanvas: View {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [
-                                    baseColor,
-                                    gradientColor,
-                                    baseColor.opacity(0.68)
-                                ],
-                                startPoint: UnitPoint(x: 1.0 - focusX, y: 1.0 - focusY),
-                                endPoint: UnitPoint(x: focusX, y: focusY)
+                                colors: [baseColor] + circles.map { Color(hex: $0.colorHex).opacity(max(0.08, $0.intensity)) } + [baseColor.opacity(0.72)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
                         )
                         .overlay {
@@ -6155,48 +6229,51 @@ private struct GradientFocusCanvas: View {
                                 .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
                         }
 
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    gradientColor,
-                                    baseColor.opacity(0.88)
-                                ],
-                                center: .center,
-                                startRadius: 1,
-                                endRadius: 18
+                    ForEach(Array(circles.enumerated()), id: \.element.id) { index, circle in
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        Color(hex: circle.colorHex).opacity(max(0.18, circle.intensity)),
+                                        Color(hex: circle.colorHex).opacity(0.0)
+                                    ],
+                                    center: .center,
+                                    startRadius: 2,
+                                    endRadius: circleRadius(for: circle, in: proxy.size) / 2
+                                )
                             )
-                        )
-                        .frame(width: 34, height: 34)
-                        .overlay {
-                            Circle()
-                                .stroke(Color.white.opacity(0.88), lineWidth: 2)
-                        }
-                        .shadow(color: Color.black.opacity(0.32), radius: 9, y: 5)
-                        .position(handlePosition(in: proxy.size))
-                        .gesture(handleDrag(in: proxy.size))
+                            .frame(width: circleRadius(for: circle, in: proxy.size), height: circleRadius(for: circle, in: proxy.size))
+                            .overlay {
+                                Circle()
+                                    .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                            }
+                            .shadow(color: Color(hex: circle.colorHex).opacity(max(0.12, circle.intensity * 0.38)), radius: 12, y: 6)
+                            .position(circlePosition(index: index, in: proxy.size))
+                    }
                 }
             }
             .frame(height: 118)
         }
     }
 
-    private func handlePosition(in size: CGSize) -> CGPoint {
-        CGPoint(
-            x: min(max(CGFloat(focusX) * size.width, 18), max(18, size.width - 18)),
-            y: min(max(CGFloat(focusY) * size.height, 18), max(18, size.height - 18))
-        )
+    private func circleRadius(for circle: BrowserThemeGradientCircle, in size: CGSize) -> CGFloat {
+        let base = min(size.width, size.height)
+        return max(34, base * (0.42 + CGFloat(circle.intensity) * 0.56))
     }
 
-    private func handleDrag(in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                guard size.width > 0, size.height > 0 else { return }
-                onFocusChanged(
-                    Double(min(max(value.location.x / size.width, 0), 1)),
-                    Double(min(max(value.location.y / size.height, 0), 1))
-                )
-            }
+    private func circlePosition(index: Int, in size: CGSize) -> CGPoint {
+        let positions: [CGPoint] = [
+            CGPoint(x: 0.28, y: 0.38),
+            CGPoint(x: 0.68, y: 0.46),
+            CGPoint(x: 0.48, y: 0.72),
+            CGPoint(x: 0.82, y: 0.22),
+            CGPoint(x: 0.18, y: 0.78),
+            CGPoint(x: 0.52, y: 0.25),
+            CGPoint(x: 0.76, y: 0.76),
+            CGPoint(x: 0.34, y: 0.58)
+        ]
+        let point = positions[index % positions.count]
+        return CGPoint(x: point.x * size.width, y: point.y * size.height)
     }
 }
 
@@ -7530,12 +7607,11 @@ private struct BrowserBackground: View {
                 LinearGradient(
                     colors: [
                         theme.color(.canvas),
-                        theme.gradientColor(.chrome)
-                    ] + theme.customGradientColors.map { $0.opacity(0.72) } + [
+                    ] + theme.gradientColors(for: .chrome) + theme.customGradientColors.map { $0.opacity(0.72) } + [
                         theme.color(.canvas)
                     ],
-                    startPoint: theme.gradientStartPoint(for: .canvas),
-                    endPoint: theme.gradientEndPoint(for: .canvas)
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
                 .ignoresSafeArea()
             }

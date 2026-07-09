@@ -2900,6 +2900,7 @@ final class BrowserViewModel: ObservableObject {
             gradientColors: theme.gradientColorConfig,
             gradientCoordinates: theme.gradientCoordinateConfig,
             gradientPositionsByToken: theme.gradientPositionConfigByToken,
+            gradientCirclesByToken: theme.gradientCircleConfigByToken,
             customColors: theme.customColors
         )
 
@@ -3001,6 +3002,7 @@ final class BrowserViewModel: ObservableObject {
             gradientColors: config.gradientColors,
             gradientCoordinates: config.gradientCoordinates,
             gradientPositionsByToken: config.gradientPositionsByToken,
+            gradientCirclesByToken: config.gradientCirclesByToken,
             customColors: config.customColors,
             tabBarTransparencyEnabled: config.tabBarTransparencyEnabled,
             tabBarTransparency: config.tabBarTransparency,

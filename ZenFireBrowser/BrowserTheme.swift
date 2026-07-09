@@ -103,6 +103,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     var gradientEndX: Double?
     var gradientEndY: Double?
     var gradientPositionsByToken: [String: BrowserGradientPosition]?
+    var gradientCirclesByToken: [String: [BrowserThemeGradientCircle]]?
     var customColors: [BrowserCustomThemeColor]?
     var isTabBarTransparencyEnabled: Bool
     var tabBarTransparency: Double
@@ -123,6 +124,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         gradientEndX: Double? = nil,
         gradientEndY: Double? = nil,
         gradientPositionsByToken: [String: BrowserGradientPosition]? = nil,
+        gradientCirclesByToken: [String: [BrowserThemeGradientCircle]]? = nil,
         customColors: [BrowserCustomThemeColor]? = nil,
         isTabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
@@ -142,6 +144,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         self.gradientEndX = gradientEndX
         self.gradientEndY = gradientEndY
         self.gradientPositionsByToken = gradientPositionsByToken
+        self.gradientCirclesByToken = gradientCirclesByToken
         self.customColors = customColors
         self.isTabBarTransparencyEnabled = isTabBarTransparencyEnabled
         self.tabBarTransparency = tabBarTransparency
@@ -190,6 +193,18 @@ struct BrowserGradientPosition: Codable, Equatable {
     }
 }
 
+struct BrowserThemeGradientCircle: Identifiable, Codable, Equatable {
+    var id: UUID
+    var colorHex: String
+    var intensity: Double
+
+    init(id: UUID = UUID(), colorHex: String, intensity: Double = 0.72) {
+        self.id = id
+        self.colorHex = colorHex
+        self.intensity = min(max(intensity, 0), 1)
+    }
+}
+
 struct BrowserCustomThemeColor: Identifiable, Codable, Equatable {
     var id: UUID
     var name: String
@@ -198,6 +213,7 @@ struct BrowserCustomThemeColor: Identifiable, Codable, Equatable {
     var location: Double
     var gradientX: Double?
     var gradientY: Double?
+    var intensity: Double?
 
     init(
         id: UUID = UUID(),
@@ -206,7 +222,8 @@ struct BrowserCustomThemeColor: Identifiable, Codable, Equatable {
         gradientHex: String,
         location: Double,
         gradientX: Double? = nil,
-        gradientY: Double? = nil
+        gradientY: Double? = nil,
+        intensity: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -215,6 +232,7 @@ struct BrowserCustomThemeColor: Identifiable, Codable, Equatable {
         self.location = min(max(location, 0), 1)
         self.gradientX = gradientX.map { min(max($0, 0), 1) }
         self.gradientY = gradientY.map { min(max($0, 0), 1) }
+        self.intensity = intensity.map { min(max($0, 0), 1) }
     }
 }
 
@@ -229,6 +247,11 @@ final class BrowserTheme: ObservableObject {
     @Published private var gradientPositionByToken: [String: BrowserGradientPosition] {
         didSet {
             vault.save(gradientPositionByToken, forKey: Self.gradientPositionByTokenKey)
+        }
+    }
+    @Published private var gradientCirclesByToken: [String: [BrowserThemeGradientCircle]] {
+        didSet {
+            vault.save(gradientCirclesByToken, forKey: Self.gradientCirclesByTokenKey)
         }
     }
     @Published var customColors: [BrowserCustomThemeColor] {
@@ -320,6 +343,7 @@ final class BrowserTheme: ObservableObject {
     private static let gradientEndXKey = "\(storagePrefix)gradientEndX"
     private static let gradientEndYKey = "\(storagePrefix)gradientEndY"
     private static let gradientPositionByTokenKey = "\(storagePrefix)gradientPositionByToken"
+    private static let gradientCirclesByTokenKey = "\(storagePrefix)gradientCirclesByToken"
     private static let customColorsKey = "\(storagePrefix)customColors"
     private static let videoBackgroundMinimumDuration = 5.0
     private static let videoBackgroundMaximumDuration = 15.0 * 60.0
@@ -349,6 +373,10 @@ final class BrowserTheme: ObservableObject {
         self.gradientPositionByToken = Self.normalizedGradientPositions(
             vault.load([String: BrowserGradientPosition].self, forKey: Self.gradientPositionByTokenKey, default: [:]),
             fallback: legacyGradientPosition
+        )
+        self.gradientCirclesByToken = Self.normalizedGradientCircles(
+            vault.load([String: [BrowserThemeGradientCircle]].self, forKey: Self.gradientCirclesByTokenKey, default: [:]),
+            fallbackGradientHexByToken: gradientValues
         )
         self.gradientStartX = legacyGradientPosition.startX
         self.gradientStartY = legacyGradientPosition.startY
@@ -421,11 +449,20 @@ final class BrowserTheme: ObservableObject {
         })
     }
 
+    var gradientCircleConfigByToken: [String: [BrowserThemeGradientCircle]] {
+        Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
+            (token.rawValue, gradientCircles(for: token))
+        })
+    }
+
     var customGradientColors: [Color] {
         customColors
             .sorted { $0.location < $1.location }
             .flatMap { stop in
-                [Color(hex: stop.colorHex), Color(hex: stop.gradientHex)]
+                [
+                    Color(hex: stop.colorHex).opacity(customColorIntensity(stop)),
+                    Color(hex: stop.gradientHex).opacity(customColorIntensity(stop))
+                ]
             }
     }
 
@@ -495,6 +532,64 @@ final class BrowserTheme: ObservableObject {
         gradientPosition(for: token).endPoint
     }
 
+    func gradientCircles(for token: BrowserThemeToken) -> [BrowserThemeGradientCircle] {
+        gradientCirclesByToken[token.rawValue] ?? [
+            BrowserThemeGradientCircle(colorHex: gradientHex(for: token), intensity: 0.72)
+        ]
+    }
+
+    func gradientColors(for token: BrowserThemeToken) -> [Color] {
+        let circles = gradientCircles(for: token)
+        guard circles.isEmpty == false else {
+            return [gradientColor(token)]
+        }
+        return circles.map { circle in
+            Color(hex: circle.colorHex).opacity(max(0.08, circle.intensity))
+        }
+    }
+
+    @discardableResult
+    func addGradientCircle(for token: BrowserThemeToken) -> BrowserThemeGradientCircle {
+        var circles = gradientCircles(for: token)
+        let palette = [
+            token.defaultGradientHex,
+            "#7DD3FC",
+            "#C4B5FD",
+            "#A7F3D0",
+            "#FDE68A",
+            "#F9A8D4",
+            "#67E8F9"
+        ]
+        let circle = BrowserThemeGradientCircle(
+            colorHex: palette[circles.count % palette.count],
+            intensity: min(0.95, 0.42 + Double(circles.count) * 0.12)
+        )
+        circles.append(circle)
+        setGradientCircles(circles, for: token)
+        return circle
+    }
+
+    func removeGradientCircle(_ circle: BrowserThemeGradientCircle, for token: BrowserThemeToken) {
+        var circles = gradientCircles(for: token)
+        guard circles.count > 1 else { return }
+        circles.removeAll { $0.id == circle.id }
+        setGradientCircles(circles, for: token)
+    }
+
+    func setGradientCircleColor(_ color: Color, circle: BrowserThemeGradientCircle, for token: BrowserThemeToken) {
+        var circles = gradientCircles(for: token)
+        guard let index = circles.firstIndex(where: { $0.id == circle.id }) else { return }
+        circles[index].colorHex = color.hexString ?? circles[index].colorHex
+        setGradientCircles(circles, for: token)
+    }
+
+    func setGradientCircleIntensity(_ intensity: Double, circle: BrowserThemeGradientCircle, for token: BrowserThemeToken) {
+        var circles = gradientCircles(for: token)
+        guard let index = circles.firstIndex(where: { $0.id == circle.id }) else { return }
+        circles[index].intensity = Self.clampedUnit(intensity)
+        setGradientCircles(circles, for: token)
+    }
+
     func setColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultHex
         colorHexByToken[token] = hex
@@ -504,6 +599,7 @@ final class BrowserTheme: ObservableObject {
     func setGradientColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultGradientHex
         gradientColorHexByToken[token] = hex
+        setGradientCircles([BrowserThemeGradientCircle(colorHex: hex, intensity: 0.72)], for: token)
         vault.save(hex, forKey: Self.gradientStorageKey(for: token))
     }
 
@@ -550,7 +646,8 @@ final class BrowserTheme: ObservableObject {
             gradientHex: preset.2,
             location: customColors.isEmpty ? 0.5 : min(0.92, 0.18 + (Double(customColors.count) * 0.18)),
             gradientX: customColors.isEmpty ? 0.5 : min(0.92, 0.18 + (Double(customColors.count) * 0.18)),
-            gradientY: 0.5
+            gradientY: 0.5,
+            intensity: 0.72
         )
         customColors.append(stop)
         return stop
@@ -581,12 +678,21 @@ final class BrowserTheme: ObservableObject {
         customColors[index].location = Self.clampedUnit(location)
     }
 
+    func setCustomColorIntensity(_ intensity: Double, for customColor: BrowserCustomThemeColor) {
+        guard let index = customColors.firstIndex(where: { $0.id == customColor.id }) else { return }
+        customColors[index].intensity = Self.clampedUnit(intensity)
+    }
+
     func setCustomGradientFocus(x: Double, y: Double, for customColor: BrowserCustomThemeColor) {
         guard let index = customColors.firstIndex(where: { $0.id == customColor.id }) else { return }
         let clampedX = Self.clampedUnit(x)
         customColors[index].gradientX = clampedX
         customColors[index].gradientY = Self.clampedUnit(y)
         customColors[index].location = clampedX
+    }
+
+    func customColorIntensity(_ color: BrowserCustomThemeColor) -> Double {
+        Self.clampedUnit(color.intensity ?? 0.72)
     }
 
     func currentTheme(named rawName: String) -> SavedBrowserTheme {
@@ -603,6 +709,7 @@ final class BrowserTheme: ObservableObject {
             gradientEndX: gradientEndX,
             gradientEndY: gradientEndY,
             gradientPositionsByToken: gradientPositionConfigByToken,
+            gradientCirclesByToken: gradientCircleConfigByToken,
             customColors: customColors,
             isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
             tabBarTransparency: tabBarTransparency,
@@ -625,6 +732,7 @@ final class BrowserTheme: ObservableObject {
         isTabBarTransparencyEnabled = true
         tabBarTransparency = 0.82
         resetGradientMotion()
+        gradientCirclesByToken = Self.defaultGradientCircles(fallbackGradientHexByToken: gradientColorHexByToken)
         customColors = []
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
@@ -644,6 +752,7 @@ final class BrowserTheme: ObservableObject {
         gradientColors: [String: String]?,
         gradientCoordinates: [String: Double]?,
         gradientPositionsByToken: [String: BrowserGradientPosition]?,
+        gradientCirclesByToken: [String: [BrowserThemeGradientCircle]]?,
         customColors: [BrowserCustomThemeColor]?,
         tabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
@@ -680,6 +789,14 @@ final class BrowserTheme: ObservableObject {
                     endY: gradientEndY
                 )
             )
+        }
+        if let gradientCirclesByToken {
+            self.gradientCirclesByToken = Self.normalizedGradientCircles(
+                gradientCirclesByToken,
+                fallbackGradientHexByToken: gradientColorHexByToken
+            )
+        } else if gradientColors != nil {
+            self.gradientCirclesByToken = Self.defaultGradientCircles(fallbackGradientHexByToken: gradientColorHexByToken)
         }
         if let customColors {
             self.customColors = Self.normalizedCustomColors(customColors)
@@ -827,6 +944,10 @@ final class BrowserTheme: ObservableObject {
         } else {
             syncLegacyGradientPositionToAllTokens()
         }
+        gradientCirclesByToken = Self.normalizedGradientCircles(
+            savedTheme.gradientCirclesByToken ?? [:],
+            fallbackGradientHexByToken: gradientColorHexByToken
+        )
         customColors = Self.normalizedCustomColors(savedTheme.customColors ?? [])
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
         tabBarTransparency = savedTheme.tabBarTransparency
@@ -907,6 +1028,15 @@ final class BrowserTheme: ObservableObject {
         vault.save(savedThemes, forKey: Self.savedThemesKey)
     }
 
+    private func setGradientCircles(_ circles: [BrowserThemeGradientCircle], for token: BrowserThemeToken) {
+        var values = gradientCirclesByToken
+        values[token.rawValue] = Self.normalizedGradientCircleList(
+            circles,
+            fallbackHex: gradientHex(for: token)
+        )
+        gradientCirclesByToken = values
+    }
+
     private func syncLegacyGradientPositionToAllTokens() {
         gradientPositionByToken = Self.normalizedGradientPositions(
             [:],
@@ -934,6 +1064,7 @@ final class BrowserTheme: ObservableObject {
         vault.save(gradientEndX, forKey: Self.gradientEndXKey)
         vault.save(gradientEndY, forKey: Self.gradientEndYKey)
         vault.save(gradientPositionByToken, forKey: Self.gradientPositionByTokenKey)
+        vault.save(gradientCirclesByToken, forKey: Self.gradientCirclesByTokenKey)
         vault.save(customColors, forKey: Self.customColorsKey)
         vault.save(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
         if let userBackgroundImageData = userBackgroundImageData {
@@ -1108,7 +1239,8 @@ final class BrowserTheme: ObservableObject {
                 gradientHex: gradientHex,
                 location: clampedUnit(rawColor.location),
                 gradientX: clampedUnit(rawColor.gradientX ?? rawColor.location),
-                gradientY: clampedUnit(rawColor.gradientY ?? 0.5)
+                gradientY: clampedUnit(rawColor.gradientY ?? 0.5),
+                intensity: clampedUnit(rawColor.intensity ?? 0.72)
             )
         }
         .prefix(24)
@@ -1131,6 +1263,60 @@ final class BrowserTheme: ObservableObject {
                 )
             )
         })
+    }
+
+    private static func defaultGradientCircles(
+        fallbackGradientHexByToken: [BrowserThemeToken: String]
+    ) -> [String: [BrowserThemeGradientCircle]] {
+        Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
+            (
+                token.rawValue,
+                [
+                    BrowserThemeGradientCircle(
+                        colorHex: fallbackGradientHexByToken[token] ?? token.defaultGradientHex,
+                        intensity: 0.72
+                    )
+                ]
+            )
+        })
+    }
+
+    private static func normalizedGradientCircles(
+        _ circlesByToken: [String: [BrowserThemeGradientCircle]],
+        fallbackGradientHexByToken: [BrowserThemeToken: String]
+    ) -> [String: [BrowserThemeGradientCircle]] {
+        Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
+            (
+                token.rawValue,
+                normalizedGradientCircleList(
+                    circlesByToken[token.rawValue] ?? [],
+                    fallbackHex: fallbackGradientHexByToken[token] ?? token.defaultGradientHex
+                )
+            )
+        })
+    }
+
+    private static func normalizedGradientCircleList(
+        _ circles: [BrowserThemeGradientCircle],
+        fallbackHex: String
+    ) -> [BrowserThemeGradientCircle] {
+        var seenIDs = Set<UUID>()
+        let normalized = circles.compactMap { circle -> BrowserThemeGradientCircle? in
+            guard seenIDs.contains(circle.id) == false else { return nil }
+            seenIDs.insert(circle.id)
+            return BrowserThemeGradientCircle(
+                id: circle.id,
+                colorHex: Color.isValidHex(circle.colorHex) ? circle.colorHex : fallbackHex,
+                intensity: clampedUnit(circle.intensity)
+            )
+        }
+        .prefix(8)
+        .map { $0 }
+
+        if normalized.isEmpty {
+            return [BrowserThemeGradientCircle(colorHex: fallbackHex, intensity: 0.72)]
+        }
+        return normalized
     }
 
     private static func safeThemeFilename(_ filename: String) -> String {
