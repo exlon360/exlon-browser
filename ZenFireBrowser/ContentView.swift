@@ -5826,20 +5826,60 @@ private struct ProfileSlotEditor: View {
 private struct WebsiteResolutionControl: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @State private var draftResolutionWidth: Double?
+
+    private var displayedResolutionWidth: Double {
+        draftResolutionWidth ?? model.browserResolutionWidth
+    }
+
+    private var displayedResolutionLabel: String {
+        if model.browserResolutionPreset == .automatic && draftResolutionWidth == nil {
+            return "Auto"
+        }
+        return model.browserResolutionLabel(forWidth: displayedResolutionWidth)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("Resolution", systemImage: "rectangle.resize")
                     .font(.system(size: 14, weight: .black))
                 Spacer()
-                Text(model.browserResolutionLabel)
+                Text(displayedResolutionLabel)
                     .font(.caption.weight(.black))
                     .foregroundStyle(theme.color(.mutedText))
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Slider(
+                    value: Binding(
+                        get: { displayedResolutionWidth },
+                        set: { draftResolutionWidth = BrowserResolutionPreset.clampedSliderWidth($0) }
+                    ),
+                    in: BrowserResolutionPreset.minimumSliderWidth...BrowserResolutionPreset.maximumSliderWidth,
+                    step: BrowserResolutionPreset.sliderStep,
+                    onEditingChanged: { isEditing in
+                        if isEditing == false {
+                            model.setBrowserResolutionWidth(displayedResolutionWidth)
+                            draftResolutionWidth = nil
+                        }
+                    }
+                )
+
+                HStack {
+                    Text("\(Int(BrowserResolutionPreset.minimumSliderWidth))")
+                    Spacer()
+                    Text("Custom")
+                        .foregroundStyle(theme.color(.mutedText))
+                    Spacer()
+                    Text("\(Int(BrowserResolutionPreset.maximumSliderWidth))")
+                }
+                .font(.system(size: 10, weight: .black))
+                .foregroundStyle(theme.color(.mutedText).opacity(0.8))
+            }
+
             VStack(spacing: 8) {
-                ForEach(BrowserResolutionPreset.allCases) { preset in
+                ForEach(BrowserResolutionPreset.buttonCases) { preset in
                     resolutionPreset(preset)
                 }
             }
@@ -5849,6 +5889,7 @@ private struct WebsiteResolutionControl: View {
 
     private func resolutionPreset(_ preset: BrowserResolutionPreset) -> some View {
         Button {
+            draftResolutionWidth = nil
             model.setBrowserResolutionPreset(preset)
         } label: {
             HStack(spacing: 10) {

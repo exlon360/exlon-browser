@@ -58,6 +58,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var websiteResolutionScale: Double
     @Published var websiteDisplayMode: BrowserWebsiteDisplayMode
     @Published var browserResolutionPreset: BrowserResolutionPreset
+    @Published var browserResolutionWidth: Double
     @Published var webExtensions: [BrowserWebExtension]
     @Published var folderID: UUID?
 
@@ -106,6 +107,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         websiteResolutionScale: Double = 1.0,
         websiteDisplayMode: BrowserWebsiteDisplayMode = .automatic,
         browserResolutionPreset: BrowserResolutionPreset = .automatic,
+        browserResolutionWidth: Double = BrowserResolutionPreset.defaultSliderWidth,
         folderID: UUID? = nil,
         webExtensions: [BrowserWebExtension] = [],
         webKitProfile: BrowserWebKitProfile = .standard
@@ -140,6 +142,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.websiteResolutionScale = websiteResolutionScale
         self.websiteDisplayMode = websiteDisplayMode
         self.browserResolutionPreset = browserResolutionPreset
+        self.browserResolutionWidth = BrowserResolutionPreset.clampedSliderWidth(browserResolutionWidth)
         self.webExtensions = webExtensions
         self.folderID = folderID
         self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
@@ -256,8 +259,19 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     func setBrowserResolutionPreset(_ preset: BrowserResolutionPreset, reloadAfterChange: Bool = true) {
-        guard browserResolutionPreset != preset else { return }
+        let width = Double(preset.viewportWidth ?? Int(browserResolutionWidth))
+        setBrowserResolution(preset: preset, width: width, reloadAfterChange: reloadAfterChange)
+    }
+
+    func setBrowserResolution(
+        preset: BrowserResolutionPreset,
+        width: Double,
+        reloadAfterChange: Bool = true
+    ) {
+        let clampedWidth = BrowserResolutionPreset.clampedSliderWidth(width)
+        guard browserResolutionPreset != preset || browserResolutionWidth != clampedWidth else { return }
         browserResolutionPreset = preset
+        browserResolutionWidth = clampedWidth
         rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)
     }
 
@@ -451,7 +465,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private func additionalUserScripts() -> [WKUserScript] {
         var scripts: [WKUserScript] = []
 
-        if let viewportScript = Self.viewportResolutionScript(for: browserResolutionPreset) {
+        if let viewportScript = Self.viewportResolutionScript(for: browserResolutionPreset, width: browserResolutionWidth) {
             scripts.append(
                 WKUserScript(
                     source: viewportScript,
@@ -701,9 +715,14 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         }
     }
 
-    private static func viewportResolutionScript(for preset: BrowserResolutionPreset) -> String? {
-        guard let width = preset.viewportWidth,
-              let height = preset.viewportHeight else { return nil }
+    private static func viewportResolutionScript(
+        for preset: BrowserResolutionPreset,
+        width rawWidth: Double
+    ) -> String? {
+        guard preset != .automatic else { return nil }
+
+        let width = preset.viewportWidth ?? Int(BrowserResolutionPreset.clampedSliderWidth(rawWidth))
+        let height = preset.viewportHeight ?? Int(BrowserResolutionPreset.sliderHeight(forWidth: Double(width)).rounded())
 
         return """
         (() => {
