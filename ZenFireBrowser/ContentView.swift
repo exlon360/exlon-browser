@@ -424,27 +424,35 @@ private struct BrowserShell: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let shellScale = max(CGFloat(model.websiteResolutionScale), 0.01)
+            let virtualSize = CGSize(
+                width: proxy.size.width / shellScale,
+                height: proxy.size.height / shellScale
+            )
+
             ZStack {
                 BrowserBackground()
+
+                ZStack {
                 let experience = GlideDeviceExperience.resolve(
-                    for: proxy.size,
+                    for: virtualSize,
                     override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
                 )
                 PhoneExperienceSyncView(isPhoneExperience: experience == .phone)
 
                 if isDesktopZenModeActive {
                     DesktopZenBrowserLayout(
-                        sideWidth: sideWidth(for: proxy, experience: experience),
-                        containerWidth: proxy.size.width,
+                        sideWidth: sideWidth(for: virtualSize, experience: experience),
+                        containerWidth: virtualSize.width,
                         experience: experience,
                         isChromeHovered: $isDesktopZenChromeHovered
                     )
                 } else {
                     switch model.chromePlacement {
                     case .left:
-                        SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
+                        SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: virtualSize, experience: experience), containerWidth: virtualSize.width, experience: experience)
                     case .right:
-                        SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: proxy, experience: experience), containerWidth: proxy.size.width, experience: experience)
+                        SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: virtualSize, experience: experience), containerWidth: virtualSize.width, experience: experience)
                     case .top:
                         ZStack(alignment: .top) {
                             BrowserContent()
@@ -471,8 +479,8 @@ private struct BrowserShell: View {
                 }
 
                 MovableBrowserPageControls(
-                    containerSize: proxy.size,
-                    defaultLeading: pageControlsLeadingPadding(for: proxy, experience: experience),
+                    containerSize: virtualSize,
+                    defaultLeading: pageControlsLeadingPadding(for: virtualSize, experience: experience),
                     defaultTop: pageControlsTopPadding
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -486,7 +494,7 @@ private struct BrowserShell: View {
 
                 if model.isTopSearchBarEnabled {
                     MovableTopSearchBar(
-                        containerSize: proxy.size,
+                        containerSize: virtualSize,
                         topInset: topSearchBarTopPadding,
                         bottomInset: topSearchBarBottomPadding,
                         experience: experience
@@ -552,6 +560,11 @@ private struct BrowserShell: View {
                 .allowsHitTesting(false)
 
                 BrowserKeyboardShortcutHost()
+                }
+                .frame(width: virtualSize.width, height: virtualSize.height)
+                .scaleEffect(shellScale)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .clipped()
             }
             .coordinateSpace(name: "browserShell")
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
@@ -563,7 +576,7 @@ private struct BrowserShell: View {
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView(
                     currentExperience: GlideDeviceExperience.resolve(
-                        for: proxy.size,
+                        for: virtualSize,
                         override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
                     )
                 )
@@ -710,22 +723,22 @@ private struct BrowserShell: View {
         return model.areSideTabsCollapsed == false
     }
 
-    private func sideWidth(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
+    private func sideWidth(for size: CGSize, experience: GlideDeviceExperience) -> CGFloat {
         if experience == .phone {
-            return max(1, proxy.size.width)
+            return max(1, size.width)
         }
 
-        let width = proxy.size.width * CGFloat(model.sideChromeWidthFraction)
-        return min(max(width, 286), min(proxy.size.width - 120, 520))
+        let width = size.width * CGFloat(model.sideChromeWidthFraction)
+        return min(max(width, 286), min(size.width - 120, 520))
     }
 
-    private func pageControlsLeadingPadding(for proxy: GeometryProxy, experience: GlideDeviceExperience) -> CGFloat {
+    private func pageControlsLeadingPadding(for size: CGSize, experience: GlideDeviceExperience) -> CGFloat {
         if experience == .phone {
             return 14
         }
 
         if chromeIsVisible(for: .left) {
-            return sideWidth(for: proxy, experience: experience) + 18
+            return sideWidth(for: size, experience: experience) + 18
         }
         return 14
     }
@@ -1135,8 +1148,8 @@ private struct ButtonGradientBackground: View {
                     theme.gradientColor(.accent).opacity(0.84),
                     theme.color(.surface).opacity(0.76)
                 ],
-                startPoint: theme.gradientStartPoint,
-                endPoint: theme.gradientEndPoint
+                startPoint: theme.gradientStartPoint(for: .createTab),
+                endPoint: theme.gradientEndPoint(for: .createTab)
             )
         case .standard:
             return LinearGradient(
@@ -1146,8 +1159,8 @@ private struct ButtonGradientBackground: View {
                 ] + theme.customGradientColors.map { $0.opacity(0.34) } + [
                     theme.gradientColor(.accent).opacity(0.28)
                 ],
-                startPoint: theme.gradientStartPoint,
-                endPoint: theme.gradientEndPoint
+                startPoint: theme.gradientStartPoint(for: .field),
+                endPoint: theme.gradientEndPoint(for: .field)
             )
         case .quiet:
             return LinearGradient(
@@ -1157,8 +1170,8 @@ private struct ButtonGradientBackground: View {
                 ] + theme.customGradientColors.map { $0.opacity(0.22) } + [
                     theme.gradientColor(.accent).opacity(0.16)
                 ],
-                startPoint: theme.gradientStartPoint,
-                endPoint: theme.gradientEndPoint
+                startPoint: theme.gradientStartPoint(for: .surface),
+                endPoint: theme.gradientEndPoint(for: .surface)
             )
         }
     }
@@ -2158,8 +2171,8 @@ private struct ControlGlassBackground: View {
                                 theme.gradientColor(.field).opacity(max(controlOpacity, 0.46)),
                                 theme.color(.field).opacity(controlOpacity)
                             ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                            startPoint: theme.gradientStartPoint(for: .field),
+                            endPoint: theme.gradientEndPoint(for: .field)
                         )
                     )
             }
@@ -4517,7 +4530,7 @@ private struct SetupCustomizationStage: View {
                     Text("Make it yours")
                         .font(.system(size: 32, weight: .black))
                         .foregroundStyle(theme.color(.text))
-                    Text("Pick the site density, add color, and drag the gradient handles before browsing.")
+                    Text("Pick the browser density, add color, and place each gradient dot before browsing.")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(theme.color(.mutedText))
                         .fixedSize(horizontal: false, vertical: true)
@@ -4525,7 +4538,6 @@ private struct SetupCustomizationStage: View {
 
                 WebsiteResolutionControl()
                 QuickColorStudio()
-                GradientMotionControl()
             }
             .padding(14)
         }
@@ -4583,6 +4595,36 @@ private struct TutorialDivider: View {
     }
 }
 
+private struct GlideFeatureUpdateSection<Content: View>: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let title: String
+    let symbol: String
+    let content: Content
+
+    init(title: String, symbol: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.symbol = symbol
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(theme.color(.text))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+
+            content
+        }
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.72), lineWidth: 1)
+        }
+    }
+}
+
 private struct GlideFeatureUpdateView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -4604,12 +4646,12 @@ private struct GlideFeatureUpdateView: View {
                         .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
 
                     VStack(spacing: 8) {
-                        Text("Huge Customization Update")
+                        Text("Gliders & Displays")
                             .font(.system(size: 38, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)
 
-                        Text("Existing Glide installs now get profile instances, resolution controls, color presets, and movable gradients.")
+                        Text("Existing Glide installs now get cleaner profile instances, whole-browser resolution, and per-color gradient canvases.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .multilineTextAlignment(.center)
@@ -4618,38 +4660,44 @@ private struct GlideFeatureUpdateView: View {
                 .frame(maxWidth: 560)
                 .padding(.horizontal, 22)
 
-                VStack(spacing: 0) {
-                    TutorialFeatureRow(
-                        symbol: "person.2.fill",
-                        title: "\(profiles.profiles.count) Profile Instances",
-                        detail: "Switch between \(profiles.profiles.map(\.name).joined(separator: " and ")) with separate Glide state and saved cookies.",
-                        tint: .accent
-                    )
+                VStack(spacing: 12) {
+                    GlideFeatureUpdateSection(title: "Gliders", symbol: "person.2.fill") {
+                        TutorialFeatureRow(
+                            symbol: "person.2.fill",
+                            title: "\(profiles.profiles.count) Profile Instances",
+                            detail: "Switch between \(profiles.profiles.map(\.name).joined(separator: " and ")) with separate Glide state and saved cookies.",
+                            tint: .accent
+                        )
 
-                    TutorialDivider()
+                        TutorialDivider()
 
-                    TutorialFeatureRow(
-                        symbol: "rectangle.resize",
-                        title: "Resolution Changer",
-                        detail: "Change website scale per profile for compact, default, or larger browsing.",
-                        tint: .createTab
-                    )
+                        TutorialFeatureRow(
+                            symbol: "paintpalette.fill",
+                            title: "Per-Color Gradients",
+                            detail: "Each color opens into its own gradient canvas with a draggable position dot.",
+                            tint: .accent
+                        )
+                    }
 
-                    TutorialDivider()
+                    GlideFeatureUpdateSection(title: "Displays", symbol: "rectangle.resize") {
+                        TutorialFeatureRow(
+                            symbol: "rectangle.resize",
+                            title: "Whole-Browser Resolution",
+                            detail: "Change the scale of websites, tabs, search, and chrome together for a more accurate display preview.",
+                            tint: .createTab
+                        )
 
-                    TutorialFeatureRow(
-                        symbol: "paintpalette.fill",
-                        title: "Color Studio",
-                        detail: "Add accent colors, apply premium palettes, and move gradient start and end points.",
-                        tint: .accent
-                    )
+                        TutorialDivider()
+
+                        TutorialFeatureRow(
+                            symbol: "macwindow.on.rectangle",
+                            title: "Chrome-Matched Layout",
+                            detail: "The browser frame now follows the same compact, default, or large display setting as the page.",
+                            tint: .createTab
+                        )
+                    }
                 }
                 .frame(maxWidth: 560)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(theme.color(.border).opacity(0.72), lineWidth: 1)
-                }
                 .padding(.horizontal, 22)
 
                 Spacer(minLength: 8)
@@ -5775,10 +5823,10 @@ private struct WebsiteResolutionControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Resolution", systemImage: "rectangle.resize")
+                Label("Browser Resolution", systemImage: "rectangle.resize")
                     .font(.system(size: 14, weight: .black))
                 Spacer()
-                Text(model.websiteResolutionLabel)
+                Text("Chrome + page \(model.websiteResolutionLabel)")
                     .font(.caption.weight(.black))
                     .foregroundStyle(theme.color(.mutedText))
             }
@@ -5820,15 +5868,16 @@ private struct QuickColorStudio: View {
             Label("Color Studio", systemImage: "paintpalette.fill")
                 .font(.system(size: 14, weight: .black))
 
-            HStack(spacing: 10) {
-                ColorPicker("Accent", selection: theme.binding(for: .accent), supportsOpacity: false)
-                ColorPicker("Add Color", selection: theme.binding(for: .createTab), supportsOpacity: false)
-            }
-
             HStack(spacing: 8) {
                 paletteButton("Prism", accent: "#8DD7FF", glow: "#C4B5FD", create: "#D6E2FF", canvas: "#07090D", start: (0.0, 0.0), end: (1.0, 1.0))
                 paletteButton("Aurora", accent: "#7DD3FC", glow: "#A7F3D0", create: "#FDE68A", canvas: "#07110F", start: (0.08, 0.12), end: (0.9, 0.72))
                 paletteButton("Signal", accent: "#F0ABFC", glow: "#67E8F9", create: "#F9A8D4", canvas: "#090816", start: (0.82, 0.05), end: (0.12, 0.95))
+            }
+
+            VStack(spacing: 8) {
+                ThemeColorGradientMenu(token: .accent)
+                ThemeColorGradientMenu(token: .createTab)
+                ThemeColorGradientMenu(token: .chrome)
             }
 
             CustomColorStopsEditor()
@@ -5852,13 +5901,93 @@ private struct QuickColorStudio: View {
             theme.setGradientColor(Color(hex: accent), for: .createTab)
             theme.setColor(Color(hex: canvas), for: .canvas)
             theme.setGradientColor(Color(hex: glow), for: .chrome)
-            theme.updateGradientStart(x: start.0, y: start.1)
-            theme.updateGradientEnd(x: end.0, y: end.1)
+            theme.updateGradientFocus(x: end.0, y: end.1, for: .accent)
+            theme.updateGradientFocus(x: start.0, y: start.1, for: .createTab)
+            theme.updateGradientFocus(x: 0.5, y: 0.5, for: .chrome)
+            theme.updateGradientFocus(x: start.0, y: start.1, for: .canvas)
         } label: {
             Text(title)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 34))
+    }
+}
+
+private struct ThemeColorGradientMenu: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let token: BrowserThemeToken
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    ColorPicker("Color", selection: theme.binding(for: token), supportsOpacity: false)
+                    ColorPicker("Gradient", selection: theme.gradientBinding(for: token), supportsOpacity: false)
+                }
+
+                GradientFocusCanvas(
+                    title: "Gradient position",
+                    baseColor: theme.color(token),
+                    gradientColor: theme.gradientColor(token),
+                    focusX: position.focusX,
+                    focusY: position.focusY
+                ) { x, y in
+                    theme.updateGradientFocus(x: x, y: y, for: token)
+                }
+
+                HStack(spacing: 8) {
+                    focusButton("Left", x: 0.16, y: 0.5)
+                    focusButton("Center", x: 0.5, y: 0.5)
+                    focusButton("Right", x: 0.84, y: 0.5)
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [theme.color(token), theme.gradientColor(token)],
+                            startPoint: position.startPoint,
+                            endPoint: position.endPoint
+                        )
+                    )
+                    .frame(width: 34, height: 34)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(theme.color(.border).opacity(0.6), lineWidth: 1)
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(token.title)
+                        .font(.system(size: 14, weight: .black))
+                    Text("\(Int((position.focusX * 100).rounded()))% / \(Int((position.focusY * 100).rounded()))%")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+            }
+        }
+        .padding(10)
+        .background(ControlGlassBackground(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.border).opacity(isExpanded ? 0.82 : 0.42), lineWidth: 1)
+        }
+    }
+
+    private var position: BrowserGradientPosition {
+        theme.gradientPosition(for: token)
+    }
+
+    private func focusButton(_ title: String, x: Double, y: Double) -> some View {
+        Button {
+            theme.updateGradientFocus(x: x, y: y, for: token)
+        } label: {
+            Text(title)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(GlideGradientButtonStyle(prominence: abs(position.focusX - x) < 0.02 && abs(position.focusY - y) < 0.02 ? .primary : .standard, minHeight: 32))
     }
 }
 
@@ -5868,19 +5997,19 @@ private struct CustomColorStopsEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Added Colors", systemImage: "plus.square.on.square")
+                Label("Added Gradients", systemImage: "plus.square.on.square")
                     .font(.system(size: 14, weight: .black))
                 Spacer()
                 Button {
                     theme.addCustomColor()
                 } label: {
-                    Label("Add Color", systemImage: "plus.circle.fill")
+                    Label("Add Gradient", systemImage: "plus.circle.fill")
                 }
                 .font(.caption.weight(.bold))
             }
 
             if theme.customColors.isEmpty {
-                Text("No added colors yet.")
+                Text("No added gradients yet.")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(theme.color(.mutedText))
             } else {
@@ -5895,45 +6024,70 @@ private struct CustomColorStopsEditor: View {
 private struct CustomColorStopRow: View {
     @EnvironmentObject private var theme: BrowserTheme
     let color: BrowserCustomThemeColor
+    @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
                 TextField("Color name", text: nameBinding)
                     .font(.system(size: 14, weight: .bold))
                     .textInputAutocapitalization(.words)
 
-                ColorPicker("Color", selection: baseColorBinding, supportsOpacity: false)
-                    .labelsHidden()
-                ColorPicker("Gradient", selection: gradientColorBinding, supportsOpacity: false)
-                    .labelsHidden()
+                HStack(spacing: 12) {
+                    ColorPicker("Color", selection: baseColorBinding, supportsOpacity: false)
+                    ColorPicker("Gradient", selection: gradientColorBinding, supportsOpacity: false)
+                }
+
+                GradientFocusCanvas(
+                    title: "Gradient position",
+                    baseColor: Color(hex: currentColor.colorHex),
+                    gradientColor: Color(hex: currentColor.gradientHex),
+                    focusX: currentColor.gradientX ?? currentColor.location,
+                    focusY: currentColor.gradientY ?? 0.5
+                ) { x, y in
+                    theme.setCustomGradientFocus(x: x, y: y, for: color)
+                }
 
                 Button(role: .destructive) {
                     theme.removeCustomColor(color)
                 } label: {
-                    Image(systemName: "trash")
+                    Label("Remove Gradient", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlideGradientButtonStyle(prominence: .quiet, minHeight: 34))
                 .accessibilityLabel("Remove \(color.name)")
             }
+            .padding(.top, 10)
+        } label: {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(hex: currentColor.colorHex), Color(hex: currentColor.gradientHex)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 34, height: 34)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(Color(hex: currentColor.colorHex).opacity(0.72), lineWidth: 1)
+                    }
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Gradient position")
-                    Spacer()
-                    Text("\(Int((color.location * 100).rounded()))%")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(currentColor.name)
+                        .font(.system(size: 14, weight: .black))
+                    Text("\(Int(((currentColor.gradientX ?? currentColor.location) * 100).rounded()))% / \(Int(((currentColor.gradientY ?? 0.5) * 100).rounded()))%")
+                        .font(.caption2.weight(.bold))
                         .foregroundStyle(theme.color(.mutedText))
                 }
-                .font(.caption.weight(.semibold))
-
-                Slider(value: locationBinding, in: 0...1, step: 0.01)
             }
         }
         .padding(10)
         .background(ControlGlassBackground(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: color.colorHex).opacity(0.72), lineWidth: 1)
+                .stroke(Color(hex: currentColor.colorHex).opacity(isExpanded ? 0.82 : 0.52), lineWidth: 1)
         }
     }
 
@@ -5958,15 +6112,91 @@ private struct CustomColorStopRow: View {
         )
     }
 
-    private var locationBinding: Binding<Double> {
-        Binding(
-            get: { currentColor.location },
-            set: { theme.setCustomColorLocation($0, for: color) }
+    private var currentColor: BrowserCustomThemeColor {
+        theme.customColors.first { $0.id == color.id } ?? color
+    }
+}
+
+private struct GradientFocusCanvas: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let title: String
+    let baseColor: Color
+    let gradientColor: Color
+    let focusX: Double
+    let focusY: Double
+    let onFocusChanged: (Double, Double) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(Int((focusX * 100).rounded()))% / \(Int((focusY * 100).rounded()))%")
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+            .font(.caption.weight(.semibold))
+
+            GeometryReader { proxy in
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    baseColor,
+                                    gradientColor,
+                                    baseColor.opacity(0.68)
+                                ],
+                                startPoint: UnitPoint(x: 1.0 - focusX, y: 1.0 - focusY),
+                                endPoint: UnitPoint(x: focusX, y: focusY)
+                            )
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
+                        }
+
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    gradientColor,
+                                    baseColor.opacity(0.88)
+                                ],
+                                center: .center,
+                                startRadius: 1,
+                                endRadius: 18
+                            )
+                        )
+                        .frame(width: 34, height: 34)
+                        .overlay {
+                            Circle()
+                                .stroke(Color.white.opacity(0.88), lineWidth: 2)
+                        }
+                        .shadow(color: Color.black.opacity(0.32), radius: 9, y: 5)
+                        .position(handlePosition(in: proxy.size))
+                        .gesture(handleDrag(in: proxy.size))
+                }
+            }
+            .frame(height: 118)
+        }
+    }
+
+    private func handlePosition(in size: CGSize) -> CGPoint {
+        CGPoint(
+            x: min(max(CGFloat(focusX) * size.width, 18), max(18, size.width - 18)),
+            y: min(max(CGFloat(focusY) * size.height, 18), max(18, size.height - 18))
         )
     }
 
-    private var currentColor: BrowserCustomThemeColor {
-        theme.customColors.first { $0.id == color.id } ?? color
+    private func handleDrag(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                onFocusChanged(
+                    Double(min(max(value.location.x / size.width, 0), 1)),
+                    Double(min(max(value.location.y / size.height, 0), 1))
+                )
+            }
     }
 }
 
@@ -7304,8 +7534,8 @@ private struct BrowserBackground: View {
                     ] + theme.customGradientColors.map { $0.opacity(0.72) } + [
                         theme.color(.canvas)
                     ],
-                    startPoint: theme.gradientStartPoint,
-                    endPoint: theme.gradientEndPoint
+                    startPoint: theme.gradientStartPoint(for: .canvas),
+                    endPoint: theme.gradientEndPoint(for: .canvas)
                 )
                 .ignoresSafeArea()
             }
@@ -7518,7 +7748,6 @@ private struct BrowserSettingsView: View {
                         ProfileCustomizationPanel()
                         WebsiteResolutionControl()
                         QuickColorStudio()
-                        GradientMotionControl()
 
                         Button {
                             model.isFeatureUpdatePresented = true
@@ -7526,7 +7755,7 @@ private struct BrowserSettingsView: View {
                             Label("Show New Features", systemImage: "sparkles")
                         }
                     } label: {
-                        Label("Huge Customization Update", systemImage: "wand.and.stars.inverse")
+                        Label("Gliders & Displays", systemImage: "wand.and.stars.inverse")
                     }
                 }
 
@@ -8063,31 +8292,15 @@ private struct BrowserSettingsView: View {
 
                 Section {
                     DisclosureGroup {
-                    ForEach(BrowserThemeToken.allCases) { token in
-                        HStack(spacing: 12) {
-                            ColorPicker(token.title, selection: theme.binding(for: token), supportsOpacity: false)
-
-                            Spacer(minLength: 8)
-
-                            Text("Gradient")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(theme.color(.mutedText))
-
-                            ColorPicker(
-                                "\(token.title) gradient color",
-                                selection: theme.gradientBinding(for: token),
-                                supportsOpacity: false
-                            )
-                            .labelsHidden()
+                        ForEach(BrowserThemeToken.allCases) { token in
+                            ThemeColorGradientMenu(token: token)
                         }
-                    }
 
-                    CustomColorStopsEditor()
-                    GradientMotionControl()
+                        CustomColorStopsEditor()
 
-                    Button("Reset to Zen dark defaults") {
-                        theme.resetToZenDefaults()
-                    }
+                        Button("Reset to Zen dark defaults") {
+                            theme.resetToZenDefaults()
+                        }
                     } label: {
                         Label("Colors", systemImage: "eyedropper")
                     }

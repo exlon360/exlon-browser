@@ -102,6 +102,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     var gradientStartY: Double?
     var gradientEndX: Double?
     var gradientEndY: Double?
+    var gradientPositionsByToken: [String: BrowserGradientPosition]?
     var customColors: [BrowserCustomThemeColor]?
     var isTabBarTransparencyEnabled: Bool
     var tabBarTransparency: Double
@@ -121,6 +122,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         gradientStartY: Double? = nil,
         gradientEndX: Double? = nil,
         gradientEndY: Double? = nil,
+        gradientPositionsByToken: [String: BrowserGradientPosition]? = nil,
         customColors: [BrowserCustomThemeColor]? = nil,
         isTabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
@@ -139,6 +141,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         self.gradientStartY = gradientStartY
         self.gradientEndX = gradientEndX
         self.gradientEndY = gradientEndY
+        self.gradientPositionsByToken = gradientPositionsByToken
         self.customColors = customColors
         self.isTabBarTransparencyEnabled = isTabBarTransparencyEnabled
         self.tabBarTransparency = tabBarTransparency
@@ -151,25 +154,67 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     }
 }
 
+struct BrowserGradientPosition: Codable, Equatable {
+    var startX: Double
+    var startY: Double
+    var endX: Double
+    var endY: Double
+
+    init(startX: Double = 0.0, startY: Double = 0.0, endX: Double = 1.0, endY: Double = 1.0) {
+        self.startX = min(max(startX, 0), 1)
+        self.startY = min(max(startY, 0), 1)
+        self.endX = min(max(endX, 0), 1)
+        self.endY = min(max(endY, 0), 1)
+    }
+
+    init(focusX: Double, focusY: Double) {
+        let x = min(max(focusX, 0), 1)
+        let y = min(max(focusY, 0), 1)
+        self.init(startX: 1.0 - x, startY: 1.0 - y, endX: x, endY: y)
+    }
+
+    var startPoint: UnitPoint {
+        UnitPoint(x: startX, y: startY)
+    }
+
+    var endPoint: UnitPoint {
+        UnitPoint(x: endX, y: endY)
+    }
+
+    var focusX: Double {
+        endX
+    }
+
+    var focusY: Double {
+        endY
+    }
+}
+
 struct BrowserCustomThemeColor: Identifiable, Codable, Equatable {
     var id: UUID
     var name: String
     var colorHex: String
     var gradientHex: String
     var location: Double
+    var gradientX: Double?
+    var gradientY: Double?
 
     init(
         id: UUID = UUID(),
         name: String,
         colorHex: String,
         gradientHex: String,
-        location: Double
+        location: Double,
+        gradientX: Double? = nil,
+        gradientY: Double? = nil
     ) {
         self.id = id
         self.name = name
         self.colorHex = colorHex
         self.gradientHex = gradientHex
         self.location = min(max(location, 0), 1)
+        self.gradientX = gradientX.map { min(max($0, 0), 1) }
+        self.gradientY = gradientY.map { min(max($0, 0), 1) }
     }
 }
 
@@ -181,6 +226,11 @@ extension UTType {
 final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
     @Published private var gradientColorHexByToken: [BrowserThemeToken: String]
+    @Published private var gradientPositionByToken: [String: BrowserGradientPosition] {
+        didSet {
+            vault.save(gradientPositionByToken, forKey: Self.gradientPositionByTokenKey)
+        }
+    }
     @Published var customColors: [BrowserCustomThemeColor] {
         didSet {
             vault.save(customColors, forKey: Self.customColorsKey)
@@ -269,6 +319,7 @@ final class BrowserTheme: ObservableObject {
     private static let gradientStartYKey = "\(storagePrefix)gradientStartY"
     private static let gradientEndXKey = "\(storagePrefix)gradientEndX"
     private static let gradientEndYKey = "\(storagePrefix)gradientEndY"
+    private static let gradientPositionByTokenKey = "\(storagePrefix)gradientPositionByToken"
     private static let customColorsKey = "\(storagePrefix)customColors"
     private static let videoBackgroundMinimumDuration = 5.0
     private static let videoBackgroundMaximumDuration = 15.0 * 60.0
@@ -287,12 +338,22 @@ final class BrowserTheme: ObservableObject {
                 default: token.defaultGradientHex
             )
         }
+        let legacyGradientPosition = BrowserGradientPosition(
+            startX: Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientStartXKey, default: 0.0)),
+            startY: Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientStartYKey, default: 0.0)),
+            endX: Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndXKey, default: 1.0)),
+            endY: Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndYKey, default: 1.0))
+        )
         self.colorHexByToken = values
         self.gradientColorHexByToken = gradientValues
-        self.gradientStartX = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientStartXKey, default: 0.0))
-        self.gradientStartY = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientStartYKey, default: 0.0))
-        self.gradientEndX = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndXKey, default: 1.0))
-        self.gradientEndY = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndYKey, default: 1.0))
+        self.gradientPositionByToken = Self.normalizedGradientPositions(
+            vault.load([String: BrowserGradientPosition].self, forKey: Self.gradientPositionByTokenKey, default: [:]),
+            fallback: legacyGradientPosition
+        )
+        self.gradientStartX = legacyGradientPosition.startX
+        self.gradientStartY = legacyGradientPosition.startY
+        self.gradientEndX = legacyGradientPosition.endX
+        self.gradientEndY = legacyGradientPosition.endY
         self.customColors = Self.normalizedCustomColors(
             vault.load([BrowserCustomThemeColor].self, forKey: Self.customColorsKey, default: [])
         )
@@ -354,6 +415,12 @@ final class BrowserTheme: ObservableObject {
         ]
     }
 
+    var gradientPositionConfigByToken: [String: BrowserGradientPosition] {
+        Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
+            (token.rawValue, gradientPosition(for: token))
+        })
+    }
+
     var customGradientColors: [Color] {
         customColors
             .sorted { $0.location < $1.location }
@@ -411,6 +478,23 @@ final class BrowserTheme: ObservableObject {
         )
     }
 
+    func gradientPosition(for token: BrowserThemeToken) -> BrowserGradientPosition {
+        gradientPositionByToken[token.rawValue] ?? BrowserGradientPosition(
+            startX: gradientStartX,
+            startY: gradientStartY,
+            endX: gradientEndX,
+            endY: gradientEndY
+        )
+    }
+
+    func gradientStartPoint(for token: BrowserThemeToken) -> UnitPoint {
+        gradientPosition(for: token).startPoint
+    }
+
+    func gradientEndPoint(for token: BrowserThemeToken) -> UnitPoint {
+        gradientPosition(for: token).endPoint
+    }
+
     func setColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultHex
         colorHexByToken[token] = hex
@@ -426,11 +510,21 @@ final class BrowserTheme: ObservableObject {
     func updateGradientStart(x: Double, y: Double) {
         gradientStartX = x
         gradientStartY = y
+        syncLegacyGradientPositionToAllTokens()
     }
 
     func updateGradientEnd(x: Double, y: Double) {
         gradientEndX = x
         gradientEndY = y
+        syncLegacyGradientPositionToAllTokens()
+    }
+
+    func updateGradientFocus(x: Double, y: Double, for token: BrowserThemeToken) {
+        gradientPositionByToken[token.rawValue] = BrowserGradientPosition(focusX: x, focusY: y)
+    }
+
+    func resetGradientFocus(for token: BrowserThemeToken) {
+        gradientPositionByToken[token.rawValue] = BrowserGradientPosition()
     }
 
     func resetGradientMotion() {
@@ -438,6 +532,7 @@ final class BrowserTheme: ObservableObject {
         gradientStartY = 0.0
         gradientEndX = 1.0
         gradientEndY = 1.0
+        gradientPositionByToken = Self.normalizedGradientPositions([:], fallback: BrowserGradientPosition())
     }
 
     @discardableResult
@@ -453,7 +548,9 @@ final class BrowserTheme: ObservableObject {
             name: preset.0,
             colorHex: preset.1,
             gradientHex: preset.2,
-            location: customColors.isEmpty ? 0.5 : min(0.92, 0.18 + (Double(customColors.count) * 0.18))
+            location: customColors.isEmpty ? 0.5 : min(0.92, 0.18 + (Double(customColors.count) * 0.18)),
+            gradientX: customColors.isEmpty ? 0.5 : min(0.92, 0.18 + (Double(customColors.count) * 0.18)),
+            gradientY: 0.5
         )
         customColors.append(stop)
         return stop
@@ -484,6 +581,14 @@ final class BrowserTheme: ObservableObject {
         customColors[index].location = Self.clampedUnit(location)
     }
 
+    func setCustomGradientFocus(x: Double, y: Double, for customColor: BrowserCustomThemeColor) {
+        guard let index = customColors.firstIndex(where: { $0.id == customColor.id }) else { return }
+        let clampedX = Self.clampedUnit(x)
+        customColors[index].gradientX = clampedX
+        customColors[index].gradientY = Self.clampedUnit(y)
+        customColors[index].location = clampedX
+    }
+
     func currentTheme(named rawName: String) -> SavedBrowserTheme {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let themeName = trimmedName.isEmpty ? "Glide Theme" : trimmedName
@@ -497,6 +602,7 @@ final class BrowserTheme: ObservableObject {
             gradientStartY: gradientStartY,
             gradientEndX: gradientEndX,
             gradientEndY: gradientEndY,
+            gradientPositionsByToken: gradientPositionConfigByToken,
             customColors: customColors,
             isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
             tabBarTransparency: tabBarTransparency,
@@ -537,6 +643,7 @@ final class BrowserTheme: ObservableObject {
         colors: [String: String],
         gradientColors: [String: String]?,
         gradientCoordinates: [String: Double]?,
+        gradientPositionsByToken: [String: BrowserGradientPosition]?,
         customColors: [BrowserCustomThemeColor]?,
         tabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
@@ -561,6 +668,18 @@ final class BrowserTheme: ObservableObject {
             gradientStartY = gradientCoordinates["startY"] ?? gradientStartY
             gradientEndX = gradientCoordinates["endX"] ?? gradientEndX
             gradientEndY = gradientCoordinates["endY"] ?? gradientEndY
+            syncLegacyGradientPositionToAllTokens()
+        }
+        if let gradientPositionsByToken {
+            self.gradientPositionByToken = Self.normalizedGradientPositions(
+                gradientPositionsByToken,
+                fallback: BrowserGradientPosition(
+                    startX: gradientStartX,
+                    startY: gradientStartY,
+                    endX: gradientEndX,
+                    endY: gradientEndY
+                )
+            )
         }
         if let customColors {
             self.customColors = Self.normalizedCustomColors(customColors)
@@ -695,6 +814,19 @@ final class BrowserTheme: ObservableObject {
         gradientStartY = savedTheme.gradientStartY ?? 0.0
         gradientEndX = savedTheme.gradientEndX ?? 1.0
         gradientEndY = savedTheme.gradientEndY ?? 1.0
+        if let gradientPositionsByToken = savedTheme.gradientPositionsByToken {
+            gradientPositionByToken = Self.normalizedGradientPositions(
+                gradientPositionsByToken,
+                fallback: BrowserGradientPosition(
+                    startX: gradientStartX,
+                    startY: gradientStartY,
+                    endX: gradientEndX,
+                    endY: gradientEndY
+                )
+            )
+        } else {
+            syncLegacyGradientPositionToAllTokens()
+        }
         customColors = Self.normalizedCustomColors(savedTheme.customColors ?? [])
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
         tabBarTransparency = savedTheme.tabBarTransparency
@@ -775,6 +907,18 @@ final class BrowserTheme: ObservableObject {
         vault.save(savedThemes, forKey: Self.savedThemesKey)
     }
 
+    private func syncLegacyGradientPositionToAllTokens() {
+        gradientPositionByToken = Self.normalizedGradientPositions(
+            [:],
+            fallback: BrowserGradientPosition(
+                startX: gradientStartX,
+                startY: gradientStartY,
+                endX: gradientEndX,
+                endY: gradientEndY
+            )
+        )
+    }
+
     private func migrateLoadedThemeToEncryptedVault() {
         for token in BrowserThemeToken.allCases {
             vault.save(colorHexByToken[token] ?? token.defaultHex, forKey: Self.storageKey(for: token))
@@ -789,6 +933,7 @@ final class BrowserTheme: ObservableObject {
         vault.save(gradientStartY, forKey: Self.gradientStartYKey)
         vault.save(gradientEndX, forKey: Self.gradientEndXKey)
         vault.save(gradientEndY, forKey: Self.gradientEndYKey)
+        vault.save(gradientPositionByToken, forKey: Self.gradientPositionByTokenKey)
         vault.save(customColors, forKey: Self.customColorsKey)
         vault.save(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
         if let userBackgroundImageData = userBackgroundImageData {
@@ -961,11 +1106,31 @@ final class BrowserTheme: ObservableObject {
                 name: name,
                 colorHex: colorHex,
                 gradientHex: gradientHex,
-                location: clampedUnit(rawColor.location)
+                location: clampedUnit(rawColor.location),
+                gradientX: clampedUnit(rawColor.gradientX ?? rawColor.location),
+                gradientY: clampedUnit(rawColor.gradientY ?? 0.5)
             )
         }
         .prefix(24)
         .map { $0 }
+    }
+
+    private static func normalizedGradientPositions(
+        _ positions: [String: BrowserGradientPosition],
+        fallback: BrowserGradientPosition
+    ) -> [String: BrowserGradientPosition] {
+        Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
+            let rawPosition = positions[token.rawValue] ?? fallback
+            return (
+                token.rawValue,
+                BrowserGradientPosition(
+                    startX: clampedUnit(rawPosition.startX),
+                    startY: clampedUnit(rawPosition.startY),
+                    endX: clampedUnit(rawPosition.endX),
+                    endY: clampedUnit(rawPosition.endY)
+                )
+            )
+        })
     }
 
     private static func safeThemeFilename(_ filename: String) -> String {

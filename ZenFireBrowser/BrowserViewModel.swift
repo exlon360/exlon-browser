@@ -1063,7 +1063,7 @@ final class BrowserViewModel: ObservableObject {
     static let infiniteForcedFPSValue = 241.0
     static let minimumWebsiteResolutionScale = 0.72
     static let maximumWebsiteResolutionScale = 1.36
-    static let currentFeatureUpdateVersion = 3
+    static let currentFeatureUpdateVersion = 4
     static var supportsDesktopZenMode: Bool {
         #if targetEnvironment(macCatalyst)
         return true
@@ -2899,6 +2899,7 @@ final class BrowserViewModel: ObservableObject {
             colors: theme.colorConfig,
             gradientColors: theme.gradientColorConfig,
             gradientCoordinates: theme.gradientCoordinateConfig,
+            gradientPositionsByToken: theme.gradientPositionConfigByToken,
             customColors: theme.customColors
         )
 
@@ -2999,6 +3000,7 @@ final class BrowserViewModel: ObservableObject {
             colors: config.colors,
             gradientColors: config.gradientColors,
             gradientCoordinates: config.gradientCoordinates,
+            gradientPositionsByToken: config.gradientPositionsByToken,
             customColors: config.customColors,
             tabBarTransparencyEnabled: config.tabBarTransparencyEnabled,
             tabBarTransparency: config.tabBarTransparency,

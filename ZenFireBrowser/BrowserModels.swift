@@ -1123,6 +1123,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var colors: [String: String]
     var gradientColors: [String: String]?
     var gradientCoordinates: [String: Double]?
+    var gradientPositionsByToken: [String: BrowserGradientPosition]?
     var customColors: [BrowserCustomThemeColor]?
 }
 
