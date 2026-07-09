@@ -476,12 +476,14 @@ private struct BrowserShell: View {
                     }
                 }
 
-                MovableBrowserPageControls(
-                    containerSize: layoutSize,
-                    defaultLeading: pageControlsLeadingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience),
-                    defaultTop: pageControlsTopPadding
-                )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                if model.isTopSearchBarEnabled == false {
+                    MovableBrowserPageControls(
+                        containerSize: layoutSize,
+                        defaultLeading: pageControlsLeadingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience),
+                        defaultTop: pageControlsTopPadding
+                    )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
 
                 if model.isPrivateModeEnabled {
                     PrivateModeBadge()
@@ -491,7 +493,7 @@ private struct BrowserShell: View {
                 }
 
                 if model.isTopSearchBarEnabled {
-                    MovableTopSearchBar(
+                    MovableBrowserToolbar(
                         containerSize: layoutSize,
                         topInset: topSearchBarTopPadding,
                         bottomInset: topSearchBarBottomPadding,
@@ -501,7 +503,7 @@ private struct BrowserShell: View {
                 }
 
                 if model.isTopSearchBarMoveMode {
-                    TopSearchBarMoveControls()
+                    ToolbarMoveControls()
                         .padding(.horizontal, 16)
                         .padding(.bottom, 18)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -587,12 +589,6 @@ private struct BrowserShell: View {
             }
             .sheet(isPresented: $model.isTabFinderPresented) {
                 BrowserTabFinderView()
-                    .environmentObject(model)
-                    .environmentObject(theme)
-                    .preferredColorScheme(.dark)
-            }
-            .sheet(isPresented: $model.isTabFoldersPresented) {
-                BrowserTabFoldersView()
                     .environmentObject(model)
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
@@ -1597,11 +1593,7 @@ private struct SideChrome: View {
                     if model.isPrivateModeEnabled {
                         TabSection(title: "Private Mode", tabs: model.visiblePrivateTabs)
                     } else {
-                        TabSection(title: "Tabs", tabs: model.visibleNormalTabs)
-
-                        if model.visiblePrivateTabs.isEmpty == false {
-                            TabSection(title: "Private", tabs: model.visiblePrivateTabs)
-                        }
+                        ZenSidebarTabsSection()
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -1701,7 +1693,7 @@ private struct TraditionalTopChrome: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("New Tab")
 
-                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.tabFolders) == false {
+                if model.isPrivateModeEnabled == false && model.isActionRelocated(.tabFolders) == false {
                     TabFoldersToolbarButton()
                 }
 
@@ -1865,14 +1857,14 @@ private struct FloatingChrome: View {
                         model.openFloatingSearch()
                     }
 
-                    if model.isInMoreMenu(.back) == false {
+                    if model.isActionRelocated(.back) == false {
                         ChromeButton(slot: .back, symbol: "chevron.left", label: "Back") {
                             model.goBack()
                         }
                         .disabled(model.selectedTab?.canGoBack != true)
                     }
 
-                    if model.isInMoreMenu(.forward) == false {
+                    if model.isActionRelocated(.forward) == false {
                         ChromeButton(slot: .forward, symbol: "chevron.right", label: "Forward") {
                             model.goForward()
                         }
@@ -1881,71 +1873,71 @@ private struct FloatingChrome: View {
 
                     FloatingTabSwitcher()
 
-                    if model.isInMoreMenu(.tabFinder) == false {
+                    if model.isActionRelocated(.tabFinder) == false {
                         ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
                             model.isTabFinderPresented = true
                         }
                     }
 
-                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.tabFolders) == false {
+                    if model.isPrivateModeEnabled == false && model.isActionRelocated(.tabFolders) == false {
                         TabFoldersToolbarButton()
                     }
 
-                    if model.isInMoreMenu(.closeAllTabs) == false {
+                    if model.isActionRelocated(.closeAllTabs) == false {
                         ChromeButton(slot: .closeAllTabs, symbol: "xmark.square", label: "Close All Tabs") {
                             model.requestCloseAllTabs()
                         }
                     }
 
-                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.containedTabs) == false {
+                    if model.isPrivateModeEnabled == false && model.isActionRelocated(.containedTabs) == false {
                         ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                             model.showContainedTabs()
                         }
                     }
 
-                    if model.isInMoreMenu(.reload) == false {
+                    if model.isActionRelocated(.reload) == false {
                         ChromeButton(slot: model.selectedTab?.isLoading == true ? nil : .reload, symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                             model.reloadOrStop()
                         }
                     }
 
-                    if model.isInMoreMenu(.websiteMode) == false {
+                    if model.isActionRelocated(.websiteMode) == false {
                         WebsiteModeButton()
                     }
 
-                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.vpnCountry) == false {
+                    if model.isPrivateModeEnabled == false && model.isActionRelocated(.vpnCountry) == false {
                         VPNCountryToolbarButton()
                     }
 
-                    if model.isInMoreMenu(.passwordManager) == false {
+                    if model.isActionRelocated(.passwordManager) == false {
                         PasswordManagerToolbarButton()
                     }
 
-                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloadCurrent) == false {
+                    if model.isPrivateModeEnabled == false && model.isActionRelocated(.downloadCurrent) == false {
                         ChromeButton(slot: .downloadCurrent, symbol: "arrow.down.doc", label: "Download Current Page") {
                             model.downloadSelectedTab()
                         }
                     }
 
-                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.history) == false {
+                    if model.isPrivateModeEnabled == false && model.isActionRelocated(.history) == false {
                         ChromeButton(slot: .history, symbol: "clock.arrow.circlepath", label: "History") {
                             model.isHistoryPresented = true
                         }
                     }
 
-                    if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloads) == false {
+                    if model.isPrivateModeEnabled == false && model.isActionRelocated(.downloads) == false {
                         ChromeButton(slot: .downloads, symbol: "arrow.down.circle", label: "Downloads") {
                             model.isDownloadsPresented = true
                         }
                     }
 
-                    if model.isInMoreMenu(.browserMusic) == false {
+                    if model.isActionRelocated(.browserMusic) == false {
                         BrowserMusicToolbarButton()
                     }
 
                     TabBarStyleControl(compact: true)
 
-                    if model.isInMoreMenu(.settings) == false {
+                    if model.isActionRelocated(.settings) == false {
                         ChromeButton(slot: .settings, symbol: "gearshape", label: "Settings") {
                             model.isSettingsPresented = true
                         }
@@ -2004,87 +1996,87 @@ private struct ChromeFooter: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                if model.isInMoreMenu(.back) == false {
+                if model.isActionRelocated(.back) == false {
                     ChromeButton(slot: .back, symbol: "chevron.left", label: "Back") {
                         model.goBack()
                     }
                     .disabled(model.selectedTab?.canGoBack != true)
                 }
 
-                if model.isInMoreMenu(.forward) == false {
+                if model.isActionRelocated(.forward) == false {
                     ChromeButton(slot: .forward, symbol: "chevron.right", label: "Forward") {
                         model.goForward()
                     }
                     .disabled(model.selectedTab?.canGoForward != true)
                 }
 
-                if model.isInMoreMenu(.reload) == false {
+                if model.isActionRelocated(.reload) == false {
                     ChromeButton(slot: model.selectedTab?.isLoading == true ? nil : .reload, symbol: model.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", label: "Reload") {
                         model.reloadOrStop()
                     }
                 }
 
-                if model.isInMoreMenu(.websiteMode) == false {
+                if model.isActionRelocated(.websiteMode) == false {
                     WebsiteModeButton()
                 }
 
-                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.vpnCountry) == false {
+                if model.isPrivateModeEnabled == false && model.isActionRelocated(.vpnCountry) == false {
                     VPNCountryToolbarButton()
                 }
 
-                if model.isInMoreMenu(.passwordManager) == false {
+                if model.isActionRelocated(.passwordManager) == false {
                     PasswordManagerToolbarButton()
                 }
 
-                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.history) == false {
+                if model.isPrivateModeEnabled == false && model.isActionRelocated(.history) == false {
                     ChromeButton(slot: .history, symbol: "clock.arrow.circlepath", label: "History") {
                         model.isHistoryPresented = true
                     }
                 }
 
-                if model.isInMoreMenu(.tabFinder) == false {
+                if model.isActionRelocated(.tabFinder) == false {
                     ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
                         model.isTabFinderPresented = true
                     }
                 }
 
-                if model.chromePlacement != .top && model.isPrivateModeEnabled == false && model.isInMoreMenu(.tabFolders) == false {
+                if model.chromePlacement != .top && model.isPrivateModeEnabled == false && model.isActionRelocated(.tabFolders) == false {
                     TabFoldersToolbarButton()
                 }
 
-                if model.isInMoreMenu(.closeAllTabs) == false {
+                if model.isActionRelocated(.closeAllTabs) == false {
                     ChromeButton(slot: .closeAllTabs, symbol: "xmark.square", label: "Close All Tabs") {
                         model.requestCloseAllTabs()
                     }
                 }
 
-                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloadCurrent) == false {
+                if model.isPrivateModeEnabled == false && model.isActionRelocated(.downloadCurrent) == false {
                     ChromeButton(slot: .downloadCurrent, symbol: "arrow.down.doc", label: "Download Current Page") {
                         model.downloadSelectedTab()
                     }
                 }
 
-                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.downloads) == false {
+                if model.isPrivateModeEnabled == false && model.isActionRelocated(.downloads) == false {
                     ChromeButton(slot: .downloads, symbol: "arrow.down.circle", label: "Downloads") {
                         model.isDownloadsPresented = true
                     }
                 }
 
-                if model.isPrivateModeEnabled == false && model.isInMoreMenu(.containedTabs) == false {
+                if model.isPrivateModeEnabled == false && model.isActionRelocated(.containedTabs) == false {
                     ChromeButton(slot: .containedTabs, symbol: "rectangle.on.rectangle", label: "Contained Tabs") {
                         model.showContainedTabs()
                     }
                 }
 
-                if model.isInMoreMenu(.browserMusic) == false {
+                if model.isActionRelocated(.browserMusic) == false {
                     BrowserMusicToolbarButton()
                 }
 
-                if model.isInMoreMenu(.placement) == false {
+                if model.isActionRelocated(.placement) == false {
                     PlacementMenu()
                 }
 
-                if model.isInMoreMenu(.settings) == false {
+                if model.isActionRelocated(.settings) == false {
                     ChromeButton(slot: .settings, symbol: "gearshape", label: "Settings") {
                         model.isSettingsPresented = true
                     }
@@ -2749,7 +2741,7 @@ private struct SearchResultsList: View {
     }
 }
 
-private struct MovableTopSearchBar: View {
+private struct MovableBrowserToolbar: View {
     @EnvironmentObject private var model: BrowserViewModel
     let containerSize: CGSize
     let topInset: CGFloat
@@ -2759,7 +2751,7 @@ private struct MovableTopSearchBar: View {
     var body: some View {
         let metrics = layoutMetrics
 
-        BrowserTopSearchBar(
+        BrowserTopToolbar(
             isMoving: model.isTopSearchBarMoveMode,
             autoCompactOnSubmit: experience == .phone && model.autoCompactAfterSearchOnPhone
         )
@@ -2786,7 +2778,7 @@ private struct MovableTopSearchBar: View {
     private var layoutMetrics: (width: CGFloat, height: CGFloat, minX: CGFloat, maxX: CGFloat, minY: CGFloat, maxY: CGFloat) {
         let margin: CGFloat = 16
         let height: CGFloat = 50
-        let width = min(760, max(1, containerSize.width - (margin * 2)))
+        let width = min(880, max(1, containerSize.width - (margin * 2)))
         let minX = margin + (width / 2)
         let maxX = max(minX, containerSize.width - margin - (width / 2))
         let minY = topInset + (height / 2)
@@ -2814,7 +2806,7 @@ private struct MovableTopSearchBar: View {
     }
 }
 
-private struct TopSearchBarMoveControls: View {
+private struct ToolbarMoveControls: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
 
@@ -2834,7 +2826,7 @@ private struct TopSearchBarMoveControls: View {
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
-            .accessibilityLabel("Reset top search bar position")
+            .accessibilityLabel("Reset toolbar position")
 
             Button {
                 model.saveTopSearchBarMove()
@@ -2930,7 +2922,7 @@ private struct PageControlsMoveControls: View {
     }
 }
 
-private struct BrowserTopSearchBar: View {
+private struct BrowserTopToolbar: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @State private var shouldSelectText = false
@@ -2943,54 +2935,92 @@ private struct BrowserTopSearchBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            BrowserIcon(
-                slot: model.selectedTab?.isPrivate == true ? .privateTab : .search,
-                systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass",
-                size: 16,
-                weight: .semibold
-            )
-            .frame(width: 22, height: 22)
-            .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
-
-            SelectableAddressTextField(
-                text: addressBinding,
-                placeholder: "Search \(model.searchEngine.title) or enter address",
-                textColor: UIColor(theme.color(.text)),
-                placeholderColor: UIColor(theme.color(.mutedText)),
-                tintColor: UIColor(theme.color(.createTab)),
-                shouldFocus: false,
-                shouldSelectText: $shouldSelectText
-            ) {
-                model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
+        HStack(spacing: 6) {
+            if model.toolbarActions.isEmpty == false {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(model.toolbarActions) { action in
+                            ToolbarToolButton(action: action)
+                        }
+                    }
+                }
+                .frame(width: toolbarToolsWidth)
+                .layoutPriority(2)
             }
-            .frame(height: 32)
+
+            HStack(spacing: 7) {
+                BrowserIcon(
+                    slot: model.selectedTab?.isPrivate == true ? .privateTab : .search,
+                    systemName: model.selectedTab?.isPrivate == true ? "lock.shield" : "magnifyingglass",
+                    size: 14,
+                    weight: .semibold
+                )
+                .frame(width: 20, height: 20)
+                .foregroundStyle(model.selectedTab?.isPrivate == true ? theme.color(.privateAccent) : theme.color(.accent))
+
+                SelectableAddressTextField(
+                    text: addressBinding,
+                    placeholder: "Search or enter address",
+                    textColor: UIColor(theme.color(.text)),
+                    placeholderColor: UIColor(theme.color(.mutedText)),
+                    tintColor: UIColor(theme.color(.createTab)),
+                    shouldFocus: false,
+                    shouldSelectText: $shouldSelectText
+                ) {
+                    model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
+                }
+                .frame(minWidth: 72, minHeight: 30)
+
+                Button {
+                    model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
+                } label: {
+                    BrowserIcon(slot: .go, systemName: "arrow.up.circle.fill", size: 21, weight: .semibold)
+                        .frame(width: 26, height: 30)
+                        .foregroundStyle(theme.color(.createTab))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Go")
+            }
+            .padding(.leading, 9)
+            .padding(.trailing, 5)
+            .frame(height: 38)
+            .frame(maxWidth: .infinity)
+            .background(theme.color(.canvas).opacity(0.34), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.48), lineWidth: 1)
+            }
+            .layoutPriority(1)
 
             Button {
-                model.submitAddress(autoCompactChrome: autoCompactOnSubmit)
+                model.isAddOnsPresented = true
             } label: {
-                BrowserIcon(slot: .go, systemName: "arrow.up.circle.fill", size: 24, weight: .semibold)
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(theme.color(.createTab))
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "puzzlepiece")
+                        .font(.system(size: 15, weight: .bold))
+                        .frame(width: 38, height: 38)
+
+                    if enabledExtensionCount > 0 {
+                        Text("\(min(enabledExtensionCount, 9))")
+                            .font(.system(size: 8, weight: .black))
+                            .foregroundStyle(theme.color(.canvas))
+                            .frame(width: 14, height: 14)
+                            .background(theme.color(.createTab), in: Circle())
+                            .offset(x: 1, y: -1)
+                    }
+                }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Go")
+            .foregroundStyle(theme.color(.text))
+            .background(ControlGlassBackground(cornerRadius: 7))
+            .accessibilityLabel("Extensions")
+            .help("Extensions")
 
-            if model.isPrivateModeEnabled {
-                Text("Private Mode")
-                    .font(.caption2.weight(.black))
-                    .foregroundStyle(theme.color(.text))
-                    .lineLimit(1)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(theme.color(.privateAccent).opacity(0.72), in: Capsule())
-            }
-
-            TopSearchOptionsMenu()
+            MoreTabButton()
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 7)
         .frame(height: 50)
-        .frame(maxWidth: 760)
+        .frame(maxWidth: 880)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -3016,86 +3046,99 @@ private struct BrowserTopSearchBar: View {
             set: { model.selectedTab?.addressText = $0 }
         )
     }
-}
 
-private struct TopSearchOptionsMenu: View {
-    @EnvironmentObject private var model: BrowserViewModel
-    @EnvironmentObject private var theme: BrowserTheme
-
-    var body: some View {
-        Menu {
-            Button {
-                model.openFloatingSearch()
-            } label: {
-                Label("Search Overlay", systemImage: "magnifyingglass")
-            }
-
-            Button {
-                model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
-            } label: {
-                Label(model.isPrivateModeEnabled ? "New Private Tab" : "New Tab", systemImage: model.isPrivateModeEnabled ? "theatermasks" : "plus")
-            }
-
-            Divider()
-
-            if BrowserViewModel.supportsDesktopZenMode {
-                Button {
-                    model.setDesktopZenModeEnabled(!model.isDesktopZenModeEnabled)
-                } label: {
-                    Label(model.isDesktopZenModeEnabled ? "Exit Desktop Zen Mode" : "Enter Desktop Zen Mode", systemImage: "macwindow")
-                }
-            }
-
-            Picker("Search Bar Position", selection: topSearchBarPlacementBinding) {
-                ForEach(BrowserTopSearchBarPlacement.allCases) { placement in
-                    Label(placement.title, systemImage: placement.symbolName)
-                        .tag(placement)
-                }
-            }
-
-            Button {
-                model.beginTopSearchBarMove()
-            } label: {
-                Label("Move Search Bar", systemImage: "hand.draw")
-            }
-
-            Divider()
-
-            Menu {
-                PlacementMenuContent()
-            } label: {
-                Label("Chrome Placement", systemImage: model.chromePlacement.symbolName)
-            }
-
-            Button {
-                model.toggleCompactMode()
-            } label: {
-                Label(model.isCompactModeActive ? "Reveal Chrome" : "Compact Mode", systemImage: model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
-            }
-
-            Button {
-                model.isSettingsPresented = true
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-        } label: {
-            BrowserIcon(slot: .more, systemName: "ellipsis", size: 17, weight: .black)
-                .frame(width: 34, height: 34)
-                .foregroundStyle(theme.color(.text))
-                .background(ControlGlassBackground(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(theme.color(.border).opacity(0.58), lineWidth: 1)
-                }
-        }
-        .accessibilityLabel("Top search options")
+    private var toolbarToolsWidth: CGFloat {
+        min(CGFloat(model.toolbarActions.count) * 42, 220)
     }
 
-    private var topSearchBarPlacementBinding: Binding<BrowserTopSearchBarPlacement> {
-        Binding(
-            get: { model.topSearchBarPlacement },
-            set: { model.setTopSearchBarPlacement($0) }
-        )
+    private var enabledExtensionCount: Int {
+        model.installedWebExtensions.filter(\.isEnabled).count
+    }
+}
+
+private struct ToolbarToolButton: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let action: BrowserToolbarAction
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        Button {
+            guard isEnabled else { return }
+            model.performToolbarAction(action)
+        } label: {
+            BrowserIcon(
+                slot: action.customIconSlot,
+                systemName: symbolName,
+                size: 14,
+                weight: .bold
+            )
+            .frame(width: 38, height: 38)
+            .foregroundStyle(isEnabled ? theme.color(.text) : theme.color(.mutedText).opacity(0.5))
+            .background(ControlGlassBackground(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(isDropTargeted ? theme.color(.createTab) : theme.color(.border).opacity(0.42), lineWidth: isDropTargeted ? 2 : 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .help(title)
+        .draggable(action.rawValue)
+        .dropDestination(for: String.self, action: { items, _ in
+            guard let rawID = items.first,
+                  let source = BrowserToolbarAction(rawValue: rawID) else { return false }
+            model.moveToolbarAction(source, before: action)
+            return true
+        }, isTargeted: { isDropTargeted = $0 })
+        .contextMenu {
+            Button {
+                model.moveToolbarAction(action, offset: -1)
+            } label: {
+                Label("Move Left", systemImage: "arrow.left")
+            }
+
+            Button {
+                model.moveToolbarAction(action, offset: 1)
+            } label: {
+                Label("Move Right", systemImage: "arrow.right")
+            }
+
+            Divider()
+
+            Button {
+                model.setToolLocation(.menu, for: action)
+            } label: {
+                Label("Move to 3-Dot Menu", systemImage: "ellipsis.circle")
+            }
+
+            Button {
+                model.setToolLocation(.hidden, for: action)
+            } label: {
+                Label("Remove from Toolbar", systemImage: "minus.circle")
+            }
+        }
+    }
+
+    private var isEnabled: Bool {
+        if action == .back { return model.selectedTab?.canGoBack == true }
+        if action == .forward { return model.selectedTab?.canGoForward == true }
+        if model.isPrivateModeEnabled {
+            return [.tabFolders, .containedTabs, .downloadCurrent, .history, .downloads].contains(action) == false
+        }
+        return true
+    }
+
+    private var title: String {
+        if action == .reload, model.selectedTab?.isLoading == true { return "Stop Loading" }
+        return action.title
+    }
+
+    private var symbolName: String {
+        if action == .reload, model.selectedTab?.isLoading == true { return "xmark" }
+        if action == .compact, model.isCompactModeActive { return "arrow.up.left.and.arrow.down.right" }
+        if action == .websiteMode { return model.websiteDisplayMode.symbolName }
+        return action.symbolName
     }
 }
 
@@ -3148,7 +3191,7 @@ private struct BrowserPageControls: View {
             if model.arePageControlsCollapsed == false {
                 ShieldQuickButton()
                 FavoriteSettingsButton()
-                if model.isInMoreMenu(.compact) == false {
+                if model.isActionRelocated(.compact) == false {
                     CompactChromeButton()
                 }
                 MoreTabButton()
@@ -3359,7 +3402,7 @@ private struct TabFoldersToolbarButton: View {
 
     var body: some View {
         ChromeButton(slot: .tabFolders, symbol: "folder", label: "Tab Folders") {
-            model.isTabFoldersPresented = true
+            model.showZenFolders()
         }
     }
 }
@@ -3558,6 +3601,7 @@ private struct MoreTabButton: View {
     @EnvironmentObject private var theme: BrowserTheme
     @EnvironmentObject private var profiles: BrowserProfileManager
     @State private var isCommandCenterPresented = false
+    @State private var isToolbarCustomizationPresented = false
 
     var body: some View {
         Button {
@@ -3574,13 +3618,22 @@ private struct MoreTabButton: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isCommandCenterPresented, arrowEdge: .top) {
-            BrowserCommandCenterView(isPresented: $isCommandCenterPresented)
+            BrowserCommandCenterView(
+                isPresented: $isCommandCenterPresented,
+                isToolbarCustomizationPresented: $isToolbarCustomizationPresented
+            )
                 .environmentObject(model)
                 .environmentObject(theme)
                 .environmentObject(profiles)
                 .frame(minWidth: 340, idealWidth: 380, maxWidth: 420)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $isToolbarCustomizationPresented) {
+            ToolbarCustomizationSheet()
+                .environmentObject(model)
+                .environmentObject(theme)
+                .preferredColorScheme(.dark)
         }
         .accessibilityLabel("More actions")
     }
@@ -3653,6 +3706,7 @@ private struct BrowserCommandCenterView: View {
     @EnvironmentObject private var theme: BrowserTheme
     @EnvironmentObject private var profiles: BrowserProfileManager
     @Binding var isPresented: Bool
+    @Binding var isToolbarCustomizationPresented: Bool
 
     var body: some View {
         ScrollView {
@@ -3702,15 +3756,18 @@ private struct BrowserCommandCenterView: View {
                     }
                 }
 
-                CommandCenterSection(title: "Menu Customization", symbol: "ellipsis.circle") {
-                    CommandActionRow(symbol: "hand.draw", title: "Move Menu Button", subtitle: "Drag this control cluster anywhere") {
-                        close { model.beginPageControlsMove() }
+                CommandCenterSection(title: "Toolbar", symbol: "menubar.rectangle") {
+                    CommandActionRow(symbol: "hand.draw", title: "Move Toolbar", subtitle: "Drag the toolbar anywhere on screen") {
+                        close { model.beginTopSearchBarMove() }
                     }
-                    CommandActionRow(symbol: "arrow.counterclockwise", title: "Reset Menu Button", subtitle: "Return the floating menu to its default spot") {
-                        close { model.resetPageControlsPosition() }
+                    CommandActionRow(symbol: "arrow.counterclockwise", title: "Reset Toolbar", subtitle: "Return it to the top center") {
+                        close { model.setTopSearchBarPlacement(.top) }
                     }
-                    CommandActionRow(symbol: model.arePageControlsCollapsed ? "chevron.left" : "chevron.right", title: model.arePageControlsCollapsed ? "Expand Quick Buttons" : "Collapse Quick Buttons", subtitle: "Keep only the reveal handle visible") {
-                        close { model.togglePageControlsCollapsed() }
+                    CommandActionRow(symbol: "slider.horizontal.3", title: "Customize Tools", subtitle: "Choose Toolbar, 3-Dot, or Hidden") {
+                        isPresented = false
+                        DispatchQueue.main.async {
+                            isToolbarCustomizationPresented = true
+                        }
                     }
                 }
 
@@ -3721,11 +3778,11 @@ private struct BrowserCommandCenterView: View {
                     CommandActionRow(symbol: model.areSideTabsCollapsed ? "sidebar.left" : "sidebar.leading", title: model.areSideTabsCollapsed ? "Reveal Tabs" : "Hide Tabs", subtitle: "Zen-style tab rail") {
                         close { model.setTabBarCollapsed(!model.areSideTabsCollapsed) }
                     }
-                    CommandActionRow(symbol: "text.magnifyingglass", title: model.isTopSearchBarEnabled ? "Hide Top Search Bar" : "Show Top Search Bar", subtitle: "Keep websites fullscreen when hidden") {
+                    CommandActionRow(symbol: "menubar.rectangle", title: model.isTopSearchBarEnabled ? "Hide Toolbar" : "Show Toolbar", subtitle: "Address, tools, extensions, and menu") {
                         close { model.isTopSearchBarEnabled.toggle() }
                     }
-                    CommandActionRow(symbol: "hand.draw", title: "Move Menu Button", subtitle: "Drag the floating controls anywhere") {
-                        close { model.beginPageControlsMove() }
+                    CommandActionRow(symbol: "folder", title: "Show Tab Folders", subtitle: "Open Zen-style folders in the sidebar") {
+                        close { model.showZenFolders() }
                     }
                     CommandActionRow(symbol: model.isPrivateModeEnabled ? "lock.open" : "lock.shield", title: model.isPrivateModeEnabled ? "Close Private Mode" : "Private Mode", subtitle: "PIN-gated private tabs") {
                         close { model.requestPrivateModeToggle() }
@@ -3914,6 +3971,30 @@ private struct BrowserCommandCenterView: View {
             return model.customIconName(for: .websiteMode, fallback: model.websiteDisplayMode.symbolName)
         }
         return model.customIconName(for: action.customIconSlot, fallback: action.symbolName)
+    }
+}
+
+private struct ToolbarCustomizationSheet: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                ThreeDotMenuCustomizationPanel()
+                    .padding(18)
+            }
+            .background(theme.color(.canvas))
+            .navigationTitle("Toolbar & Menu")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -4376,7 +4457,7 @@ private struct FirstRunTutorialView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @State private var step = 0
-    private let finalStep = 2
+    private let finalStep = 1
 
     var body: some View {
         ZStack {
@@ -4397,7 +4478,7 @@ private struct FirstRunTutorialView: View {
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .stroke(theme.color(.accent).opacity(0.55), lineWidth: 1)
                             }
-                        Image(systemName: "globe")
+                        Image(systemName: "menubar.rectangle")
                             .font(.system(size: 28, weight: .black))
                             .foregroundStyle(theme.color(.createTab))
                     }
@@ -4407,20 +4488,17 @@ private struct FirstRunTutorialView: View {
                     Group {
                         if step == 0 {
                             VStack(spacing: 10) {
-                                Text("Build your Glide")
+                                Text("Set up Glide")
                                     .font(.system(size: 38, weight: .black))
                                     .foregroundStyle(theme.color(.text))
                                     .multilineTextAlignment(.center)
 
-                                Text("Start with privacy, profiles, resolution, and moving gradients before the first tab even loads.")
+                                Text("Choose the essentials now. Everything else stays available in Settings.")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(theme.color(.mutedText))
                                     .multilineTextAlignment(.center)
                             }
                             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
-                        } else if step == 1 {
-                            SetupCustomizationStage()
-                                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
                         } else {
                             VStack(spacing: 12) {
                                 Text("Ready to glide the web")
@@ -4430,27 +4508,27 @@ private struct FirstRunTutorialView: View {
 
                                 VStack(spacing: 0) {
                                     TutorialFeatureRow(
-                                        symbol: "person.2.fill",
-                                        title: "Two profile instances",
-                                        detail: "Main Glide and Alt Glide keep separate tabs, history, downloads, passwords, themes, and cookies.",
+                                        symbol: "menubar.rectangle",
+                                        title: "One movable toolbar",
+                                        detail: "Address, navigation, extensions, and the three-dot menu stay together.",
                                         tint: .accent
                                     )
 
                                     TutorialDivider()
 
                                     TutorialFeatureRow(
-                                        symbol: "rectangle.resize",
-                                        title: "Resolution changer",
-                                        detail: "Switch between phone, tablet, and desktop resolution profiles for websites and chrome.",
+                                        symbol: "folder.fill",
+                                        title: "Zen-style folders",
+                                        detail: "Collapse folders and move tabs directly in the sidebar.",
                                         tint: .accent
                                     )
 
                                     TutorialDivider()
 
                                     TutorialFeatureRow(
-                                        symbol: "point.topleft.down.curvedto.point.bottomright.up",
-                                        title: "Movable gradients",
-                                        detail: "Drag the gradient start and end points to change how color flows through Glide.",
+                                        symbol: "shield.checkered",
+                                        title: "Privacy ready",
+                                        detail: "Shields and the per-site blacklist are ready from the first tab.",
                                         tint: .createTab
                                     )
                                 }
@@ -4517,9 +4595,9 @@ private struct TutorialQuickCustomization: View {
 
             HStack(spacing: 8) {
                 Button {
-                    model.enterFullscreenBrowsing()
+                    model.isTopSearchBarEnabled = true
                 } label: {
-                    Label("Fullscreen", systemImage: "rectangle.expand.vertical")
+                    Label("Toolbar", systemImage: "menubar.rectangle")
                 }
 
                 Button {
@@ -4529,9 +4607,9 @@ private struct TutorialQuickCustomization: View {
                 }
 
                 Button {
-                    model.openAIPanel()
+                    model.showZenFolders()
                 } label: {
-                    Label("AI", systemImage: "sparkles")
+                    Label("Folders", systemImage: "folder")
                 }
             }
             .font(.system(size: 13, weight: .bold))
@@ -4664,7 +4742,7 @@ private struct GlideFeatureUpdateView: View {
                 Spacer(minLength: 20)
 
                 VStack(spacing: 16) {
-                    Image(systemName: "wand.and.stars.inverse")
+                    Image(systemName: "menubar.rectangle")
                         .font(.system(size: 30, weight: .black))
                         .frame(width: 72, height: 72)
                         .foregroundStyle(theme.color(.canvas))
@@ -4672,12 +4750,12 @@ private struct GlideFeatureUpdateView: View {
                         .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
 
                     VStack(spacing: 8) {
-                        Text("Gliders & Displays")
+                        Text("Toolbar & Folders")
                             .font(.system(size: 38, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)
 
-                        Text("Existing Glide installs now get cleaner profile instances, whole-browser resolution, and per-color gradient canvases.")
+                        Text("Navigation, extensions, and the three-dot menu now live together. Folders moved into the sidebar.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .multilineTextAlignment(.center)
@@ -4687,38 +4765,38 @@ private struct GlideFeatureUpdateView: View {
                 .padding(.horizontal, 22)
 
                 VStack(spacing: 12) {
-                    GlideFeatureUpdateSection(title: "Gliders", symbol: "person.2.fill") {
+                    GlideFeatureUpdateSection(title: "Toolbar", symbol: "menubar.rectangle") {
                         TutorialFeatureRow(
-                            symbol: "person.2.fill",
-                            title: "\(profiles.profiles.count) Profile Instances",
-                            detail: "Switch between \(profiles.profiles.map(\.name).joined(separator: " and ")) with separate Glide state and saved cookies.",
+                            symbol: "hand.draw",
+                            title: "Movable Toolbar",
+                            detail: "Drag the whole toolbar, then drag tools left or right to reorder them.",
                             tint: .accent
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "paintpalette.fill",
-                            title: "Per-Color Gradients",
-                            detail: "Each color opens into its own gradient canvas with a draggable position dot.",
+                            symbol: "puzzlepiece",
+                            title: "Extensions Access",
+                            detail: "Installed extensions and the add-ons library are one tap from the toolbar.",
                             tint: .accent
                         )
                     }
 
-                    GlideFeatureUpdateSection(title: "Displays", symbol: "rectangle.resize") {
+                    GlideFeatureUpdateSection(title: "Sidebar", symbol: "sidebar.left") {
                         TutorialFeatureRow(
-                            symbol: "rectangle.resize",
-                            title: "Whole-Browser Resolution",
-                            detail: "Switch websites, tabs, search, and chrome between phone, tablet, and desktop resolution profiles.",
+                            symbol: "folder.fill",
+                            title: "Zen-Style Folders",
+                            detail: "Folders expand inline, and tabs can be dropped directly onto them.",
                             tint: .createTab
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "macwindow.on.rectangle",
-                            title: "Chrome-Matched Layout",
-                            detail: "The browser frame now follows the selected resolution profile instead of page zoom.",
+                            symbol: "slider.horizontal.3",
+                            title: "Tool Placement",
+                            detail: "Put each action in the Toolbar, 3-Dot menu, or hide it.",
                             tint: .createTab
                         )
                     }
@@ -4735,7 +4813,7 @@ private struct GlideFeatureUpdateView: View {
                             model.isSettingsPresented = true
                         }
                     } label: {
-                        Label("Open Customization", systemImage: "slider.horizontal.3")
+                        Label("Customize Toolbar", systemImage: "slider.horizontal.3")
                             .frame(maxWidth: 560)
                     }
                     .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 52, cornerRadius: 14))
@@ -6430,20 +6508,33 @@ private struct GradientHandle: View {
 private struct ThreeDotMenuCustomizationPanel: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
-    @EnvironmentObject private var profiles: BrowserProfileManager
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            Toggle("Show Toolbar", isOn: $model.isTopSearchBarEnabled)
+
             VStack(alignment: .leading, spacing: 8) {
-                Text("Menu Presets")
+                Text("Layouts")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(theme.color(.mutedText))
 
                 HStack(spacing: 8) {
-                    presetButton("Minimal", actions: [.tabFinder, .compact, .settings])
-                    presetButton("Browser", actions: [.back, .forward, .reload, .tabFinder, .history, .downloads, .websiteMode, .settings])
-                    presetButton("Everything", actions: BrowserToolbarAction.customizationCases)
+                    presetButton(
+                        "Minimal",
+                        toolbar: [.back, .reload],
+                        menu: [.tabFinder, .settings]
+                    )
+                    presetButton(
+                        "Browser",
+                        toolbar: [.back, .forward, .reload],
+                        menu: [.tabFinder, .history, .downloads, .websiteMode, .settings]
+                    )
+                    presetButton(
+                        "Tools",
+                        toolbar: [.back, .forward, .reload, .tabFinder, .compact],
+                        menu: [.history, .downloads, .downloadCurrent, .passwordManager, .settings]
+                    )
                 }
             }
 
@@ -6451,55 +6542,81 @@ private struct ThreeDotMenuCustomizationPanel: View {
                 Button {
                     dismiss()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                        model.beginPageControlsMove()
+                        model.beginTopSearchBarMove()
                     }
                 } label: {
-                    Label("Move Button", systemImage: "hand.draw")
+                    Label("Move Toolbar", systemImage: "hand.draw")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 38))
 
                 Button {
-                    model.resetPageControlsPosition()
+                    model.setTopSearchBarPlacement(.top)
                 } label: {
-                    Label("Reset Spot", systemImage: "arrow.counterclockwise")
+                    Label("Reset Position", systemImage: "arrow.counterclockwise")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 38))
             }
 
-            Toggle("Start collapsed to a reveal handle", isOn: $model.arePageControlsCollapsed)
-
-            Button {
-                let profile = profiles.createProfile()
-                profiles.switchTo(profile)
-            } label: {
-                Label("Add Glider Profile", systemImage: "plus.circle.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 40))
-
             VStack(alignment: .leading, spacing: 8) {
-                Text("Actions In Menu")
+                Text("Tools")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(theme.color(.mutedText))
 
                 ForEach(BrowserToolbarAction.customizationCases) { action in
-                    Toggle(isOn: moreMenuBinding(for: action)) {
+                    HStack(spacing: 10) {
                         Label(action.title, systemImage: action.symbolName)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+
+                        if model.isInToolbar(action) {
+                            HStack(spacing: 2) {
+                                Button {
+                                    model.moveToolbarAction(action, offset: -1)
+                                } label: {
+                                    Image(systemName: "arrow.left")
+                                        .frame(width: 26, height: 28)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Move \(action.title) left")
+
+                                Button {
+                                    model.moveToolbarAction(action, offset: 1)
+                                } label: {
+                                    Image(systemName: "arrow.right")
+                                        .frame(width: 26, height: 28)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Move \(action.title) right")
+                            }
+                            .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        Picker("Location", selection: toolLocationBinding(for: action)) {
+                            ForEach(BrowserToolLocation.allCases) { location in
+                                Text(location.title).tag(location)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 105)
                     }
+                    .frame(minHeight: 34)
                 }
             }
         }
         .padding(.vertical, 4)
     }
 
-    private func presetButton(_ title: String, actions: [BrowserToolbarAction]) -> some View {
+    private func presetButton(
+        _ title: String,
+        toolbar: [BrowserToolbarAction],
+        menu: [BrowserToolbarAction]
+    ) -> some View {
         Button {
-            let actionSet = Set(actions.map(\.rawValue))
-            for action in BrowserToolbarAction.customizationCases {
-                model.setMoreMenuAction(action, enabled: actionSet.contains(action.rawValue))
-            }
+            model.applyToolPreset(toolbar: toolbar, menu: menu)
+            model.isTopSearchBarEnabled = true
         } label: {
             Text(title)
                 .frame(maxWidth: .infinity)
@@ -6507,10 +6624,10 @@ private struct ThreeDotMenuCustomizationPanel: View {
         .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 34))
     }
 
-    private func moreMenuBinding(for action: BrowserToolbarAction) -> Binding<Bool> {
+    private func toolLocationBinding(for action: BrowserToolbarAction) -> Binding<BrowserToolLocation> {
         Binding(
-            get: { model.isInMoreMenu(action) },
-            set: { model.setMoreMenuAction(action, enabled: $0) }
+            get: { model.toolLocation(for: action) },
+            set: { model.setToolLocation($0, for: action) }
         )
     }
 }
@@ -7509,6 +7626,188 @@ private struct EssentialPill: View {
     }
 }
 
+private struct ZenSidebarTabsSection: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var isCreatingFolder = false
+    @State private var newFolderName = ""
+    @State private var isUnfiledDropTargeted = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Text("TABS")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.color(.mutedText))
+
+                Text("\(model.normalTabs.count)")
+                    .font(.system(size: 9, weight: .black))
+                    .foregroundStyle(theme.color(.mutedText))
+
+                Spacer(minLength: 0)
+
+                Button {
+                    newFolderName = ""
+                    isCreatingFolder = true
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 26, height: 24)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.color(.mutedText))
+                .accessibilityLabel("New tab folder")
+                .help("New folder")
+            }
+            .padding(.horizontal, 4)
+            .background {
+                if isUnfiledDropTargeted {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(theme.color(.accent).opacity(0.16))
+                }
+            }
+            .dropDestination(for: String.self, action: { items, _ in
+                guard let rawID = items.first,
+                      let id = UUID(uuidString: rawID),
+                      let tab = model.normalTabs.first(where: { $0.id == id }) else { return false }
+                model.removeFromFolder(tab)
+                return true
+            }, isTargeted: { isUnfiledDropTargeted = $0 })
+
+            ForEach(model.unfiledNormalTabs) { tab in
+                TabPill(tab: tab, layout: .vertical)
+            }
+
+            ForEach(model.tabFolders) { folder in
+                ZenTabFolderGroup(folder: folder)
+            }
+
+            if model.normalTabs.isEmpty {
+                Text("No tabs")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+            }
+        }
+        .alert("New Folder", isPresented: $isCreatingFolder) {
+            TextField("Folder name", text: $newFolderName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let folder = model.createTabFolder(named: newFolderName)
+                model.collapsedTabFolderIDs.remove(folder.id)
+            }
+        }
+    }
+}
+
+private struct ZenTabFolderGroup: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let folder: BrowserTabFolder
+    @State private var isDropTargeted = false
+    @State private var isRenaming = false
+    @State private var renameDraft = ""
+
+    private var folderTabs: [BrowserTab] {
+        model.tabs(in: folder)
+    }
+
+    private var containsSelectedTab: Bool {
+        folderTabs.contains { $0.id == model.selectedTabID }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                model.toggleFolderCollapsed(folder)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: containsSelectedTab ? "folder.fill" : "folder")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(containsSelectedTab ? theme.color(.createTab) : theme.color(.mutedText))
+
+                    Text(folder.name)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(theme.color(.text))
+                        .lineLimit(1)
+
+                    Text("\(folderTabs.count)")
+                        .font(.system(size: 9, weight: .black))
+                        .foregroundStyle(theme.color(.mutedText))
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: model.isFolderCollapsed(folder) ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(theme.color(.surface).opacity(containsSelectedTab ? 0.78 : 0.46), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(isDropTargeted ? theme.color(.createTab) : theme.color(.border).opacity(containsSelectedTab ? 0.7 : 0.34), lineWidth: isDropTargeted ? 2 : 1)
+            }
+            .dropDestination(for: String.self, action: { items, _ in
+                guard let rawID = items.first,
+                      let id = UUID(uuidString: rawID),
+                      let tab = model.normalTabs.first(where: { $0.id == id }) else { return false }
+                model.assign(tab, to: folder)
+                model.collapsedTabFolderIDs.remove(folder.id)
+                return true
+            }, isTargeted: { isDropTargeted = $0 })
+            .contextMenu {
+                Button {
+                    let tab = model.openTab()
+                    model.assign(tab, to: folder)
+                    model.collapsedTabFolderIDs.remove(folder.id)
+                } label: {
+                    Label("New Tab in Folder", systemImage: "plus")
+                }
+
+                Button {
+                    renameDraft = folder.name
+                    isRenaming = true
+                } label: {
+                    Label("Rename Folder", systemImage: "pencil")
+                }
+
+                Button(role: .destructive) {
+                    model.delete(folder)
+                } label: {
+                    Label("Delete Folder", systemImage: "trash")
+                }
+            }
+
+            if model.isFolderCollapsed(folder) == false {
+                if folderTabs.isEmpty {
+                    Text("Drop tabs here")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                        .padding(.leading, 18)
+                        .padding(.vertical, 4)
+                } else {
+                    ForEach(folderTabs) { tab in
+                        TabPill(tab: tab, layout: .vertical)
+                            .padding(.leading, 8)
+                    }
+                }
+            }
+        }
+        .alert("Rename Folder", isPresented: $isRenaming) {
+            TextField("Folder name", text: $renameDraft)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                model.rename(folder, to: renameDraft)
+            }
+        }
+    }
+}
+
 private struct TabSection: View {
     @EnvironmentObject private var theme: BrowserTheme
     let title: String
@@ -7614,6 +7913,7 @@ private struct TabPill: View {
                 .stroke(isSelected ? theme.color(.accent).opacity(0.72) : theme.color(.border).opacity(0.35), lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .draggable(tab.id.uuidString)
         .contextMenu {
             if tab.isPrivate == false {
                 Button {
@@ -8156,10 +8456,10 @@ private struct BrowserSettingsView: View {
                         Toggle("Desktop Zen Mode", isOn: desktopZenModeBinding)
                     }
                     Toggle("Open search on new tab", isOn: $model.newTabOpensSearch)
-                    Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
+                    Toggle("Toolbar", isOn: $model.isTopSearchBarEnabled)
                     if model.isTopSearchBarEnabled || model.isDesktopZenModeEnabled {
-                        Picker("Search bar position", selection: topSearchBarPlacementBinding) {
-                            ForEach(BrowserTopSearchBarPlacement.allCases) { placement in
+                        Picker("Toolbar position", selection: topSearchBarPlacementBinding) {
+                            ForEach(BrowserToolbarPlacement.allCases) { placement in
                                 Label(placement.title, systemImage: placement.symbolName)
                                     .tag(placement)
                             }
@@ -8170,20 +8470,20 @@ private struct BrowserSettingsView: View {
                                 model.beginTopSearchBarMove()
                             }
                         } label: {
-                            Label("Move Top Search Bar", systemImage: "hand.draw")
+                            Label("Move Toolbar", systemImage: "hand.draw")
                         }
 
                         Button {
                             model.setTopSearchBarPlacement(.top)
                         } label: {
-                            Label("Reset Top Search Bar", systemImage: "arrow.counterclockwise")
+                            Label("Reset Toolbar", systemImage: "arrow.counterclockwise")
                         }
                     }
                     DisclosureGroup {
                         Toggle("Auto compact after iPhone search", isOn: $model.autoCompactAfterSearchOnPhone)
                         Toggle("Hide quick buttons in compact", isOn: $model.compactModeHidesQuickControls)
-                        Toggle("Hide top search bar in compact", isOn: $model.compactModeHidesTopSearchBar)
-                        Toggle("Show top search bar on reveal", isOn: $model.compactModeRevealsTopSearchBar)
+                        Toggle("Hide toolbar in compact", isOn: $model.compactModeHidesTopSearchBar)
+                        Toggle("Show toolbar on reveal", isOn: $model.compactModeRevealsTopSearchBar)
                         Toggle("Two-finger double tap on iPad", isOn: $model.isTwoFingerDoubleTapCompactEnabledOnIPad)
 
                         Button {
@@ -8257,7 +8557,7 @@ private struct BrowserSettingsView: View {
 
                     Button("Tab Folders") {
                         presentAfterDismiss {
-                            model.isTabFoldersPresented = true
+                            model.showZenFolders()
                         }
                     }
                     } label: {
@@ -8286,7 +8586,7 @@ private struct BrowserSettingsView: View {
                         Slider(value: sidebarWidthBinding, in: 0.22...0.46, step: 0.01)
                     }
 
-                    Toggle("Top search bar", isOn: $model.isTopSearchBarEnabled)
+                    Toggle("Toolbar", isOn: $model.isTopSearchBarEnabled)
 
                     Button {
                         presentAfterDismiss {
@@ -8356,7 +8656,7 @@ private struct BrowserSettingsView: View {
 
                     Button {
                         presentAfterDismiss {
-                            model.isTabFoldersPresented = true
+                            model.showZenFolders()
                         }
                     } label: {
                         Label("Tab Folders", systemImage: "folder")
@@ -8470,11 +8770,11 @@ private struct BrowserSettingsView: View {
                     }
                 }
 
-                Section("Three-Dot Menu") {
+                Section("Toolbar & Menu") {
                     DisclosureGroup {
                     ThreeDotMenuCustomizationPanel()
                     } label: {
-                        Label("Three-Dot Menu", systemImage: "ellipsis.circle")
+                        Label("Toolbar & 3-Dot Menu", systemImage: "menubar.rectangle")
                     }
                 }
 
@@ -8857,7 +9157,7 @@ private struct BrowserSettingsView: View {
         )
     }
 
-    private var topSearchBarPlacementBinding: Binding<BrowserTopSearchBarPlacement> {
+    private var topSearchBarPlacementBinding: Binding<BrowserToolbarPlacement> {
         Binding(
             get: { model.topSearchBarPlacement },
             set: { model.setTopSearchBarPlacement($0) }
@@ -8892,13 +9192,6 @@ private struct BrowserSettingsView: View {
         Binding(
             get: { model.deviceExperienceOverride },
             set: { model.setDeviceExperienceOverride($0) }
-        )
-    }
-
-    private func moreMenuBinding(for action: BrowserToolbarAction) -> Binding<Bool> {
-        Binding(
-            get: { model.isInMoreMenu(action) },
-            set: { model.setMoreMenuAction(action, enabled: $0) }
         )
     }
 

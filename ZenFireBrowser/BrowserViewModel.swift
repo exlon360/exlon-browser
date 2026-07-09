@@ -928,7 +928,7 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     }
 }
 
-enum BrowserTopSearchBarPlacement: String, CaseIterable, Identifiable {
+enum BrowserToolbarPlacement: String, CaseIterable, Identifiable {
     case top
     case center
     case bottom
@@ -954,6 +954,25 @@ enum BrowserTopSearchBarPlacement: String, CaseIterable, Identifiable {
             return "rectangle.center.inset.filled"
         case .bottom:
             return "rectangle.bottomthird.inset.filled"
+        }
+    }
+}
+
+enum BrowserToolLocation: String, CaseIterable, Identifiable {
+    case toolbar
+    case menu
+    case hidden
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .toolbar:
+            return "Toolbar"
+        case .menu:
+            return "3-Dot"
+        case .hidden:
+            return "Hidden"
         }
     }
 }
@@ -1353,7 +1372,30 @@ final class BrowserViewModel: ObservableObject {
     static let infiniteForcedFPSValue = 241.0
     static let minimumWebsiteResolutionScale = 0.86
     static let maximumWebsiteResolutionScale = 1.14
-    static let currentFeatureUpdateVersion = 4
+    static let currentFeatureUpdateVersion = 5
+    static let defaultToolbarActionIDs = [
+        BrowserToolbarAction.back.rawValue,
+        BrowserToolbarAction.forward.rawValue,
+        BrowserToolbarAction.reload.rawValue
+    ]
+    static let defaultMoreMenuActionIDs = Set([
+        BrowserToolbarAction.compact.rawValue,
+        BrowserToolbarAction.downloadCurrent.rawValue,
+        BrowserToolbarAction.websiteMode.rawValue
+    ])
+    private static let firstToolbarUpgradeMenuActionIDs = Set([
+        BrowserToolbarAction.tabFinder.rawValue,
+        BrowserToolbarAction.tabFolders.rawValue,
+        BrowserToolbarAction.closeAllTabs.rawValue,
+        BrowserToolbarAction.compact.rawValue,
+        BrowserToolbarAction.downloadCurrent.rawValue,
+        BrowserToolbarAction.history.rawValue,
+        BrowserToolbarAction.downloads.rawValue,
+        BrowserToolbarAction.websiteMode.rawValue,
+        BrowserToolbarAction.passwordManager.rawValue,
+        BrowserToolbarAction.placement.rawValue,
+        BrowserToolbarAction.settings.rawValue
+    ])
     static var supportsDesktopZenMode: Bool {
         #if targetEnvironment(macCatalyst)
         return true
@@ -1697,7 +1739,7 @@ final class BrowserViewModel: ObservableObject {
             vault.save(isTopSearchBarEnabled, forKey: Self.StorageKey.topSearchBarEnabled)
         }
     }
-    @Published var topSearchBarPlacement: BrowserTopSearchBarPlacement {
+    @Published var topSearchBarPlacement: BrowserToolbarPlacement {
         didSet {
             vault.save(topSearchBarPlacement.rawValue, forKey: Self.StorageKey.topSearchBarPlacement)
         }
@@ -1804,6 +1846,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
         }
     }
+    @Published var toolbarActionIDs: [String] {
+        didSet {
+            vault.save(toolbarActionIDs, forKey: Self.StorageKey.toolbarActionIDs)
+        }
+    }
     @Published var customIconNames: [String: String] {
         didSet {
             vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
@@ -1816,6 +1863,11 @@ final class BrowserViewModel: ObservableObject {
     @Published var tabFolders: [BrowserTabFolder] {
         didSet {
             saveTabFolders()
+        }
+    }
+    @Published var collapsedTabFolderIDs: Set<UUID> {
+        didSet {
+            vault.save(collapsedTabFolderIDs, forKey: Self.StorageKey.collapsedTabFolderIDs)
         }
     }
     @Published var downloads: [BrowserDownloadItem]
@@ -1920,8 +1972,27 @@ final class BrowserViewModel: ObservableObject {
             : (BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left)
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
-        let savedMoreMenuActionIDs = vault.load(Set<String>.self, forKey: Self.StorageKey.moreMenuActionIDs, default: [])
+        let savedToolbarUpgradeVersion = vault.load(Int.self, forKey: Self.StorageKey.toolbarUpgradeVersion, default: 0)
+        let shouldApplyToolbarUpgrade = savedToolbarUpgradeVersion < 1
+        let storedToolbarActionIDs = vault.load(
+            [String].self,
+            forKey: Self.StorageKey.toolbarActionIDs,
+            default: Self.defaultToolbarActionIDs
+        )
+        let savedToolbarActionIDs = shouldApplyToolbarUpgrade
+            ? Self.defaultToolbarActionIDs
+            : Self.normalizedToolbarActionIDs(storedToolbarActionIDs)
+        let storedMoreMenuActionIDs = vault.load(Set<String>.self, forKey: Self.StorageKey.moreMenuActionIDs, default: [])
+        let upgradedMoreMenuActionIDs = shouldApplyToolbarUpgrade
+            ? storedMoreMenuActionIDs.union(Self.defaultMoreMenuActionIDs)
+            : (savedToolbarUpgradeVersion == 1
+                ? storedMoreMenuActionIDs
+                    .subtracting(Self.firstToolbarUpgradeMenuActionIDs)
+                    .union(Self.defaultMoreMenuActionIDs)
+                : storedMoreMenuActionIDs)
+        let savedMoreMenuActionIDs = upgradedMoreMenuActionIDs
             .filter { BrowserToolbarAction(rawValue: $0)?.isLeanBuildUtility == false }
+            .subtracting(savedToolbarActionIDs)
         let savedCustomIconNames = vault.load([String: String].self, forKey: Self.StorageKey.customIconNames, default: [:])
         let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
         let savedWebsiteBlacklist = BrowserWebsitePrivacyPolicy.normalizedDomains(
@@ -1944,6 +2015,11 @@ final class BrowserViewModel: ObservableObject {
         }
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedTabFolders = Self.loadTabFolders(vault: vault)
+        let savedCollapsedTabFolderIDs = vault.load(
+            Set<UUID>.self,
+            forKey: Self.StorageKey.collapsedTabFolderIDs,
+            default: []
+        ).intersection(Set(savedTabFolders.map(\.id)))
         let savedDownloads = Self.loadDownloads(vault: vault)
         let savedPasswordEntries = Self.loadPasswordEntries(vault: vault)
         let savedVPNProfile = Self.loadVPNProfile(vault: vault)
@@ -2002,7 +2078,7 @@ final class BrowserViewModel: ObservableObject {
             webExtensions: savedWebExtensions,
             websiteBlacklist: savedWebsiteBlacklist
         )
-        let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
+        let savedTopSearchBarPlacement = BrowserToolbarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
         ) ?? .top
         let savedTopSearchBarPositionX = Self.clampedUnit(
@@ -2030,6 +2106,7 @@ final class BrowserViewModel: ObservableObject {
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
         self.moreMenuActionIDs = savedMoreMenuActionIDs
+        self.toolbarActionIDs = savedToolbarActionIDs
         self.isDeveloperModeEnabled = developerModeEnabled
         self.isWebInspectorEnabled = webInspectorEnabled
         self.isDevWebKitEnabled = devWebKitEnabled
@@ -2037,7 +2114,9 @@ final class BrowserViewModel: ObservableObject {
         self.deviceExperienceOverride = savedDeviceExperienceOverride
         self.compactModeHidesTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesTopSearchBar, default: true)
         self.compactModeRevealsTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeRevealsTopSearchBar, default: false)
-        self.isTopSearchBarEnabled = shouldApplyLeanProfile ? false : vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: true)
+        self.isTopSearchBarEnabled = shouldApplyToolbarUpgrade
+            ? true
+            : vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: true)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
         self.topSearchBarPositionX = savedTopSearchBarPositionX
         self.topSearchBarPositionY = savedTopSearchBarPositionY
@@ -2049,6 +2128,7 @@ final class BrowserViewModel: ObservableObject {
         self.essentials = savedEssentials
         self.websiteBlacklist = savedWebsiteBlacklist
         self.tabFolders = savedTabFolders
+        self.collapsedTabFolderIDs = savedCollapsedTabFolderIDs
         self.downloads = savedDownloads
         self.passwordEntries = savedPasswordEntries
         self.installedWebExtensions = savedWebExtensions
@@ -2102,6 +2182,7 @@ final class BrowserViewModel: ObservableObject {
         updateBrowserMusicPlayer()
         vault.save(false, forKey: Self.StorageKey.browserMusicEnabled)
         vault.save(2, forKey: Self.StorageKey.leanProfileVersion)
+        vault.save(2, forKey: Self.StorageKey.toolbarUpgradeVersion)
     }
 
     var forcedFPSLabel: String {
@@ -2234,7 +2315,7 @@ final class BrowserViewModel: ObservableObject {
 
     func createFolderFromSelectedTab() {
         guard let tab = selectedTab, tab.isPrivate == false else {
-            isTabFoldersPresented = true
+            showZenFolders()
             return
         }
 
@@ -2243,13 +2324,34 @@ final class BrowserViewModel: ObservableObject {
 
     func createFolder(from tab: BrowserTab) {
         guard tab.isPrivate == false else {
-            isTabFoldersPresented = true
+            showZenFolders()
             return
         }
 
         let folder = createTabFolder(named: tab.url?.host ?? "Saved Tabs")
         assign(tab, to: folder)
-        isTabFoldersPresented = true
+        collapsedTabFolderIDs.remove(folder.id)
+        showZenFolders()
+    }
+
+    func showZenFolders() {
+        isTabFoldersPresented = false
+        if chromePlacement != .left && chromePlacement != .right {
+            chromePlacement = .left
+        }
+        areSideTabsCollapsed = false
+    }
+
+    func isFolderCollapsed(_ folder: BrowserTabFolder) -> Bool {
+        collapsedTabFolderIDs.contains(folder.id)
+    }
+
+    func toggleFolderCollapsed(_ folder: BrowserTabFolder) {
+        if collapsedTabFolderIDs.contains(folder.id) {
+            collapsedTabFolderIDs.remove(folder.id)
+        } else {
+            collapsedTabFolderIDs.insert(folder.id)
+        }
     }
 
     func assign(_ tab: BrowserTab, to folder: BrowserTabFolder) {
@@ -2274,6 +2376,7 @@ final class BrowserViewModel: ObservableObject {
 
     func delete(_ folder: BrowserTabFolder) {
         tabFolders.removeAll { $0.id == folder.id }
+        collapsedTabFolderIDs.remove(folder.id)
         for tab in normalTabs where tab.folderID == folder.id {
             tab.folderID = nil
         }
@@ -3294,10 +3397,66 @@ final class BrowserViewModel: ObservableObject {
         return moreMenuActionIDs.contains(action.rawValue)
     }
 
+    func isInToolbar(_ action: BrowserToolbarAction) -> Bool {
+        toolbarActionIDs.contains(action.rawValue)
+    }
+
+    func isActionRelocated(_ action: BrowserToolbarAction) -> Bool {
+        isInMoreMenu(action) || isInToolbar(action)
+    }
+
+    var toolbarActions: [BrowserToolbarAction] {
+        toolbarActionIDs.compactMap(BrowserToolbarAction.init(rawValue:))
+    }
+
+    func toolLocation(for action: BrowserToolbarAction) -> BrowserToolLocation {
+        if isInToolbar(action) { return .toolbar }
+        if isInMoreMenu(action) { return .menu }
+        return .hidden
+    }
+
+    func setToolLocation(_ location: BrowserToolLocation, for action: BrowserToolbarAction) {
+        guard action.isLeanBuildUtility == false else { return }
+        toolbarActionIDs.removeAll { $0 == action.rawValue }
+        moreMenuActionIDs.remove(action.rawValue)
+
+        switch location {
+        case .toolbar:
+            toolbarActionIDs.append(action.rawValue)
+        case .menu:
+            moreMenuActionIDs.insert(action.rawValue)
+        case .hidden:
+            break
+        }
+    }
+
+    func moveToolbarAction(_ action: BrowserToolbarAction, offset: Int) {
+        guard let currentIndex = toolbarActionIDs.firstIndex(of: action.rawValue) else { return }
+        let destination = min(max(currentIndex + offset, 0), toolbarActionIDs.count - 1)
+        guard destination != currentIndex else { return }
+        let movedID = toolbarActionIDs.remove(at: currentIndex)
+        toolbarActionIDs.insert(movedID, at: destination)
+    }
+
+    func moveToolbarAction(_ source: BrowserToolbarAction, before target: BrowserToolbarAction) {
+        guard source != target,
+              let sourceIndex = toolbarActionIDs.firstIndex(of: source.rawValue),
+              let targetIndex = toolbarActionIDs.firstIndex(of: target.rawValue) else { return }
+        let movedID = toolbarActionIDs.remove(at: sourceIndex)
+        let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+        toolbarActionIDs.insert(movedID, at: max(0, min(adjustedTarget, toolbarActionIDs.count)))
+    }
+
+    func applyToolPreset(toolbar: [BrowserToolbarAction], menu: [BrowserToolbarAction]) {
+        toolbarActionIDs = Self.normalizedToolbarActionIDs(toolbar.map(\.rawValue))
+        let toolbarSet = Set(toolbarActionIDs)
+        moreMenuActionIDs = Set(menu.map(\.rawValue)).subtracting(toolbarSet)
+    }
+
     func setMoreMenuAction(_ action: BrowserToolbarAction, enabled: Bool) {
         guard action.isLeanBuildUtility == false else { return }
         if enabled {
-            moreMenuActionIDs.insert(action.rawValue)
+            setToolLocation(.menu, for: action)
         } else {
             moreMenuActionIDs.remove(action.rawValue)
         }
@@ -3403,6 +3562,7 @@ final class BrowserViewModel: ObservableObject {
                 .filter { $0.isLeanBuildUtility == false }
                 .map(\.rawValue)
                 .filter { moreMenuActionIDs.contains($0) },
+            toolbarActions: toolbarActionIDs,
             customIcons: customIconNames,
             tabBarTransparencyEnabled: theme.isTabBarTransparencyEnabled,
             tabBarTransparency: theme.tabBarTransparency,
@@ -3444,7 +3604,7 @@ final class BrowserViewModel: ObservableObject {
 
         isTopSearchBarEnabled = config.topSearchBarEnabled
         if let topSearchBarPlacementValue = config.topSearchBarPlacement,
-           let placement = BrowserTopSearchBarPlacement(rawValue: topSearchBarPlacementValue) {
+           let placement = BrowserToolbarPlacement(rawValue: topSearchBarPlacementValue) {
             topSearchBarPlacement = placement
         }
         if let topSearchBarPositionX = config.topSearchBarPositionX {
@@ -3501,10 +3661,11 @@ final class BrowserViewModel: ObservableObject {
             regionTrickProfile = profile
         }
         isRegionTricksEnabled = config.regionTricksEnabled ?? false
+        toolbarActionIDs = Self.normalizedToolbarActionIDs(config.toolbarActions ?? Self.defaultToolbarActionIDs)
         moreMenuActionIDs = Set(config.moreMenuActions.filter { actionID in
             guard let action = BrowserToolbarAction(rawValue: actionID) else { return false }
             return action.isLeanBuildUtility == false
-        })
+        }).subtracting(toolbarActionIDs)
         customIconNames = Self.sanitizedIconNames(config.customIcons)
         setDarkReaderEnabled(config.darkReaderEnabled)
         setAdBlockerEnabled(config.adBlockerEnabled)
@@ -3533,7 +3694,7 @@ final class BrowserViewModel: ObservableObject {
         case .tabFinder:
             isTabFinderPresented = true
         case .tabFolders:
-            isTabFoldersPresented = true
+            showZenFolders()
         case .closeAllTabs:
             requestCloseAllTabs()
         case .compact:
@@ -3555,7 +3716,10 @@ final class BrowserViewModel: ObservableObject {
         case .passwordManager:
             isPasswordManagerPresented = true
         case .placement:
-            break
+            let placements = BrowserChromePlacement.allCases
+            if let index = placements.firstIndex(of: chromePlacement) {
+                chromePlacement = placements[(index + 1) % placements.count]
+            }
         case .settings:
             isSettingsPresented = true
         }
@@ -3929,7 +4093,7 @@ final class BrowserViewModel: ObservableObject {
         isTopSearchBarMoveMode = true
     }
 
-    func setTopSearchBarPlacement(_ placement: BrowserTopSearchBarPlacement) {
+    func setTopSearchBarPlacement(_ placement: BrowserToolbarPlacement) {
         isTopSearchBarEnabled = true
         topSearchBarPlacement = placement
         topSearchBarPositionY = Self.defaultTopSearchBarY(for: placement)
@@ -4027,14 +4191,15 @@ final class BrowserViewModel: ObservableObject {
         pageControlsOffsetY = 0
         isChromeWidthResizeMode = false
         isPageControlsMoveMode = false
-        isTopSearchBarEnabled = false
+        isTopSearchBarEnabled = true
         topSearchBarPlacement = .top
         topSearchBarPositionX = 0.5
         topSearchBarPositionY = 0.0
         topSearchBarDraftX = topSearchBarPositionX
         topSearchBarDraftY = topSearchBarPositionY
         isTopSearchBarMoveMode = false
-        moreMenuActionIDs = []
+        moreMenuActionIDs = Self.defaultMoreMenuActionIDs
+        toolbarActionIDs = Self.defaultToolbarActionIDs
     }
 
     func resetBrowsingSettings() {
@@ -4065,6 +4230,7 @@ final class BrowserViewModel: ObservableObject {
 
     func resetFolders() {
         tabFolders = []
+        collapsedTabFolderIDs = []
         for tab in normalTabs {
             tab.folderID = nil
         }
@@ -4526,6 +4692,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
+        vault.save(toolbarActionIDs, forKey: Self.StorageKey.toolbarActionIDs)
         vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
         vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
         vault.save(isDevWebKitEnabled, forKey: Self.StorageKey.devWebKitEnabled)
@@ -4538,6 +4705,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(essentials, forKey: Self.StorageKey.essentials)
         vault.save(websiteBlacklist, forKey: BrowserWebsitePrivacyPolicy.storageKey)
         vault.save(tabFolders, forKey: Self.StorageKey.tabFolders)
+        vault.save(collapsedTabFolderIDs, forKey: Self.StorageKey.collapsedTabFolderIDs)
         vault.save(downloads, forKey: Self.StorageKey.downloads)
         vault.save(passwordEntries, forKey: Self.StorageKey.passwordEntries)
         vault.save(websiteDisplayMode.rawValue, forKey: Self.StorageKey.websiteDisplayMode)
@@ -4756,6 +4924,16 @@ final class BrowserViewModel: ObservableObject {
         return URL(string: "http://\(trimmed)")
     }
 
+    private static func normalizedToolbarActionIDs(_ rawIDs: [String]) -> [String] {
+        var seen = Set<String>()
+        return rawIDs.compactMap { rawID in
+            guard let action = BrowserToolbarAction(rawValue: rawID),
+                  action.isLeanBuildUtility == false,
+                  seen.insert(rawID).inserted else { return nil }
+            return action.rawValue
+        }
+    }
+
     private static func clampedUnit(_ value: Double) -> Double {
         min(max(value, 0.0), 1.0)
     }
@@ -4807,7 +4985,7 @@ final class BrowserViewModel: ObservableObject {
         count == 1 ? "1 \(singular)" : "\(count) \(singular)s"
     }
 
-    private static func defaultTopSearchBarY(for placement: BrowserTopSearchBarPlacement) -> Double {
+    private static func defaultTopSearchBarY(for placement: BrowserToolbarPlacement) -> Double {
         switch placement {
         case .top:
             return 0.0
@@ -4818,7 +4996,7 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
-    private static func nearestTopSearchBarPlacement(for y: Double) -> BrowserTopSearchBarPlacement {
+    private static func nearestTopSearchBarPlacement(for y: Double) -> BrowserToolbarPlacement {
         let clampedY = clampedUnit(y)
         if clampedY < 0.25 {
             return .top
@@ -4849,6 +5027,8 @@ final class BrowserViewModel: ObservableObject {
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
+        static let toolbarActionIDs = "ZenFireBrowser.toolbarActionIDs"
+        static let toolbarUpgradeVersion = "ZenFireBrowser.toolbarUpgradeVersion"
         static let developerModeEnabled = "ZenFireBrowser.developerModeEnabled"
         static let webInspectorEnabled = "ZenFireBrowser.webInspectorEnabled"
         static let devWebKitEnabled = "ZenFireBrowser.devWebKitEnabled"
@@ -4860,6 +5040,7 @@ final class BrowserViewModel: ObservableObject {
         static let history = "ZenFireBrowser.history"
         static let essentials = "ZenFireBrowser.essentials"
         static let tabFolders = "ZenFireBrowser.tabFolders"
+        static let collapsedTabFolderIDs = "ZenFireBrowser.collapsedTabFolderIDs"
         static let openTabs = "ZenFireBrowser.openTabs"
         static let localAIName = "ZenFireBrowser.localAIName"
         static let localAIURLText = "ZenFireBrowser.localAIURLText"
