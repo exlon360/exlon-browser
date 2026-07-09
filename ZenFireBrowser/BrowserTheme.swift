@@ -197,11 +197,32 @@ struct BrowserThemeGradientCircle: Identifiable, Codable, Equatable {
     var id: UUID
     var colorHex: String
     var intensity: Double
+    var x: Double
+    var y: Double
 
-    init(id: UUID = UUID(), colorHex: String, intensity: Double = 0.72) {
+    init(id: UUID = UUID(), colorHex: String, intensity: Double = 0.72, x: Double = 0.5, y: Double = 0.5) {
         self.id = id
         self.colorHex = colorHex
         self.intensity = min(max(intensity, 0), 1)
+        self.x = min(max(x, 0), 1)
+        self.y = min(max(y, 0), 1)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case colorHex
+        case intensity
+        case x
+        case y
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex) ?? "#C4B5FD"
+        self.intensity = min(max(try container.decodeIfPresent(Double.self, forKey: .intensity) ?? 0.72, 0), 1)
+        self.x = min(max(try container.decodeIfPresent(Double.self, forKey: .x) ?? 0.5, 0), 1)
+        self.y = min(max(try container.decodeIfPresent(Double.self, forKey: .y) ?? 0.5, 0), 1)
     }
 }
 
@@ -543,7 +564,9 @@ final class BrowserTheme: ObservableObject {
         guard circles.isEmpty == false else {
             return [gradientColor(token)]
         }
-        return circles.map { circle in
+        return circles.sorted { lhs, rhs in
+            (lhs.x + lhs.y) < (rhs.x + rhs.y)
+        }.map { circle in
             Color(hex: circle.colorHex).opacity(max(0.08, circle.intensity))
         }
     }
@@ -562,7 +585,9 @@ final class BrowserTheme: ObservableObject {
         ]
         let circle = BrowserThemeGradientCircle(
             colorHex: palette[circles.count % palette.count],
-            intensity: min(0.95, 0.42 + Double(circles.count) * 0.12)
+            intensity: min(0.9, 0.5 + Double(circles.count) * 0.08),
+            x: Self.defaultGradientCircleCoordinate(for: circles.count).x,
+            y: Self.defaultGradientCircleCoordinate(for: circles.count).y
         )
         circles.append(circle)
         setGradientCircles(circles, for: token)
@@ -587,6 +612,14 @@ final class BrowserTheme: ObservableObject {
         var circles = gradientCircles(for: token)
         guard let index = circles.firstIndex(where: { $0.id == circle.id }) else { return }
         circles[index].intensity = Self.clampedUnit(intensity)
+        setGradientCircles(circles, for: token)
+    }
+
+    func setGradientCirclePosition(x: Double, y: Double, circle: BrowserThemeGradientCircle, for token: BrowserThemeToken) {
+        var circles = gradientCircles(for: token)
+        guard let index = circles.firstIndex(where: { $0.id == circle.id }) else { return }
+        circles[index].x = Self.clampedUnit(x)
+        circles[index].y = Self.clampedUnit(y)
         setGradientCircles(circles, for: token)
     }
 
@@ -1274,7 +1307,9 @@ final class BrowserTheme: ObservableObject {
                 [
                     BrowserThemeGradientCircle(
                         colorHex: fallbackGradientHexByToken[token] ?? token.defaultGradientHex,
-                        intensity: 0.72
+                        intensity: 0.72,
+                        x: 0.5,
+                        y: 0.5
                     )
                 ]
             )
@@ -1307,7 +1342,9 @@ final class BrowserTheme: ObservableObject {
             return BrowserThemeGradientCircle(
                 id: circle.id,
                 colorHex: Color.isValidHex(circle.colorHex) ? circle.colorHex : fallbackHex,
-                intensity: clampedUnit(circle.intensity)
+                intensity: clampedUnit(circle.intensity),
+                x: clampedUnit(circle.x),
+                y: clampedUnit(circle.y)
             )
         }
         .prefix(8)
@@ -1317,6 +1354,20 @@ final class BrowserTheme: ObservableObject {
             return [BrowserThemeGradientCircle(colorHex: fallbackHex, intensity: 0.72)]
         }
         return normalized
+    }
+
+    private static func defaultGradientCircleCoordinate(for index: Int) -> (x: Double, y: Double) {
+        let points: [(Double, Double)] = [
+            (0.5, 0.5),
+            (0.28, 0.36),
+            (0.72, 0.42),
+            (0.42, 0.72),
+            (0.82, 0.24),
+            (0.18, 0.76),
+            (0.55, 0.26),
+            (0.76, 0.74)
+        ]
+        return points[index % points.count]
     }
 
     private static func safeThemeFilename(_ filename: String) -> String {

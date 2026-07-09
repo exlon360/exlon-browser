@@ -424,7 +424,6 @@ private struct BrowserShell: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let shellScale = max(CGFloat(model.websiteResolutionScale), 0.01)
             let virtualSize = proxy.size
 
             ZStack {
@@ -559,7 +558,6 @@ private struct BrowserShell: View {
                 BrowserKeyboardShortcutHost()
                 }
                 .frame(width: virtualSize.width, height: virtualSize.height)
-                .scaleEffect(shellScale, anchor: .center)
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
                 .clipped()
@@ -726,7 +724,7 @@ private struct BrowserShell: View {
             return max(1, size.width)
         }
 
-        let width = size.width * CGFloat(model.sideChromeWidthFraction)
+        let width = size.width * CGFloat(model.sideChromeWidthFraction) * browserDensity
         return min(max(width, 286), min(size.width - 120, 520))
     }
 
@@ -743,34 +741,42 @@ private struct BrowserShell: View {
 
     private var pageControlsTopPadding: CGFloat {
         if model.isTopSearchBarEnabled && model.topSearchBarPlacement == .top {
-            return topSearchBarTopPadding + 62
+            return topSearchBarTopPadding + scaledChromeValue(62)
         }
 
         if chromeIsVisible(for: .top) {
-            return 118
+            return scaledChromeValue(118)
         }
-        return 14
+        return scaledChromeValue(14)
     }
 
     private var privateModeBadgeTopPadding: CGFloat {
         if chromeIsVisible(for: .top) {
-            return 118
+            return scaledChromeValue(118)
         }
-        return 18
+        return scaledChromeValue(18)
     }
 
     private var topSearchBarTopPadding: CGFloat {
         if chromeIsVisible(for: .top) {
-            return 112
+            return scaledChromeValue(112)
         }
-        return 12
+        return scaledChromeValue(12)
     }
 
     private var topSearchBarBottomPadding: CGFloat {
         if chromeIsVisible(for: .bottom) {
-            return 112
+            return scaledChromeValue(112)
         }
-        return 16
+        return scaledChromeValue(16)
+    }
+
+    private var browserDensity: CGFloat {
+        min(max(CGFloat(model.websiteResolutionScale), 0.86), 1.14)
+    }
+
+    private func scaledChromeValue(_ value: CGFloat) -> CGFloat {
+        max(1, (value * browserDensity).rounded())
     }
 
     private var topSearchBarAlignment: Alignment {
@@ -5832,10 +5838,10 @@ private struct WebsiteResolutionControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Browser Resolution", systemImage: "rectangle.resize")
+                Label("Display Density", systemImage: "rectangle.resize")
                     .font(.system(size: 14, weight: .black))
                 Spacer()
-                Text("Chrome + page \(model.websiteResolutionLabel)")
+                Text(model.websiteResolutionLabel)
                     .font(.caption.weight(.black))
                     .foregroundStyle(theme.color(.mutedText))
             }
@@ -5850,9 +5856,9 @@ private struct WebsiteResolutionControl: View {
             )
 
             HStack(spacing: 8) {
-                resolutionPreset("Compact", scale: 0.85)
+                resolutionPreset("Compact", scale: 0.9)
                 resolutionPreset("Default", scale: 1.0)
-                resolutionPreset("Large", scale: 1.15)
+                resolutionPreset("Large", scale: 1.1)
             }
         }
         .padding(.vertical, 4)
@@ -5925,15 +5931,17 @@ private struct ThemeColorGradientMenu: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 ColorPicker("Base color", selection: theme.binding(for: token), supportsOpacity: false)
 
                 GradientCircleCanvas(
                     baseColor: theme.color(token),
                     circles: theme.gradientCircles(for: token)
-                )
+                ) { circle, x, y in
+                    theme.setGradientCirclePosition(x: x, y: y, circle: circle, for: token)
+                }
 
-                HStack {
+                HStack(spacing: 8) {
                     Label("Gradient circles", systemImage: "circle.hexagongrid.fill")
                         .font(.caption.weight(.black))
                     Spacer()
@@ -5979,7 +5987,7 @@ private struct ThemeColorGradientMenu: View {
                 }
             }
         }
-        .padding(10)
+        .padding(9)
         .background(ControlGlassBackground(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -5995,7 +6003,7 @@ private struct GradientCircleStopRow: View {
     let canRemove: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 10) {
                 ColorPicker("Circle color", selection: colorBinding, supportsOpacity: false)
                     .labelsHidden()
@@ -6023,7 +6031,7 @@ private struct GradientCircleStopRow: View {
 
             Slider(value: intensityBinding, in: 0...1, step: 0.01)
         }
-        .padding(9)
+        .padding(8)
         .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -6203,13 +6211,14 @@ private struct GradientCircleCanvas: View {
     @EnvironmentObject private var theme: BrowserTheme
     let baseColor: Color
     let circles: [BrowserThemeGradientCircle]
+    var onMove: ((BrowserThemeGradientCircle, Double, Double) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text("Gradient canvas")
                 Spacer()
-                Text("Intensity driven")
+                Text("\(circles.count) circle\(circles.count == 1 ? "" : "s")")
                     .foregroundStyle(theme.color(.mutedText))
             }
             .font(.caption.weight(.semibold))
@@ -6229,51 +6238,46 @@ private struct GradientCircleCanvas: View {
                                 .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
                         }
 
-                    ForEach(Array(circles.enumerated()), id: \.element.id) { index, circle in
+                    ForEach(circles) { circle in
                         Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        Color(hex: circle.colorHex).opacity(max(0.18, circle.intensity)),
-                                        Color(hex: circle.colorHex).opacity(0.0)
-                                    ],
-                                    center: .center,
-                                    startRadius: 2,
-                                    endRadius: circleRadius(for: circle, in: proxy.size) / 2
-                                )
-                            )
-                            .frame(width: circleRadius(for: circle, in: proxy.size), height: circleRadius(for: circle, in: proxy.size))
+                            .fill(Color(hex: circle.colorHex).opacity(max(0.48, circle.intensity)))
+                            .frame(width: circleDiameter(for: circle), height: circleDiameter(for: circle))
                             .overlay {
                                 Circle()
-                                    .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                                    .stroke(Color.white.opacity(0.86), lineWidth: 2)
                             }
-                            .shadow(color: Color(hex: circle.colorHex).opacity(max(0.12, circle.intensity * 0.38)), radius: 12, y: 6)
-                            .position(circlePosition(index: index, in: proxy.size))
+                            .shadow(color: Color(hex: circle.colorHex).opacity(max(0.18, circle.intensity * 0.44)), radius: 6, y: 3)
+                            .position(circlePosition(circle, in: proxy.size))
+                            .gesture(circleDrag(circle, in: proxy.size))
                     }
                 }
             }
-            .frame(height: 118)
+            .frame(height: 92)
         }
     }
 
-    private func circleRadius(for circle: BrowserThemeGradientCircle, in size: CGSize) -> CGFloat {
-        let base = min(size.width, size.height)
-        return max(34, base * (0.42 + CGFloat(circle.intensity) * 0.56))
+    private func circleDiameter(for circle: BrowserThemeGradientCircle) -> CGFloat {
+        18 + CGFloat(circle.intensity) * 10
     }
 
-    private func circlePosition(index: Int, in size: CGSize) -> CGPoint {
-        let positions: [CGPoint] = [
-            CGPoint(x: 0.28, y: 0.38),
-            CGPoint(x: 0.68, y: 0.46),
-            CGPoint(x: 0.48, y: 0.72),
-            CGPoint(x: 0.82, y: 0.22),
-            CGPoint(x: 0.18, y: 0.78),
-            CGPoint(x: 0.52, y: 0.25),
-            CGPoint(x: 0.76, y: 0.76),
-            CGPoint(x: 0.34, y: 0.58)
-        ]
-        let point = positions[index % positions.count]
-        return CGPoint(x: point.x * size.width, y: point.y * size.height)
+    private func circlePosition(_ circle: BrowserThemeGradientCircle, in size: CGSize) -> CGPoint {
+        let inset = circleDiameter(for: circle) / 2
+        return CGPoint(
+            x: min(max(CGFloat(circle.x) * size.width, inset), max(inset, size.width - inset)),
+            y: min(max(CGFloat(circle.y) * size.height, inset), max(inset, size.height - inset))
+        )
+    }
+
+    private func circleDrag(_ circle: BrowserThemeGradientCircle, in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                onMove?(
+                    circle,
+                    Double(min(max(value.location.x / size.width, 0), 1)),
+                    Double(min(max(value.location.y / size.height, 0), 1))
+                )
+            }
     }
 }
 

@@ -1061,8 +1061,8 @@ final class BrowserViewModel: ObservableObject {
     static let minimumForcedFPS = 15.0
     static let maximumFiniteForcedFPS = 240.0
     static let infiniteForcedFPSValue = 241.0
-    static let minimumWebsiteResolutionScale = 0.72
-    static let maximumWebsiteResolutionScale = 1.36
+    static let minimumWebsiteResolutionScale = 0.86
+    static let maximumWebsiteResolutionScale = 1.14
     static let currentFeatureUpdateVersion = 4
     static var supportsDesktopZenMode: Bool {
         #if targetEnvironment(macCatalyst)
