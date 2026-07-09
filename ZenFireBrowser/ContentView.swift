@@ -425,7 +425,8 @@ private struct BrowserShell: View {
     var body: some View {
         GeometryReader { proxy in
             let visibleSize = proxy.size
-            let layoutSize = browserLayoutSize(for: visibleSize)
+            let screenScale = browserScreenScale
+            let layoutSize = browserLayoutSize(for: visibleSize, screenScale: screenScale)
 
             ZStack {
                 BrowserBackground()
@@ -476,7 +477,7 @@ private struct BrowserShell: View {
                 }
 
                 MovableBrowserPageControls(
-                    containerSize: visibleSize,
+                    containerSize: layoutSize,
                     defaultLeading: pageControlsLeadingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience),
                     defaultTop: pageControlsTopPadding
                 )
@@ -491,7 +492,7 @@ private struct BrowserShell: View {
 
                 if model.isTopSearchBarEnabled {
                     MovableTopSearchBar(
-                        containerSize: visibleSize,
+                        containerSize: layoutSize,
                         topInset: topSearchBarTopPadding,
                         bottomInset: topSearchBarBottomPadding,
                         experience: experience
@@ -558,11 +559,13 @@ private struct BrowserShell: View {
 
                 BrowserKeyboardShortcutHost()
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height)
+                .coordinateSpace(name: "browserShell")
+                .frame(width: layoutSize.width, height: layoutSize.height)
+                .scaleEffect(screenScale, anchor: .center)
+                .frame(width: visibleSize.width, height: visibleSize.height)
                 .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
                 .clipped()
             }
-            .coordinateSpace(name: "browserShell")
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
@@ -719,24 +722,29 @@ private struct BrowserShell: View {
         return model.areSideTabsCollapsed == false
     }
 
-    private func browserLayoutSize(for visibleSize: CGSize) -> CGSize {
+    private var browserScreenScale: CGFloat {
         guard model.browserResolutionPreset != .automatic else {
-            return visibleSize
+            return 1.0
         }
 
-        let width = CGFloat(BrowserResolutionPreset.clampedSliderWidth(model.browserResolutionWidth))
-        let height = CGFloat(BrowserResolutionPreset.sliderHeight(forWidth: model.browserResolutionWidth))
-        return CGSize(width: max(width, 1), height: max(height, visibleSize.height))
+        return CGFloat(BrowserResolutionPreset.clampedScreenScale(model.browserResolutionWidth))
+    }
+
+    private func browserLayoutSize(for visibleSize: CGSize, screenScale: CGFloat) -> CGSize {
+        let scale = max(screenScale, 0.01)
+        return CGSize(
+            width: max(visibleSize.width / scale, 1),
+            height: max(visibleSize.height / scale, 1)
+        )
     }
 
     private func sideWidth(for visibleSize: CGSize, layoutSize: CGSize, experience: GlideDeviceExperience) -> CGFloat {
         if experience == .phone {
-            return max(1, visibleSize.width)
+            return max(1, layoutSize.width)
         }
 
         let width = layoutSize.width * CGFloat(model.sideChromeWidthFraction)
-        let visibleLimit = max(240, visibleSize.width - 36)
-        return min(max(width, 286), min(visibleLimit, 520))
+        return min(max(width, 286), min(layoutSize.width - 120, 520))
     }
 
     private func pageControlsLeadingPadding(for visibleSize: CGSize, layoutSize: CGSize, experience: GlideDeviceExperience) -> CGFloat {
@@ -5866,13 +5874,13 @@ private struct WebsiteResolutionControl: View {
                     value: Binding(
                         get: { displayedResolutionWidth },
                         set: { value in
-                            let width = BrowserResolutionPreset.clampedSliderWidth(value)
+                            let width = BrowserResolutionPreset.clampedScreenScale(value)
                             draftResolutionWidth = width
                             model.previewBrowserResolutionWidth(width)
                         }
                     ),
-                    in: BrowserResolutionPreset.minimumSliderWidth...BrowserResolutionPreset.maximumSliderWidth,
-                    step: BrowserResolutionPreset.sliderStep,
+                    in: BrowserResolutionPreset.minimumScreenScale...BrowserResolutionPreset.maximumScreenScale,
+                    step: BrowserResolutionPreset.screenScaleStep,
                     onEditingChanged: { isEditing in
                         if isEditing == false {
                             model.setBrowserResolutionWidth(displayedResolutionWidth)
@@ -5882,54 +5890,37 @@ private struct WebsiteResolutionControl: View {
                 )
 
                 HStack {
-                    Text("\(Int(BrowserResolutionPreset.minimumSliderWidth))")
+                    Text("More space")
                     Spacer()
-                    Text("Custom")
+                    Text("Screen scale")
                         .foregroundStyle(theme.color(.mutedText))
                     Spacer()
-                    Text("\(Int(BrowserResolutionPreset.maximumSliderWidth))")
+                    Text("Larger UI")
                 }
                 .font(.system(size: 10, weight: .black))
                 .foregroundStyle(theme.color(.mutedText).opacity(0.8))
             }
 
-            VStack(spacing: 8) {
-                ForEach(BrowserResolutionPreset.buttonCases) { preset in
-                    resolutionPreset(preset)
+            Button {
+                draftResolutionWidth = nil
+                model.setBrowserResolutionPreset(.automatic)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: BrowserResolutionPreset.automatic.symbolName)
+                        .font(.system(size: 13, weight: .black))
+                    Text("Auto Screen Scale")
+                        .font(.system(size: 13, weight: .black))
+                    Spacer(minLength: 0)
+                    if model.browserResolutionPreset == .automatic {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .black))
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
+            .buttonStyle(GlideGradientButtonStyle(prominence: model.browserResolutionPreset == .automatic ? .primary : .standard, minHeight: 42))
         }
         .padding(.vertical, 4)
-    }
-
-    private func resolutionPreset(_ preset: BrowserResolutionPreset) -> some View {
-        Button {
-            draftResolutionWidth = nil
-            model.setBrowserResolutionPreset(preset)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: preset.symbolName)
-                    .font(.system(size: 13, weight: .black))
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(preset.title)
-                        .font(.system(size: 13, weight: .black))
-                    Text(preset.detail)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(theme.color(.mutedText))
-                }
-
-                Spacer(minLength: 0)
-
-                if model.browserResolutionPreset == preset {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .black))
-                }
-            }
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(GlideGradientButtonStyle(prominence: model.browserResolutionPreset == preset ? .primary : .standard, minHeight: 42))
     }
 }
 

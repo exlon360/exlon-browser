@@ -107,7 +107,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         websiteResolutionScale: Double = 1.0,
         websiteDisplayMode: BrowserWebsiteDisplayMode = .automatic,
         browserResolutionPreset: BrowserResolutionPreset = .automatic,
-        browserResolutionWidth: Double = BrowserResolutionPreset.defaultSliderWidth,
+        browserResolutionWidth: Double = BrowserResolutionPreset.defaultScreenScale,
         folderID: UUID? = nil,
         webExtensions: [BrowserWebExtension] = [],
         webKitProfile: BrowserWebKitProfile = .standard
@@ -142,7 +142,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.websiteResolutionScale = websiteResolutionScale
         self.websiteDisplayMode = websiteDisplayMode
         self.browserResolutionPreset = browserResolutionPreset
-        self.browserResolutionWidth = BrowserResolutionPreset.clampedSliderWidth(browserResolutionWidth)
+        self.browserResolutionWidth = BrowserResolutionPreset.clampedScreenScale(browserResolutionWidth)
         self.webExtensions = webExtensions
         self.folderID = folderID
         self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
@@ -259,7 +259,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     func setBrowserResolutionPreset(_ preset: BrowserResolutionPreset, reloadAfterChange: Bool = true) {
-        let width = Double(preset.viewportWidth ?? Int(browserResolutionWidth))
+        let width = preset == .custom ? browserResolutionWidth : preset.screenScale
         setBrowserResolution(preset: preset, width: width, reloadAfterChange: reloadAfterChange)
     }
 
@@ -268,7 +268,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         width: Double,
         reloadAfterChange: Bool = true
     ) {
-        let clampedWidth = BrowserResolutionPreset.clampedSliderWidth(width)
+        let clampedWidth = BrowserResolutionPreset.clampedScreenScale(width)
         guard browserResolutionPreset != preset || browserResolutionWidth != clampedWidth else { return }
         browserResolutionPreset = preset
         browserResolutionWidth = clampedWidth
@@ -719,7 +719,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         for preset: BrowserResolutionPreset,
         width rawWidth: Double
     ) -> String? {
-        guard preset != .automatic else { return nil }
+        guard preset != .automatic,
+              preset != .custom else { return nil }
 
         let width = preset.viewportWidth ?? Int(BrowserResolutionPreset.clampedSliderWidth(rawWidth))
         let height = preset.viewportHeight ?? Int(BrowserResolutionPreset.sliderHeight(forWidth: Double(width)).rounded())

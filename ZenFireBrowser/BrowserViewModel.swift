@@ -89,6 +89,10 @@ enum BrowserResolutionPreset: String, CaseIterable, Identifiable, Codable {
     static let maximumSliderWidth = 1600.0
     static let defaultSliderWidth = 430.0
     static let sliderStep = 10.0
+    static let minimumScreenScale = 0.55
+    static let maximumScreenScale = 1.35
+    static let defaultScreenScale = 1.0
+    static let screenScaleStep = 0.01
     static let buttonCases: [BrowserResolutionPreset] = [
         .automatic,
         .phone390x844,
@@ -121,7 +125,7 @@ enum BrowserResolutionPreset: String, CaseIterable, Identifiable, Codable {
         case .automatic:
             return "Device resolution"
         case .custom:
-            return "Slider resolution"
+            return "Screen scale"
         case .phone390x844:
             return "Phone layout"
         case .phone430x932:
@@ -204,6 +208,29 @@ enum BrowserResolutionPreset: String, CaseIterable, Identifiable, Codable {
         guard value.isFinite else { return defaultSliderWidth }
         let rounded = (value / sliderStep).rounded() * sliderStep
         return min(max(rounded, minimumSliderWidth), maximumSliderWidth)
+    }
+
+    static func clampedScreenScale(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultScreenScale }
+        let rounded = (value / screenScaleStep).rounded() * screenScaleStep
+        return min(max(rounded, minimumScreenScale), maximumScreenScale)
+    }
+
+    static func screenScaleLabel(for value: Double) -> String {
+        "\(Int((clampedScreenScale(value) * 100).rounded()))%"
+    }
+
+    var screenScale: Double {
+        switch self {
+        case .automatic, .custom:
+            return Self.defaultScreenScale
+        case .phone390x844, .phone430x932:
+            return Self.defaultScreenScale
+        case .tablet1024x768:
+            return 0.78
+        case .desktop1366x900:
+            return 0.64
+        }
     }
 
     static func sliderHeight(forWidth rawWidth: Double) -> Double {
@@ -1385,7 +1412,7 @@ final class BrowserViewModel: ObservableObject {
     }
     @Published var browserResolutionWidth: Double {
         didSet {
-            let clamped = BrowserResolutionPreset.clampedSliderWidth(browserResolutionWidth)
+            let clamped = BrowserResolutionPreset.clampedScreenScale(browserResolutionWidth)
             if clamped != browserResolutionWidth {
                 browserResolutionWidth = clamped
                 return
@@ -1811,12 +1838,13 @@ final class BrowserViewModel: ObservableObject {
         let savedBrowserResolutionPreset = BrowserResolutionPreset(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.browserResolutionPreset, default: "")
         ) ?? .automatic
-        let savedBrowserResolutionWidth = BrowserResolutionPreset.clampedSliderWidth(
-            vault.load(
-                Double.self,
-                forKey: Self.StorageKey.browserResolutionWidth,
-                default: Double(savedBrowserResolutionPreset.viewportWidth ?? Int(BrowserResolutionPreset.defaultSliderWidth))
-            )
+        let rawBrowserResolutionScale = vault.load(
+            Double.self,
+            forKey: Self.StorageKey.browserResolutionWidth,
+            default: savedBrowserResolutionPreset.screenScale
+        )
+        let savedBrowserResolutionWidth = BrowserResolutionPreset.clampedScreenScale(
+            rawBrowserResolutionScale > 10 ? savedBrowserResolutionPreset.screenScale : rawBrowserResolutionScale
         )
         let savedWebsiteDisplayModeValue = BrowserWebsiteDisplayMode(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.websiteDisplayMode, default: "")
@@ -1968,18 +1996,16 @@ final class BrowserViewModel: ObservableObject {
         if browserResolutionPreset == .automatic {
             return "Auto"
         }
-        return browserResolutionLabel(forWidth: browserResolutionWidth)
+        return BrowserResolutionPreset.screenScaleLabel(for: browserResolutionWidth)
     }
 
     func browserResolutionLabel(forWidth width: Double) -> String {
-        let clampedWidth = BrowserResolutionPreset.clampedSliderWidth(width)
-        let height = BrowserResolutionPreset.sliderHeight(forWidth: clampedWidth).rounded()
-        return "\(Int(clampedWidth)) x \(Int(height))"
+        BrowserResolutionPreset.screenScaleLabel(for: width)
     }
 
     var effectiveDeviceExperienceOverride: BrowserDeviceExperienceOverride {
         if browserResolutionPreset == .custom {
-            return Self.deviceExperienceOverride(forBrowserResolutionWidth: browserResolutionWidth)
+            return .automatic
         }
 
         let resolutionOverride = browserResolutionPreset.deviceExperienceOverride
@@ -2506,8 +2532,8 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func setBrowserResolutionPreset(_ preset: BrowserResolutionPreset) {
-        let resolvedWidth = Double(preset.viewportWidth ?? Int(browserResolutionWidth))
-        browserResolutionWidth = BrowserResolutionPreset.clampedSliderWidth(resolvedWidth)
+        let resolvedScale = preset == .custom ? browserResolutionWidth : preset.screenScale
+        browserResolutionWidth = BrowserResolutionPreset.clampedScreenScale(resolvedScale)
         browserResolutionPreset = preset
         applyBrowserResolution(
             preset: preset,
@@ -2517,7 +2543,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func setBrowserResolutionWidth(_ width: Double) {
-        let clampedWidth = BrowserResolutionPreset.clampedSliderWidth(width)
+        let clampedWidth = BrowserResolutionPreset.clampedScreenScale(width)
         browserResolutionWidth = clampedWidth
         browserResolutionPreset = .custom
         applyBrowserResolution(
@@ -2528,10 +2554,10 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func previewBrowserResolutionWidth(_ width: Double) {
-        let clampedWidth = BrowserResolutionPreset.clampedSliderWidth(width)
+        let clampedWidth = BrowserResolutionPreset.clampedScreenScale(width)
         browserResolutionWidth = clampedWidth
         browserResolutionPreset = .custom
-        if Self.deviceExperienceOverride(forBrowserResolutionWidth: clampedWidth) == .iPad {
+        if clampedWidth <= 0.65 {
             areSideTabsCollapsed = false
         }
     }
@@ -2565,7 +2591,7 @@ final class BrowserViewModel: ObservableObject {
             websiteDisplayMode = displayMode
         }
 
-        if Self.deviceExperienceOverride(forBrowserResolution: preset, width: width) == .iPad {
+        if preset.deviceExperienceOverride == .iPad || (preset == .custom && width <= 0.65) {
             areSideTabsCollapsed = false
         }
     }
@@ -4524,7 +4550,7 @@ final class BrowserViewModel: ObservableObject {
         width: Double
     ) -> BrowserWebsiteDisplayMode {
         if preset == .custom {
-            return BrowserResolutionPreset.clampedSliderWidth(width) >= 768 ? .desktop : .mobile
+            return .automatic
         }
 
         return preset.websiteDisplayMode
@@ -4535,7 +4561,7 @@ final class BrowserViewModel: ObservableObject {
         width: Double
     ) -> BrowserDeviceExperienceOverride {
         if preset == .custom {
-            return deviceExperienceOverride(forBrowserResolutionWidth: width)
+            return .automatic
         }
 
         return preset.deviceExperienceOverride
@@ -4544,7 +4570,7 @@ final class BrowserViewModel: ObservableObject {
     private static func deviceExperienceOverride(
         forBrowserResolutionWidth width: Double
     ) -> BrowserDeviceExperienceOverride {
-        BrowserResolutionPreset.clampedSliderWidth(width) >= 768 ? .iPad : .phone
+        BrowserResolutionPreset.clampedScreenScale(width) <= 0.65 ? .iPad : .automatic
     }
 
     private static func countLabel(_ count: Int, singular: String) -> String {
