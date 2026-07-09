@@ -570,6 +570,7 @@ private struct BrowserShell: View {
                     .environmentObject(model)
                     .environmentObject(theme)
                     .environmentObject(security)
+                    .environmentObject(profiles)
                     .preferredColorScheme(.dark)
             }
             .sheet(isPresented: $model.isTabFinderPresented) {

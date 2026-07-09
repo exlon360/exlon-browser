@@ -114,7 +114,6 @@ struct BrowserProfile: Identifiable, Codable, Equatable {
 final class BrowserProfileManager: ObservableObject {
     @Published var profiles: [BrowserProfile] {
         didSet {
-            profiles = Self.normalizedProfiles(profiles)
             vault.save(profiles, forKey: Self.profilesKey)
         }
     }

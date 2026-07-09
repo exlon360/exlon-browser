@@ -183,7 +183,6 @@ final class BrowserTheme: ObservableObject {
     @Published private var gradientColorHexByToken: [BrowserThemeToken: String]
     @Published var customColors: [BrowserCustomThemeColor] {
         didSet {
-            customColors = Self.normalizedCustomColors(customColors)
             vault.save(customColors, forKey: Self.customColorsKey)
         }
     }
@@ -564,7 +563,7 @@ final class BrowserTheme: ObservableObject {
             gradientEndY = gradientCoordinates["endY"] ?? gradientEndY
         }
         if let customColors {
-            self.customColors = customColors
+            self.customColors = Self.normalizedCustomColors(customColors)
         }
 
         isTabBarTransparencyEnabled = tabBarTransparencyEnabled
@@ -696,7 +695,7 @@ final class BrowserTheme: ObservableObject {
         gradientStartY = savedTheme.gradientStartY ?? 0.0
         gradientEndX = savedTheme.gradientEndX ?? 1.0
         gradientEndY = savedTheme.gradientEndY ?? 1.0
-        customColors = savedTheme.customColors ?? []
+        customColors = Self.normalizedCustomColors(savedTheme.customColors ?? [])
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
         tabBarTransparency = savedTheme.tabBarTransparency
         userBackgroundImageData = savedTheme.userBackgroundImageData
@@ -967,7 +966,6 @@ final class BrowserTheme: ObservableObject {
         }
         .prefix(24)
         .map { $0 }
-        .sorted { $0.location < $1.location }
     }
 
     private static func safeThemeFilename(_ filename: String) -> String {
