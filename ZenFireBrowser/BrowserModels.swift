@@ -715,6 +715,68 @@ enum AIAssistant: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserAIAction: String, CaseIterable, Identifiable {
+    case summarize
+    case keyPoints
+    case explain
+    case privacyCheck
+    case rewrite
+    case search
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .summarize:
+            return "Summarize"
+        case .keyPoints:
+            return "Key Points"
+        case .explain:
+            return "Explain"
+        case .privacyCheck:
+            return "Privacy Check"
+        case .rewrite:
+            return "Rewrite"
+        case .search:
+            return "Search Better"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .summarize:
+            return "text.alignleft"
+        case .keyPoints:
+            return "list.bullet.rectangle"
+        case .explain:
+            return "questionmark.circle"
+        case .privacyCheck:
+            return "shield.lefthalf.filled"
+        case .rewrite:
+            return "pencil.and.scribble"
+        case .search:
+            return "magnifyingglass"
+        }
+    }
+
+    var instruction: String {
+        switch self {
+        case .summarize:
+            return "Summarize this page in a concise, useful way."
+        case .keyPoints:
+            return "Extract the key points, dates, numbers, and actions from this page."
+        case .explain:
+            return "Explain this page clearly like I am trying to understand it fast."
+        case .privacyCheck:
+            return "Review this page for privacy or security risks and tell me what to watch for."
+        case .rewrite:
+            return "Rewrite the important content from this page in clearer language."
+        case .search:
+            return "Turn this page or question into better search queries and next steps."
+        }
+    }
+}
+
 struct BrowserHistoryItem: Identifiable, Codable, Equatable {
     let id: UUID
     var title: String

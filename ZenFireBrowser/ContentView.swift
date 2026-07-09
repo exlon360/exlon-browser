@@ -123,6 +123,13 @@ private struct BrowserLockView: View {
                 .frame(maxWidth: 440)
                 .padding(.horizontal, 24)
 
+                if security.isConfigured == false {
+                    PremiumSetupPreview()
+                        .frame(maxWidth: 440)
+                        .padding(.horizontal, 24)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
                 VStack(spacing: 10) {
                     Button(action: submit) {
                         HStack(spacing: 10) {
@@ -235,6 +242,72 @@ private struct BrowserLockView: View {
 
     private func sanitizedPIN(_ value: String) -> String {
         String(value.filter { $0.isNumber }.prefix(12))
+    }
+}
+
+private struct PremiumSetupPreview: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 14, weight: .black))
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(Color(red: 0.05, green: 0.06, blue: 0.08))
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.84, green: 0.89, blue: 1.0),
+                                Color(red: 0.74, green: 0.62, blue: 0.98)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Premium private setup")
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(Color.white.opacity(0.94))
+                    Text("Fullscreen browsing, encrypted vault, Shields Max, and Glide AI are ready after unlock.")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HStack(spacing: 8) {
+                PremiumSetupChip(symbol: "rectangle.expand.vertical", title: "Fullscreen")
+                PremiumSetupChip(symbol: "shield.lefthalf.filled", title: "Private")
+                PremiumSetupChip(symbol: "sparkles", title: "AI")
+            }
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        }
+    }
+}
+
+private struct PremiumSetupChip: View {
+    let symbol: String
+    let title: String
+
+    var body: some View {
+        Label(title, systemImage: symbol)
+            .font(.system(size: 11, weight: .black))
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .foregroundStyle(Color.white.opacity(0.86))
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            }
     }
 }
 
@@ -552,6 +625,12 @@ private struct BrowserShell: View {
             }
             .sheet(isPresented: $model.isLocalAIImporterPresented) {
                 LocalAIImportView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+            }
+            .sheet(isPresented: $model.isAIPanelPresented) {
+                GlideAIPanelView()
                     .environmentObject(model)
                     .environmentObject(theme)
                     .preferredColorScheme(.dark)
@@ -3145,6 +3224,22 @@ private struct ShieldQuickButton: View {
             }
 
             Button {
+                model.enableGlideGhostMode()
+            } label: {
+                Label("Ghost Mode", systemImage: "eye.slash")
+            }
+
+            Toggle("Block Scripts", isOn: $model.isScriptBlockingEnabled)
+            Toggle("Fingerprint Protection", isOn: $model.isFingerprintProtectionEnabled)
+            Toggle("Protect WebRTC IP", isOn: $model.isWebRTCProtectionEnabled)
+
+            Button(role: .destructive) {
+                model.clearPrivateBrowsingData()
+            } label: {
+                Label("Clear Private Data", systemImage: "trash")
+            }
+
+            Button {
                 model.isSettingsPresented = true
             } label: {
                 Label("Shield Settings", systemImage: "slider.horizontal.3")
@@ -3380,10 +3475,44 @@ private struct MoreTabButton: View {
             }
 
             Button {
+                model.openFloatingSearch()
+            } label: {
+                Label("Search or Address", systemImage: "magnifyingglass")
+            }
+
+            Button {
                 model.isTabFinderPresented = true
             } label: {
                 Label("Find Tabs", systemImage: "magnifyingglass")
             }
+
+            Button {
+                model.openAIPanel()
+            } label: {
+                Label("Glide AI", systemImage: "sparkles")
+            }
+
+            Divider()
+
+            Button {
+                model.enterFullscreenBrowsing()
+            } label: {
+                Label("Fullscreen Websites", systemImage: "arrow.down.right.and.arrow.up.left")
+            }
+
+            Button {
+                model.setTabBarCollapsed(!model.areSideTabsCollapsed)
+            } label: {
+                Label(model.areSideTabsCollapsed ? "Reveal Tabs" : "Hide Tabs", systemImage: model.areSideTabsCollapsed ? "sidebar.left" : "sidebar.leading")
+            }
+
+            Button {
+                model.isTopSearchBarEnabled.toggle()
+            } label: {
+                Label(model.isTopSearchBarEnabled ? "Hide Top Search Bar" : "Show Top Search Bar", systemImage: "text.magnifyingglass")
+            }
+
+            Divider()
 
             Button {
                 model.requestPrivateModeToggle()
@@ -3391,10 +3520,43 @@ private struct MoreTabButton: View {
                 Label(model.isPrivateModeEnabled ? "Close Private Mode" : "Private Mode", systemImage: "lock.shield")
             }
 
+            Menu {
+                Button {
+                    model.enableGlideMaxProtection()
+                } label: {
+                    Label("Shields Max", systemImage: "shield.lefthalf.filled")
+                }
+
+                Button {
+                    model.enableGlideGhostMode()
+                } label: {
+                    Label("Ghost Mode", systemImage: "eye.slash")
+                }
+
+                Toggle("Block Scripts", isOn: $model.isScriptBlockingEnabled)
+                Toggle("Fingerprint Protection", isOn: $model.isFingerprintProtectionEnabled)
+                Toggle("Protect WebRTC IP", isOn: $model.isWebRTCProtectionEnabled)
+
+                Button(role: .destructive) {
+                    model.clearPrivateBrowsingData()
+                } label: {
+                    Label("Clear Private Data", systemImage: "trash")
+                }
+            } label: {
+                Label("Privacy", systemImage: "hand.raised.fill")
+            }
+
             Button {
                 model.isAddOnsPresented = true
             } label: {
                 Label("Extensions & Add-ons", systemImage: "puzzlepiece")
+            }
+            .disabled(model.isPrivateModeEnabled)
+
+            Button {
+                model.isPasswordManagerPresented = true
+            } label: {
+                Label("Passwords", systemImage: "key.fill")
             }
             .disabled(model.isPrivateModeEnabled)
 
@@ -3506,30 +3668,8 @@ private struct AITabButton: View {
     @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
-        Menu {
-            ForEach(AIAssistant.allCases) { assistant in
-                Button {
-                    model.openAIShortcut(assistant)
-                } label: {
-                    Label(assistant.menuTitle, systemImage: assistant.symbolName)
-                }
-            }
-
-            Divider()
-
-            if model.localAIURLText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                Button {
-                    model.openLocalAI()
-                } label: {
-                    Label(model.localAIName, systemImage: "desktopcomputer")
-                }
-            }
-
-            Button {
-                model.isLocalAIImporterPresented = true
-            } label: {
-                Label("Import Local AI", systemImage: "square.and.arrow.down")
-            }
+        Button {
+            model.openAIPanel()
         } label: {
             BrowserIcon(slot: .ai, systemName: "sparkles", size: 15, weight: .bold)
                 .frame(width: 38, height: 38)
@@ -3541,7 +3681,23 @@ private struct AITabButton: View {
                 }
                 .shadow(color: Color.black.opacity(0.25), radius: 10, y: 5)
         }
-        .accessibilityLabel("AI shortcuts")
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                model.openAIPanel(action: .summarize)
+            } label: {
+                Label("Glide AI", systemImage: "sparkles")
+            }
+
+            ForEach(AIAssistant.allCases) { assistant in
+                Button {
+                    model.openAIAssistantWithPrompt(assistant)
+                } label: {
+                    Label(assistant.title, systemImage: assistant.symbolName)
+                }
+            }
+        }
+        .accessibilityLabel("Glide AI")
     }
 }
 
@@ -3869,12 +4025,12 @@ private struct FirstRunTutorialView: View {
                     Group {
                         if step == 0 {
                             VStack(spacing: 10) {
-                                Text("Welcome to Glide")
+                                Text("Glide is ready")
                                     .font(.system(size: 38, weight: .black))
                                     .foregroundStyle(theme.color(.text))
                                     .multilineTextAlignment(.center)
 
-                                Text("A lighter, glassy browser built around fast search and side tabs.")
+                                Text("A premium fullscreen browser with private defaults, glass controls, and AI built into the flow.")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(theme.color(.mutedText))
                                     .multilineTextAlignment(.center)
@@ -3889,9 +4045,9 @@ private struct FirstRunTutorialView: View {
 
                                 VStack(spacing: 0) {
                                     TutorialFeatureRow(
-                                        symbol: "arrow.left.and.right",
-                                        title: "Gestures",
-                                        detail: "Two fingers left hides the tab bar, two fingers right reveals it. Three fingers moves back or forward.",
+                                        symbol: "rectangle.expand.vertical",
+                                        title: "Fullscreen by default",
+                                        detail: "Websites take the whole screen. Use the floating controls when you want search, tabs, or settings.",
                                         tint: .accent
                                     )
 
@@ -3899,8 +4055,8 @@ private struct FirstRunTutorialView: View {
 
                                     TutorialFeatureRow(
                                         symbol: "shield.lefthalf.filled",
-                                        title: "Never experience an ad again",
-                                        detail: "Glide Shields block ads, trackers, pop-ups, and noisy scripts by default.",
+                                        title: "Privacy presets",
+                                        detail: "Shields Max is on deck, Ghost Mode is stricter, and private data can be cleared in one tap.",
                                         tint: .accent
                                     )
 
@@ -3908,8 +4064,8 @@ private struct FirstRunTutorialView: View {
 
                                     TutorialFeatureRow(
                                         symbol: "sparkle",
-                                        title: "Essentials",
-                                        detail: "Hold a tab and add it to Essentials for a saved launcher.",
+                                        title: "Glide AI",
+                                        detail: "The AI button reads page context, builds a prompt, and lets you send it to your AI of choice.",
                                         tint: .createTab
                                     )
                                 }
@@ -3976,23 +4132,21 @@ private struct TutorialQuickCustomization: View {
 
             HStack(spacing: 8) {
                 Button {
-                    model.setTabBarCollapsed(!model.areSideTabsCollapsed)
+                    model.enterFullscreenBrowsing()
                 } label: {
-                    Label(model.areSideTabsCollapsed ? "Reveal" : "Hide", systemImage: model.areSideTabsCollapsed ? "sidebar.left" : "sidebar.leading")
+                    Label("Fullscreen", systemImage: "rectangle.expand.vertical")
                 }
 
                 Button {
-                    theme.isTabBarTransparencyEnabled = true
-                    theme.tabBarTransparency = 0.58
+                    model.enableGlideMaxProtection()
                 } label: {
-                    Label("Glass", systemImage: "square.stack.3d.up")
+                    Label("Shields", systemImage: "shield.lefthalf.filled")
                 }
 
                 Button {
-                    theme.isTabBarTransparencyEnabled = true
-                    theme.tabBarTransparency = 1.0
+                    model.openAIPanel()
                 } label: {
-                    Label("Liquid", systemImage: "drop")
+                    Label("AI", systemImage: "sparkles")
                 }
             }
             .font(.system(size: 13, weight: .bold))
@@ -5438,6 +5592,139 @@ private struct CrashLogsView: View {
     }
 }
 
+private struct GlideAIPanelView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack(spacing: 12) {
+                        BrowserIcon(slot: .ai, systemName: "sparkles", size: 18, weight: .black)
+                            .frame(width: 44, height: 44)
+                            .foregroundStyle(theme.color(.canvas))
+                            .background(ButtonGradientBackground(cornerRadius: 10, prominence: .primary))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Glide AI")
+                                .font(.system(size: 20, weight: .black))
+                                .foregroundStyle(theme.color(.text))
+                            Text("Works with the page you are viewing, then sends the prompt where you choose.")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(theme.color(.mutedText))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowBackground(theme.color(.surface))
+
+                Section("Page") {
+                    LabeledContent("Title") {
+                        Text(model.selectedTab?.title ?? "No page")
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+
+                    LabeledContent("URL") {
+                        Text(model.selectedTab?.url?.host ?? model.selectedTab?.addressText ?? "No URL")
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+                }
+
+                Section("Actions") {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 8)], spacing: 8) {
+                        ForEach(BrowserAIAction.allCases) { action in
+                            Button {
+                                model.prepareAI(action)
+                            } label: {
+                                Label(action.title, systemImage: action.symbolName)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 40))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section("Prompt") {
+                    TextEditor(text: $model.aiPromptText)
+                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .frame(minHeight: 210)
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .background(theme.color(.field), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(theme.color(.border).opacity(0.7), lineWidth: 1)
+                        }
+
+                    if model.aiStatusMessage.isEmpty == false {
+                        Label(model.aiStatusMessage, systemImage: "info.circle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+
+                    Button {
+                        model.copyAIPrompt()
+                    } label: {
+                        Label("Copy Prompt", systemImage: "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 42))
+                }
+
+                Section("Send To") {
+                    ForEach(AIAssistant.allCases) { assistant in
+                        Button {
+                            model.openAIAssistantWithPrompt(assistant)
+                            dismiss()
+                        } label: {
+                            Label(assistant.title, systemImage: assistant.symbolName)
+                        }
+                    }
+
+                    if model.localAIURLText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        Button {
+                            model.copyAIPrompt()
+                            model.openLocalAI()
+                            dismiss()
+                        } label: {
+                            Label(model.localAIName, systemImage: "desktopcomputer")
+                        }
+                    }
+
+                    Button {
+                        dismiss()
+                        model.isLocalAIImporterPresented = true
+                    } label: {
+                        Label("Configure Local AI", systemImage: "square.and.arrow.down")
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle("Glide AI")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                if model.aiPromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    model.prepareAI(.summarize)
+                }
+            }
+        }
+    }
+}
+
 private struct LocalAIImportView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -6205,6 +6492,14 @@ private struct BrowserSettingsView: View {
                         .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 42))
 
                         Button {
+                            model.enableGlideGhostMode()
+                        } label: {
+                            Label("Enable Ghost Mode", systemImage: "eye.slash")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 42))
+
+                        Button {
                             presentAfterDismiss {
                                 model.isPasswordManagerPresented = true
                             }
@@ -6213,11 +6508,16 @@ private struct BrowserSettingsView: View {
                         }
 
                         Button {
-                            model.clearHistory()
-                            model.clearDownloads()
+                            model.clearPrivateBrowsingData()
                             security.clearCrashLogs()
                         } label: {
                             Label("Clear Private Data", systemImage: "trash")
+                        }
+
+                        if model.privacyStatusMessage.isEmpty == false {
+                            Label(model.privacyStatusMessage, systemImage: "checkmark.shield")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(theme.color(.mutedText))
                         }
                     } label: {
                         Label("Privacy", systemImage: "hand.raised.fill")
@@ -6314,6 +6614,13 @@ private struct BrowserSettingsView: View {
                     }
                     Toggle("Block ads and trackers", isOn: adBlockerBinding)
                     Toggle("Hide tab bar", isOn: $model.areSideTabsCollapsed)
+                    Button {
+                        model.enterFullscreenBrowsing()
+                    } label: {
+                        Label("Use Fullscreen Websites", systemImage: "arrow.down.right.and.arrow.up.left")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 42))
                     if BrowserViewModel.supportsDesktopZenMode {
                         Toggle("Desktop Zen Mode", isOn: desktopZenModeBinding)
                     }

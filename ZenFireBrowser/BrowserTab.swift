@@ -241,6 +241,29 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         webView.evaluateJavaScript(Self.credentialFillScript(username: username, password: password))
     }
 
+    func extractReadablePageText(limit: Int = 4_000, completion: @escaping (String) -> Void) {
+        let script = """
+        (() => {
+          const clone = document.body ? document.body.cloneNode(true) : document.documentElement.cloneNode(true);
+          clone.querySelectorAll('script, style, noscript, svg, canvas, iframe, nav, footer, form, input, button, select, textarea').forEach((node) => node.remove());
+          const title = document.title || '';
+          const meta = document.querySelector('meta[name="description"], meta[property="og:description"]')?.content || '';
+          const headings = Array.from(document.querySelectorAll('h1, h2, h3')).map((node) => node.innerText || '').join('\\n');
+          const text = [title, meta, headings, clone.innerText || '']
+            .join('\\n')
+            .replace(/\\s+/g, ' ')
+            .trim();
+          return text.slice(0, \(limit));
+        })();
+        """
+        webView.evaluateJavaScript(script) { result, _ in
+            let text = (result as? String) ?? ""
+            Task { @MainActor in
+                completion(text)
+            }
+        }
+    }
+
     func setDarkReaderEnabled(_ enabled: Bool) {
         isDarkReaderEnabled = enabled
         rebuildWebKitUserContent()

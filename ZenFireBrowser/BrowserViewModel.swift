@@ -798,6 +798,9 @@ final class BrowserViewModel: ObservableObject {
     @Published var isVPNPresented = false
     @Published var isPasswordManagerPresented = false
     @Published var isAddOnsPresented = false
+    @Published var isAIPanelPresented = false
+    @Published var aiPromptText = ""
+    @Published var aiStatusMessage = ""
     @Published var installedWebExtensions: [BrowserWebExtension] {
         didSet {
             vault.save(installedWebExtensions, forKey: Self.StorageKey.webExtensions)
@@ -1233,6 +1236,7 @@ final class BrowserViewModel: ObservableObject {
         }
     }
     @Published var vpnStatusMessage = "Custom VPN profile not configured."
+    @Published var privacyStatusMessage = ""
     @Published var downloadStatusMessage = ""
     @Published var passwordStatusMessage = ""
     @Published var dismissedDownloadShelfID: UUID?
@@ -1286,9 +1290,9 @@ final class BrowserViewModel: ObservableObject {
             rawValue: vault.load(String.self, forKey: Self.StorageKey.regionTrickProfile, default: "")
         ) ?? .unitedStates
         let savedLeanProfileVersion = vault.load(Int.self, forKey: Self.StorageKey.leanProfileVersion, default: 0)
-        let shouldApplyLeanProfile = savedLeanProfileVersion < 1
+        let shouldApplyLeanProfile = savedLeanProfileVersion < 2
         let placement = shouldApplyLeanProfile
-            ? BrowserChromePlacement.left
+            ? BrowserChromePlacement.floating
             : (BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left)
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
@@ -1361,7 +1365,7 @@ final class BrowserViewModel: ObservableObject {
         )
 
         self.chromePlacement = placement
-        self.areSideTabsCollapsed = shouldApplyLeanProfile ? false : vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
+        self.areSideTabsCollapsed = shouldApplyLeanProfile ? true : vault.load(Bool.self, forKey: Self.StorageKey.sideTabsCollapsed, default: false)
         self.isDesktopZenModeEnabled = shouldApplyLeanProfile ? false : vault.load(Bool.self, forKey: Self.StorageKey.desktopZenModeEnabled, default: false)
         self.arePageControlsCollapsed = vault.load(Bool.self, forKey: Self.StorageKey.pageControlsCollapsed, default: false)
         self.compactModeHidesQuickControls = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesQuickControls, default: true)
@@ -1381,7 +1385,7 @@ final class BrowserViewModel: ObservableObject {
         self.deviceExperienceOverride = savedDeviceExperienceOverride
         self.compactModeHidesTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeHidesTopSearchBar, default: true)
         self.compactModeRevealsTopSearchBar = vault.load(Bool.self, forKey: Self.StorageKey.compactModeRevealsTopSearchBar, default: false)
-        self.isTopSearchBarEnabled = shouldApplyLeanProfile ? true : vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: true)
+        self.isTopSearchBarEnabled = shouldApplyLeanProfile ? false : vault.load(Bool.self, forKey: Self.StorageKey.topSearchBarEnabled, default: true)
         self.topSearchBarPlacement = savedTopSearchBarPlacement
         self.topSearchBarPositionX = savedTopSearchBarPositionX
         self.topSearchBarPositionY = savedTopSearchBarPositionY
@@ -1397,7 +1401,7 @@ final class BrowserViewModel: ObservableObject {
         self.installedWebExtensions = savedWebExtensions
         self.webExtensionImportMessage = ""
         self.websiteDisplayMode = savedWebsiteDisplayMode
-        self.isTutorialPresented = false
+        self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
         self.isDarkReaderEnabled = darkReaderEnabled
         self.darkReaderTheme = savedDarkReaderTheme
         self.isStylusCatppuccinEnabled = stylusCatppuccinEnabled
@@ -1438,9 +1442,8 @@ final class BrowserViewModel: ObservableObject {
         applyDeveloperOptionsToTabs()
         migrateLoadedStateToEncryptedVault()
         updateBrowserMusicPlayer()
-        vault.save(true, forKey: Self.StorageKey.hasCompletedTutorial)
         vault.save(false, forKey: Self.StorageKey.browserMusicEnabled)
-        vault.save(1, forKey: Self.StorageKey.leanProfileVersion)
+        vault.save(2, forKey: Self.StorageKey.leanProfileVersion)
     }
 
     var forcedFPSLabel: String {
@@ -1873,6 +1876,55 @@ final class BrowserViewModel: ObservableObject {
         floatingSearchText = selectedTab?.addressText ?? ""
         shouldSelectFloatingSearchText = true
         isFloatingSearchPresented = true
+    }
+
+    func enterFullscreenBrowsing() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            chromePlacement = .floating
+            areSideTabsCollapsed = true
+            isTopSearchBarEnabled = false
+            isDesktopZenModeEnabled = false
+            isFloatingSearchPresented = false
+        }
+    }
+
+    func openAIPanel(action: BrowserAIAction = .summarize) {
+        isAIPanelPresented = true
+        prepareAI(action)
+    }
+
+    func prepareAI(_ action: BrowserAIAction) {
+        guard let tab = selectedTab else {
+            aiPromptText = action.instruction
+            aiStatusMessage = "Open a page first."
+            return
+        }
+
+        aiStatusMessage = "Reading page context..."
+        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let urlText = tab.url?.absoluteString ?? tab.addressText
+        tab.extractReadablePageText { [weak self] pageText in
+            guard let self else { return }
+            self.aiPromptText = self.aiPrompt(
+                action: action,
+                title: title.isEmpty ? "Current page" : title,
+                urlText: urlText,
+                pageText: pageText
+            )
+            self.aiStatusMessage = pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Prompt ready. Page text was limited, so URL and title were used."
+                : "Prompt ready with page context."
+        }
+    }
+
+    func copyAIPrompt() {
+        UIPasteboard.general.string = aiPromptText
+        aiStatusMessage = "Copied AI prompt."
+    }
+
+    func openAIAssistantWithPrompt(_ assistant: AIAssistant) {
+        copyAIPrompt()
+        openAIShortcut(assistant)
     }
 
     func setDarkReaderEnabled(_ enabled: Bool) {
@@ -2779,6 +2831,23 @@ final class BrowserViewModel: ObservableObject {
         openTab(startURL: assistant.url)
     }
 
+    private func aiPrompt(action: BrowserAIAction, title: String, urlText: String, pageText: String) -> String {
+        let trimmedPageText = pageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = trimmedPageText.isEmpty ? "No readable page text was available." : trimmedPageText
+        return """
+        You are Glide AI inside a private browser. \(action.instruction)
+
+        Page title:
+        \(title)
+
+        Page URL:
+        \(urlText)
+
+        Page context:
+        \(context)
+        """
+    }
+
     func openLocalAI() {
         guard let url = Self.normalizedURL(from: localAIURLText) else {
             isLocalAIImporterPresented = true
@@ -3061,9 +3130,24 @@ final class BrowserViewModel: ObservableObject {
         isWebRTCProtectionEnabled = true
     }
 
+    func enableGlideGhostMode() {
+        enableGlideMaxProtection()
+        isScriptBlockingEnabled = true
+        isRegionTricksEnabled = true
+        regionTrickProfile = .germany
+        privacyStatusMessage = "Ghost Mode enabled. Scripts are blocked, so some sites may need Shields Max instead."
+    }
+
+    func clearPrivateBrowsingData() {
+        clearHistory()
+        clearDownloads()
+        SecureBrowserVault.clearWebsiteDataForPrivacy()
+        privacyStatusMessage = "Cleared history, downloads, cookies, caches, and website data."
+    }
+
     func resetLayoutSettings() {
-        chromePlacement = .left
-        areSideTabsCollapsed = false
+        chromePlacement = .floating
+        areSideTabsCollapsed = true
         isDesktopZenModeEnabled = false
         arePageControlsCollapsed = false
         compactModeHidesQuickControls = true
@@ -3075,7 +3159,7 @@ final class BrowserViewModel: ObservableObject {
         pageControlsOffsetY = 0
         isChromeWidthResizeMode = false
         isPageControlsMoveMode = false
-        isTopSearchBarEnabled = true
+        isTopSearchBarEnabled = false
         topSearchBarPlacement = .top
         topSearchBarPositionX = 0.5
         topSearchBarPositionY = 0.0

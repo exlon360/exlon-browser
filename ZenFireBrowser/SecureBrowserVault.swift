@@ -95,6 +95,11 @@ final class SecureBrowserVault {
         removeUnencryptedCacheFiles()
     }
 
+    static func clearWebsiteDataForPrivacy() {
+        purgeAllWebKitWebsiteData()
+        removeUnencryptedCacheFiles()
+    }
+
     static func setup(pin: String, confirmation: String) throws -> SecureBrowserVault {
         let trimmedPIN = pin.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedPIN.count >= 4 else { throw SecureBrowserVaultError.pinTooShort }
