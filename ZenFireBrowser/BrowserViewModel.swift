@@ -77,6 +77,111 @@ enum BrowserDeviceExperienceOverride: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserResolutionPreset: String, CaseIterable, Identifiable, Codable {
+    case automatic
+    case phone390x844
+    case phone430x932
+    case tablet1024x768
+    case desktop1366x900
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .automatic:
+            return "Auto"
+        case .phone390x844:
+            return "390 x 844"
+        case .phone430x932:
+            return "430 x 932"
+        case .tablet1024x768:
+            return "1024 x 768"
+        case .desktop1366x900:
+            return "1366 x 900"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .automatic:
+            return "Device resolution"
+        case .phone390x844:
+            return "Phone layout"
+        case .phone430x932:
+            return "Large phone layout"
+        case .tablet1024x768:
+            return "Tablet layout"
+        case .desktop1366x900:
+            return "Desktop layout"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .automatic:
+            return "wand.and.stars"
+        case .phone390x844, .phone430x932:
+            return "iphone"
+        case .tablet1024x768:
+            return "ipad"
+        case .desktop1366x900:
+            return "desktopcomputer"
+        }
+    }
+
+    var websiteDisplayMode: BrowserWebsiteDisplayMode {
+        switch self {
+        case .automatic:
+            return .automatic
+        case .phone390x844, .phone430x932:
+            return .mobile
+        case .tablet1024x768, .desktop1366x900:
+            return .desktop
+        }
+    }
+
+    var viewportWidth: Int? {
+        switch self {
+        case .automatic:
+            return nil
+        case .phone390x844:
+            return 390
+        case .phone430x932:
+            return 430
+        case .tablet1024x768:
+            return 1024
+        case .desktop1366x900:
+            return 1366
+        }
+    }
+
+    var viewportHeight: Int? {
+        switch self {
+        case .automatic:
+            return nil
+        case .phone390x844:
+            return 844
+        case .phone430x932:
+            return 932
+        case .tablet1024x768:
+            return 768
+        case .desktop1366x900:
+            return 900
+        }
+    }
+
+    var deviceExperienceOverride: BrowserDeviceExperienceOverride {
+        switch self {
+        case .automatic:
+            return .automatic
+        case .phone390x844, .phone430x932:
+            return .phone
+        case .tablet1024x768, .desktop1366x900:
+            return .iPad
+        }
+    }
+}
+
 struct BrowserProfile: Identifiable, Codable, Equatable {
     var id: String
     var name: String
@@ -1222,6 +1327,12 @@ final class BrowserViewModel: ObservableObject {
             }
         }
     }
+    @Published var browserResolutionPreset: BrowserResolutionPreset {
+        didSet {
+            vault.save(browserResolutionPreset.rawValue, forKey: Self.StorageKey.browserResolutionPreset)
+            applyBrowserResolutionPreset(browserResolutionPreset)
+        }
+    }
     @Published var isAdBlockerEnabled: Bool
     @Published var trackerBlockingLevel: BrowserTrackerBlockingLevel {
         didSet {
@@ -1564,6 +1675,7 @@ final class BrowserViewModel: ObservableObject {
     private var lastTwoFingerSwipeAt = Date.distantPast
     private var lastTwoFingerDoubleTapAt = Date.distantPast
     private var lastThreeFingerSwipeAt = Date.distantPast
+    private var isApplyingBrowserResolutionPreset = false
 
     init(vault: SecureBrowserVault) {
         self.vault = vault
@@ -1636,9 +1748,15 @@ final class BrowserViewModel: ObservableObject {
             forKey: Self.StorageKey.webExtensions,
             default: []
         )
-        let savedWebsiteDisplayMode = BrowserWebsiteDisplayMode(
+        let savedBrowserResolutionPreset = BrowserResolutionPreset(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.browserResolutionPreset, default: "")
+        ) ?? .automatic
+        let savedWebsiteDisplayModeValue = BrowserWebsiteDisplayMode(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.websiteDisplayMode, default: "")
         ) ?? .automatic
+        let savedWebsiteDisplayMode = savedBrowserResolutionPreset == .automatic
+            ? savedWebsiteDisplayModeValue
+            : savedBrowserResolutionPreset.websiteDisplayMode
         let hasCompletedTutorial = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false)
         let savedFeatureUpdateVersion = vault.load(Int.self, forKey: Self.StorageKey.featureUpdateVersion, default: 0)
         let savedVPNCountry = vault.load(String.self, forKey: Self.StorageKey.selectedVPNCountry, default: savedVPNProfile.countryName)
@@ -1667,6 +1785,7 @@ final class BrowserViewModel: ObservableObject {
             isDeveloperModeEnabled: developerModeEnabled,
             websiteResolutionScale: savedWebsiteResolutionScale,
             websiteDisplayMode: savedWebsiteDisplayMode,
+            browserResolutionPreset: savedBrowserResolutionPreset,
             webExtensions: savedWebExtensions
         )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
@@ -1720,6 +1839,7 @@ final class BrowserViewModel: ObservableObject {
         self.installedWebExtensions = savedWebExtensions
         self.webExtensionImportMessage = ""
         self.websiteDisplayMode = savedWebsiteDisplayMode
+        self.browserResolutionPreset = savedBrowserResolutionPreset
         self.isTutorialPresented = hasCompletedTutorial == false
         self.isFeatureUpdatePresented = hasCompletedTutorial && savedFeatureUpdateVersion < Self.currentFeatureUpdateVersion
         self.isDarkReaderEnabled = darkReaderEnabled
@@ -1773,6 +1893,19 @@ final class BrowserViewModel: ObservableObject {
 
     var websiteResolutionLabel: String {
         "\(Int((websiteResolutionScale * 100).rounded()))%"
+    }
+
+    var browserResolutionLabel: String {
+        browserResolutionPreset.title
+    }
+
+    var effectiveDeviceExperienceOverride: BrowserDeviceExperienceOverride {
+        let resolutionOverride = browserResolutionPreset.deviceExperienceOverride
+        if resolutionOverride != .automatic {
+            return resolutionOverride
+        }
+
+        return isDeveloperModeEnabled ? deviceExperienceOverride : .automatic
     }
 
     var selectedTab: BrowserTab? {
@@ -1958,6 +2091,7 @@ final class BrowserViewModel: ObservableObject {
             forcedFPS: forcedFPS,
             websiteResolutionScale: websiteResolutionScale,
             websiteDisplayMode: websiteDisplayMode,
+            browserResolutionPreset: browserResolutionPreset,
             webExtensions: installedWebExtensions,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
@@ -2024,6 +2158,7 @@ final class BrowserViewModel: ObservableObject {
             forcedFPS: forcedFPS,
             websiteResolutionScale: websiteResolutionScale,
             websiteDisplayMode: websiteDisplayMode,
+            browserResolutionPreset: browserResolutionPreset,
             webExtensions: installedWebExtensions,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
@@ -2284,6 +2419,28 @@ final class BrowserViewModel: ObservableObject {
 
     func setWebsiteResolutionScale(_ scale: Double) {
         websiteResolutionScale = scale
+    }
+
+    func setBrowserResolutionPreset(_ preset: BrowserResolutionPreset) {
+        browserResolutionPreset = preset
+    }
+
+    private func applyBrowserResolutionPreset(_ preset: BrowserResolutionPreset) {
+        isApplyingBrowserResolutionPreset = true
+        defer { isApplyingBrowserResolutionPreset = false }
+
+        websiteResolutionScale = 1.0
+        for tab in tabs {
+            tab.setBrowserResolutionPreset(preset, reloadAfterChange: false)
+        }
+        for tab in containedTabs {
+            tab.setBrowserResolutionPreset(preset, reloadAfterChange: false)
+        }
+        websiteDisplayMode = preset.websiteDisplayMode
+
+        if preset.deviceExperienceOverride == .iPad {
+            areSideTabsCollapsed = false
+        }
     }
 
     func setAdBlockerEnabled(_ enabled: Bool) {
@@ -2713,6 +2870,10 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func setWebsiteDisplayMode(_ mode: BrowserWebsiteDisplayMode) {
+        if isApplyingBrowserResolutionPreset == false,
+           browserResolutionPreset != .automatic {
+            browserResolutionPreset = .automatic
+        }
         websiteDisplayMode = mode
     }
 
@@ -3530,6 +3691,7 @@ final class BrowserViewModel: ObservableObject {
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         newTabOpensSearch = true
         autoCompactAfterSearchOnPhone = true
+        browserResolutionPreset = .automatic
         websiteResolutionScale = 1.0
         localAIName = "Local AI"
         localAIURLText = ""
@@ -4006,6 +4168,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(isFPSForcerEnabled, forKey: Self.StorageKey.fpsForcerEnabled)
         vault.save(forcedFPS, forKey: Self.StorageKey.forcedFPS)
         vault.save(websiteResolutionScale, forKey: Self.StorageKey.websiteResolutionScale)
+        vault.save(browserResolutionPreset.rawValue, forKey: Self.StorageKey.browserResolutionPreset)
         vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
         vault.save(browserMusicTrack.rawValue, forKey: Self.StorageKey.browserMusicTrack)
         vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
@@ -4042,6 +4205,7 @@ final class BrowserViewModel: ObservableObject {
         isDeveloperModeEnabled: Bool,
         websiteResolutionScale: Double,
         websiteDisplayMode: BrowserWebsiteDisplayMode,
+        browserResolutionPreset: BrowserResolutionPreset,
         webExtensions: [BrowserWebExtension]
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
@@ -4067,6 +4231,7 @@ final class BrowserViewModel: ObservableObject {
                 forcedFPS: forcedFPS,
                 websiteResolutionScale: websiteResolutionScale,
                 websiteDisplayMode: websiteDisplayMode,
+                browserResolutionPreset: browserResolutionPreset,
                 webExtensions: webExtensions
             )
             return ([firstTab], firstTab.id)
@@ -4100,6 +4265,7 @@ final class BrowserViewModel: ObservableObject {
                 forcedFPS: forcedFPS,
                 websiteResolutionScale: websiteResolutionScale,
                 websiteDisplayMode: websiteDisplayMode,
+                browserResolutionPreset: browserResolutionPreset,
                 folderID: savedTab.folderID,
                 webExtensions: webExtensions,
                 webKitProfile: usesDevWebKitProfile ? .dev : .standard
@@ -4133,6 +4299,7 @@ final class BrowserViewModel: ObservableObject {
                 forcedFPS: forcedFPS,
                 websiteResolutionScale: websiteResolutionScale,
                 websiteDisplayMode: websiteDisplayMode,
+                browserResolutionPreset: browserResolutionPreset,
                 webExtensions: webExtensions
             )
             return ([firstTab], firstTab.id)
@@ -4284,6 +4451,7 @@ final class BrowserViewModel: ObservableObject {
         static let fpsForcerEnabled = "ZenFireBrowser.fpsForcerEnabled"
         static let forcedFPS = "ZenFireBrowser.forcedFPS"
         static let websiteResolutionScale = "ZenFireBrowser.websiteResolutionScale"
+        static let browserResolutionPreset = "ZenFireBrowser.browserResolutionPreset"
         static let browserMusicEnabled = "ZenFireBrowser.browserMusicEnabled"
         static let browserMusicTrack = "ZenFireBrowser.browserMusicTrack"
         static let browserMusicVolume = "ZenFireBrowser.browserMusicVolume"

@@ -57,6 +57,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var forcedFPS: Double
     @Published var websiteResolutionScale: Double
     @Published var websiteDisplayMode: BrowserWebsiteDisplayMode
+    @Published var browserResolutionPreset: BrowserResolutionPreset
     @Published var webExtensions: [BrowserWebExtension]
     @Published var folderID: UUID?
 
@@ -78,6 +79,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private nonisolated(unsafe) var navigationBounceTrackingProtectionEnabled: Bool
     private nonisolated(unsafe) var navigationRegionTricksEnabled: Bool
     private nonisolated(unsafe) var navigationRegionTrickProfile: BrowserRegionTrickProfile
+    private nonisolated(unsafe) var navigationWebsiteDisplayMode: BrowserWebsiteDisplayMode
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -103,6 +105,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         forcedFPS: Double = 60,
         websiteResolutionScale: Double = 1.0,
         websiteDisplayMode: BrowserWebsiteDisplayMode = .automatic,
+        browserResolutionPreset: BrowserResolutionPreset = .automatic,
         folderID: UUID? = nil,
         webExtensions: [BrowserWebExtension] = [],
         webKitProfile: BrowserWebKitProfile = .standard
@@ -131,10 +134,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.navigationBounceTrackingProtectionEnabled = isBounceTrackingProtectionEnabled
         self.navigationRegionTricksEnabled = isRegionTricksEnabled
         self.navigationRegionTrickProfile = regionTrickProfile
+        self.navigationWebsiteDisplayMode = websiteDisplayMode
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
         self.websiteResolutionScale = websiteResolutionScale
         self.websiteDisplayMode = websiteDisplayMode
+        self.browserResolutionPreset = browserResolutionPreset
         self.webExtensions = webExtensions
         self.folderID = folderID
         self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
@@ -153,6 +158,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.defaultWebpagePreferences.preferredContentMode = Self.webpageContentMode(for: websiteDisplayMode)
         if #available(iOS 14.0, *) {
             configuration.limitsNavigationsToAppBoundDomains = false
         }
@@ -232,6 +238,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     func setWebsiteDisplayMode(_ mode: BrowserWebsiteDisplayMode, reloadAfterChange: Bool = true) {
         websiteDisplayMode = mode
+        navigationWebsiteDisplayMode = mode
+        webView.configuration.defaultWebpagePreferences.preferredContentMode = Self.webpageContentMode(for: mode)
         webView.customUserAgent = Self.userAgent(for: mode)
 
         guard reloadAfterChange,
@@ -245,6 +253,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         let clamped = Self.clampedWebsiteResolutionScale(scale)
         websiteResolutionScale = clamped
         webView.pageZoom = 1.0
+    }
+
+    func setBrowserResolutionPreset(_ preset: BrowserResolutionPreset, reloadAfterChange: Bool = true) {
+        guard browserResolutionPreset != preset else { return }
+        browserResolutionPreset = preset
+        rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)
     }
 
     func fillCredentials(username: String, password: String) {
@@ -436,6 +450,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private func additionalUserScripts() -> [WKUserScript] {
         var scripts: [WKUserScript] = []
+
+        if let viewportScript = Self.viewportResolutionScript(for: browserResolutionPreset) {
+            scripts.append(
+                WKUserScript(
+                    source: viewportScript,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
 
         if hasActivePageStyleOverrides {
             scripts.append(
@@ -674,6 +698,50 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             return mobileSafariUserAgent()
         case .desktop:
             return desktopSafariUserAgent()
+        }
+    }
+
+    private static func viewportResolutionScript(for preset: BrowserResolutionPreset) -> String? {
+        guard let width = preset.viewportWidth,
+              let height = preset.viewportHeight else { return nil }
+
+        return """
+        (() => {
+          const applyGlideResolution = () => {
+            const content = "width=\(width), height=\(height), initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover";
+            let viewport = document.querySelector('meta[name="viewport"]');
+            if (!viewport) {
+              viewport = document.createElement("meta");
+              viewport.setAttribute("name", "viewport");
+              if (document.head.firstChild) {
+                document.head.insertBefore(viewport, document.head.firstChild);
+              } else {
+                document.head.appendChild(viewport);
+              }
+            }
+            viewport.setAttribute("content", content);
+            document.documentElement.dataset.glideResolution = "\(preset.rawValue)";
+            document.documentElement.style.setProperty("--glide-resolution-width", "\(width)px");
+            document.documentElement.style.setProperty("--glide-resolution-height", "\(height)px");
+          };
+
+          if (document.head) {
+            applyGlideResolution();
+          } else {
+            document.addEventListener("DOMContentLoaded", applyGlideResolution, { once: true });
+          }
+        })();
+        """
+    }
+
+    private nonisolated static func webpageContentMode(for mode: BrowserWebsiteDisplayMode) -> WKWebpagePreferences.ContentMode {
+        switch mode {
+        case .automatic:
+            return .recommended
+        case .mobile:
+            return .mobile
+        case .desktop:
+            return .desktop
         }
     }
 
@@ -3305,6 +3373,7 @@ extension BrowserTab: WKNavigationDelegate {
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         preferences.allowsContentJavaScript = !navigationScriptBlockingEnabled
+        preferences.preferredContentMode = Self.webpageContentMode(for: navigationWebsiteDisplayMode)
         if let promotedURL = Self.promotedContainedURL(from: navigationAction) {
             decisionHandler(.cancel, preferences)
             webView.load(Self.websiteRequest(

@@ -432,7 +432,7 @@ private struct BrowserShell: View {
                 ZStack {
                 let experience = GlideDeviceExperience.resolve(
                     for: virtualSize,
-                    override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
+                    override: model.effectiveDeviceExperienceOverride
                 )
                 PhoneExperienceSyncView(isPhoneExperience: experience == .phone)
 
@@ -573,7 +573,7 @@ private struct BrowserShell: View {
                 BrowserSettingsView(
                     currentExperience: GlideDeviceExperience.resolve(
                         for: virtualSize,
-                        override: model.isDeveloperModeEnabled ? model.deviceExperienceOverride : .automatic
+                        override: model.effectiveDeviceExperienceOverride
                     )
                 )
                     .environmentObject(model)
@@ -724,7 +724,7 @@ private struct BrowserShell: View {
             return max(1, size.width)
         }
 
-        let width = size.width * CGFloat(model.sideChromeWidthFraction) * browserDensity
+        let width = size.width * CGFloat(model.sideChromeWidthFraction)
         return min(max(width, 286), min(size.width - 120, 520))
     }
 
@@ -741,42 +741,34 @@ private struct BrowserShell: View {
 
     private var pageControlsTopPadding: CGFloat {
         if model.isTopSearchBarEnabled && model.topSearchBarPlacement == .top {
-            return topSearchBarTopPadding + scaledChromeValue(62)
+            return topSearchBarTopPadding + 62
         }
 
         if chromeIsVisible(for: .top) {
-            return scaledChromeValue(118)
+            return 118
         }
-        return scaledChromeValue(14)
+        return 14
     }
 
     private var privateModeBadgeTopPadding: CGFloat {
         if chromeIsVisible(for: .top) {
-            return scaledChromeValue(118)
+            return 118
         }
-        return scaledChromeValue(18)
+        return 18
     }
 
     private var topSearchBarTopPadding: CGFloat {
         if chromeIsVisible(for: .top) {
-            return scaledChromeValue(112)
+            return 112
         }
-        return scaledChromeValue(12)
+        return 12
     }
 
     private var topSearchBarBottomPadding: CGFloat {
         if chromeIsVisible(for: .bottom) {
-            return scaledChromeValue(112)
+            return 112
         }
-        return scaledChromeValue(16)
-    }
-
-    private var browserDensity: CGFloat {
-        min(max(CGFloat(model.websiteResolutionScale), 0.86), 1.14)
-    }
-
-    private func scaledChromeValue(_ value: CGFloat) -> CGFloat {
-        max(1, (value * browserDensity).rounded())
+        return 16
     }
 
     private var topSearchBarAlignment: Alignment {
@@ -4430,7 +4422,7 @@ private struct FirstRunTutorialView: View {
                                     TutorialFeatureRow(
                                         symbol: "rectangle.resize",
                                         title: "Resolution changer",
-                                        detail: "Tune website scale from compact to large without changing the whole app layout.",
+                                        detail: "Switch between phone, tablet, and desktop resolution profiles for websites and chrome.",
                                         tint: .accent
                                     )
 
@@ -4545,7 +4537,7 @@ private struct SetupCustomizationStage: View {
                     Text("Make it yours")
                         .font(.system(size: 32, weight: .black))
                         .foregroundStyle(theme.color(.text))
-                    Text("Pick the browser density, add color, and place each gradient dot before browsing.")
+                    Text("Pick the browser resolution, add color, and place each gradient dot before browsing.")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(theme.color(.mutedText))
                         .fixedSize(horizontal: false, vertical: true)
@@ -4698,7 +4690,7 @@ private struct GlideFeatureUpdateView: View {
                         TutorialFeatureRow(
                             symbol: "rectangle.resize",
                             title: "Whole-Browser Resolution",
-                            detail: "Change the scale of websites, tabs, search, and chrome together for a more accurate display preview.",
+                            detail: "Switch websites, tabs, search, and chrome between phone, tablet, and desktop resolution profiles.",
                             tint: .createTab
                         )
 
@@ -4707,7 +4699,7 @@ private struct GlideFeatureUpdateView: View {
                         TutorialFeatureRow(
                             symbol: "macwindow.on.rectangle",
                             title: "Chrome-Matched Layout",
-                            detail: "The browser frame now follows the same compact, default, or large display setting as the page.",
+                            detail: "The browser frame now follows the selected resolution profile instead of page zoom.",
                             tint: .createTab
                         )
                     }
@@ -5836,42 +5828,52 @@ private struct WebsiteResolutionControl: View {
     @EnvironmentObject private var theme: BrowserTheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Display Density", systemImage: "rectangle.resize")
+                Label("Resolution", systemImage: "rectangle.resize")
                     .font(.system(size: 14, weight: .black))
                 Spacer()
-                Text(model.websiteResolutionLabel)
+                Text(model.browserResolutionLabel)
                     .font(.caption.weight(.black))
                     .foregroundStyle(theme.color(.mutedText))
             }
 
-            Slider(
-                value: Binding(
-                    get: { model.websiteResolutionScale },
-                    set: { model.setWebsiteResolutionScale($0) }
-                ),
-                in: BrowserViewModel.minimumWebsiteResolutionScale...BrowserViewModel.maximumWebsiteResolutionScale,
-                step: 0.01
-            )
-
-            HStack(spacing: 8) {
-                resolutionPreset("Compact", scale: 0.9)
-                resolutionPreset("Default", scale: 1.0)
-                resolutionPreset("Large", scale: 1.1)
+            VStack(spacing: 8) {
+                ForEach(BrowserResolutionPreset.allCases) { preset in
+                    resolutionPreset(preset)
+                }
             }
         }
         .padding(.vertical, 4)
     }
 
-    private func resolutionPreset(_ title: String, scale: Double) -> some View {
+    private func resolutionPreset(_ preset: BrowserResolutionPreset) -> some View {
         Button {
-            model.setWebsiteResolutionScale(scale)
+            model.setBrowserResolutionPreset(preset)
         } label: {
-            Text(title)
+            HStack(spacing: 10) {
+                Image(systemName: preset.symbolName)
+                    .font(.system(size: 13, weight: .black))
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(preset.title)
+                        .font(.system(size: 13, weight: .black))
+                    Text(preset.detail)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+
+                Spacer(minLength: 0)
+
+                if model.browserResolutionPreset == preset {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .black))
+                }
+            }
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(GlideGradientButtonStyle(prominence: abs(model.websiteResolutionScale - scale) < 0.005 ? .primary : .standard, minHeight: 34))
+        .buttonStyle(GlideGradientButtonStyle(prominence: model.browserResolutionPreset == preset ? .primary : .standard, minHeight: 42))
     }
 }
 
