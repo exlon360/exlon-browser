@@ -102,6 +102,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     var gradientStartY: Double?
     var gradientEndX: Double?
     var gradientEndY: Double?
+    var customColors: [BrowserCustomThemeColor]?
     var isTabBarTransparencyEnabled: Bool
     var tabBarTransparency: Double
     var isUserBackgroundEnabled: Bool
@@ -120,6 +121,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         gradientStartY: Double? = nil,
         gradientEndX: Double? = nil,
         gradientEndY: Double? = nil,
+        customColors: [BrowserCustomThemeColor]? = nil,
         isTabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
         isUserBackgroundEnabled: Bool,
@@ -137,6 +139,7 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         self.gradientStartY = gradientStartY
         self.gradientEndX = gradientEndX
         self.gradientEndY = gradientEndY
+        self.customColors = customColors
         self.isTabBarTransparencyEnabled = isTabBarTransparencyEnabled
         self.tabBarTransparency = tabBarTransparency
         self.isUserBackgroundEnabled = isUserBackgroundEnabled
@@ -148,6 +151,28 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     }
 }
 
+struct BrowserCustomThemeColor: Identifiable, Codable, Equatable {
+    var id: UUID
+    var name: String
+    var colorHex: String
+    var gradientHex: String
+    var location: Double
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        colorHex: String,
+        gradientHex: String,
+        location: Double
+    ) {
+        self.id = id
+        self.name = name
+        self.colorHex = colorHex
+        self.gradientHex = gradientHex
+        self.location = min(max(location, 0), 1)
+    }
+}
+
 extension UTType {
     static let glideTheme = UTType(exportedAs: "com.exlon360.glide.theme", conformingTo: .json)
 }
@@ -156,6 +181,12 @@ extension UTType {
 final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
     @Published private var gradientColorHexByToken: [BrowserThemeToken: String]
+    @Published var customColors: [BrowserCustomThemeColor] {
+        didSet {
+            customColors = Self.normalizedCustomColors(customColors)
+            vault.save(customColors, forKey: Self.customColorsKey)
+        }
+    }
     @Published var gradientStartX: Double {
         didSet {
             let clamped = Self.clampedUnit(gradientStartX)
@@ -239,6 +270,7 @@ final class BrowserTheme: ObservableObject {
     private static let gradientStartYKey = "\(storagePrefix)gradientStartY"
     private static let gradientEndXKey = "\(storagePrefix)gradientEndX"
     private static let gradientEndYKey = "\(storagePrefix)gradientEndY"
+    private static let customColorsKey = "\(storagePrefix)customColors"
     private static let videoBackgroundMinimumDuration = 5.0
     private static let videoBackgroundMaximumDuration = 15.0 * 60.0
     private static let backgroundVideoDirectoryName = "GlideBackgroundVideos"
@@ -262,6 +294,9 @@ final class BrowserTheme: ObservableObject {
         self.gradientStartY = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientStartYKey, default: 0.0))
         self.gradientEndX = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndXKey, default: 1.0))
         self.gradientEndY = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndYKey, default: 1.0))
+        self.customColors = Self.normalizedCustomColors(
+            vault.load([BrowserCustomThemeColor].self, forKey: Self.customColorsKey, default: [])
+        )
         self.isTabBarTransparencyEnabled = vault.load(Bool.self, forKey: Self.tabBarTransparencyEnabledKey, default: true)
         self.tabBarTransparency = vault.load(Double.self, forKey: Self.tabBarTransparencyKey, default: 0.82)
         self.isUserBackgroundEnabled = vault.load(Bool.self, forKey: Self.userBackgroundEnabledKey, default: false)
@@ -318,6 +353,14 @@ final class BrowserTheme: ObservableObject {
             "endX": gradientEndX,
             "endY": gradientEndY
         ]
+    }
+
+    var customGradientColors: [Color] {
+        customColors
+            .sorted { $0.location < $1.location }
+            .flatMap { stop in
+                [Color(hex: stop.colorHex), Color(hex: stop.gradientHex)]
+            }
     }
 
     var tabBarOpacity: Double {
@@ -398,6 +441,50 @@ final class BrowserTheme: ObservableObject {
         gradientEndY = 1.0
     }
 
+    @discardableResult
+    func addCustomColor() -> BrowserCustomThemeColor {
+        let presets = [
+            ("Vapor Blue", "#7DD3FC", "#C4B5FD"),
+            ("Solar Mint", "#A7F3D0", "#FDE68A"),
+            ("Hot Signal", "#F9A8D4", "#67E8F9"),
+            ("Amber Glass", "#FDBA74", "#93C5FD")
+        ]
+        let preset = presets[customColors.count % presets.count]
+        let stop = BrowserCustomThemeColor(
+            name: preset.0,
+            colorHex: preset.1,
+            gradientHex: preset.2,
+            location: customColors.isEmpty ? 0.5 : min(0.92, 0.18 + (Double(customColors.count) * 0.18))
+        )
+        customColors.append(stop)
+        return stop
+    }
+
+    func removeCustomColor(_ color: BrowserCustomThemeColor) {
+        customColors.removeAll { $0.id == color.id }
+    }
+
+    func renameCustomColor(_ color: BrowserCustomThemeColor, to rawName: String) {
+        guard let index = customColors.firstIndex(where: { $0.id == color.id }) else { return }
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        customColors[index].name = trimmed.isEmpty ? "Custom Color \(index + 1)" : trimmed
+    }
+
+    func setCustomColor(_ color: Color, for customColor: BrowserCustomThemeColor) {
+        guard let index = customColors.firstIndex(where: { $0.id == customColor.id }) else { return }
+        customColors[index].colorHex = color.hexString ?? customColors[index].colorHex
+    }
+
+    func setCustomGradientColor(_ color: Color, for customColor: BrowserCustomThemeColor) {
+        guard let index = customColors.firstIndex(where: { $0.id == customColor.id }) else { return }
+        customColors[index].gradientHex = color.hexString ?? customColors[index].gradientHex
+    }
+
+    func setCustomColorLocation(_ location: Double, for customColor: BrowserCustomThemeColor) {
+        guard let index = customColors.firstIndex(where: { $0.id == customColor.id }) else { return }
+        customColors[index].location = Self.clampedUnit(location)
+    }
+
     func currentTheme(named rawName: String) -> SavedBrowserTheme {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let themeName = trimmedName.isEmpty ? "Glide Theme" : trimmedName
@@ -411,6 +498,7 @@ final class BrowserTheme: ObservableObject {
             gradientStartY: gradientStartY,
             gradientEndX: gradientEndX,
             gradientEndY: gradientEndY,
+            customColors: customColors,
             isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
             tabBarTransparency: tabBarTransparency,
             isUserBackgroundEnabled: isUserBackgroundEnabled,
@@ -432,6 +520,7 @@ final class BrowserTheme: ObservableObject {
         isTabBarTransparencyEnabled = true
         tabBarTransparency = 0.82
         resetGradientMotion()
+        customColors = []
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
         userBackgroundVideoData = nil
@@ -449,6 +538,7 @@ final class BrowserTheme: ObservableObject {
         colors: [String: String],
         gradientColors: [String: String]?,
         gradientCoordinates: [String: Double]?,
+        customColors: [BrowserCustomThemeColor]?,
         tabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
         userBackgroundEnabled: Bool
@@ -472,6 +562,9 @@ final class BrowserTheme: ObservableObject {
             gradientStartY = gradientCoordinates["startY"] ?? gradientStartY
             gradientEndX = gradientCoordinates["endX"] ?? gradientEndX
             gradientEndY = gradientCoordinates["endY"] ?? gradientEndY
+        }
+        if let customColors {
+            self.customColors = customColors
         }
 
         isTabBarTransparencyEnabled = tabBarTransparencyEnabled
@@ -603,6 +696,7 @@ final class BrowserTheme: ObservableObject {
         gradientStartY = savedTheme.gradientStartY ?? 0.0
         gradientEndX = savedTheme.gradientEndX ?? 1.0
         gradientEndY = savedTheme.gradientEndY ?? 1.0
+        customColors = savedTheme.customColors ?? []
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
         tabBarTransparency = savedTheme.tabBarTransparency
         userBackgroundImageData = savedTheme.userBackgroundImageData
@@ -696,6 +790,7 @@ final class BrowserTheme: ObservableObject {
         vault.save(gradientStartY, forKey: Self.gradientStartYKey)
         vault.save(gradientEndX, forKey: Self.gradientEndXKey)
         vault.save(gradientEndY, forKey: Self.gradientEndYKey)
+        vault.save(customColors, forKey: Self.customColorsKey)
         vault.save(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
         if let userBackgroundImageData = userBackgroundImageData {
             vault.save(userBackgroundImageData, forKey: Self.userBackgroundImageDataKey)
@@ -849,6 +944,30 @@ final class BrowserTheme: ObservableObject {
     private static func clampedUnit(_ value: Double) -> Double {
         guard value.isFinite else { return 0.0 }
         return min(max(value, 0.0), 1.0)
+    }
+
+    private static func normalizedCustomColors(_ colors: [BrowserCustomThemeColor]) -> [BrowserCustomThemeColor] {
+        var seenIDs = Set<UUID>()
+        return colors.compactMap { rawColor in
+            guard seenIDs.contains(rawColor.id) == false else { return nil }
+            seenIDs.insert(rawColor.id)
+            let fallbackName = "Custom Color \(seenIDs.count)"
+            let name = rawColor.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? fallbackName
+                : rawColor.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let colorHex = Color.isValidHex(rawColor.colorHex) ? rawColor.colorHex : "#7DD3FC"
+            let gradientHex = Color.isValidHex(rawColor.gradientHex) ? rawColor.gradientHex : "#C4B5FD"
+            return BrowserCustomThemeColor(
+                id: rawColor.id,
+                name: name,
+                colorHex: colorHex,
+                gradientHex: gradientHex,
+                location: clampedUnit(rawColor.location)
+            )
+        }
+        .prefix(24)
+        .map { $0 }
+        .sorted { $0.location < $1.location }
     }
 
     private static func safeThemeFilename(_ filename: String) -> String {

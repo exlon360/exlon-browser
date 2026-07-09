@@ -130,6 +130,27 @@ final class BrowserProfileManager: ObservableObject {
     private static let profilesKey = "ZenFireBrowser.global.profiles"
     private static let activeProfileKey = "ZenFireBrowser.global.activeProfile"
     private static let cookiesKey = "ZenFireBrowser.profile.cookies"
+    private static let maximumProfiles = 12
+    private static let profileSymbols = [
+        "sparkles.rectangle.stack",
+        "person.crop.circle.badge.plus",
+        "circle.hexagongrid.fill",
+        "bolt.shield.fill",
+        "paintpalette.fill",
+        "moon.stars.fill",
+        "globe.americas.fill",
+        "theatermasks.fill"
+    ]
+    private static let profileTints = [
+        "#D6E2FF",
+        "#C4B5FD",
+        "#7DD3FC",
+        "#A7F3D0",
+        "#FDE68A",
+        "#F9A8D4",
+        "#FDBA74",
+        "#93C5FD"
+    ]
 
     init(vault: SecureBrowserVault) {
         self.vault = vault
@@ -170,6 +191,33 @@ final class BrowserProfileManager: ObservableObject {
         profiles[index].tintHex = color.hexString ?? profiles[index].tintHex
     }
 
+    @discardableResult
+    func createProfile(named rawName: String = "") -> BrowserProfile {
+        let index = profiles.count
+        let uuid = UUID().uuidString.lowercased()
+        let id = "glider-\(uuid)"
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let profile = BrowserProfile(
+            id: id,
+            name: trimmed.isEmpty ? "Glider \(index + 1)" : trimmed,
+            symbolName: Self.profileSymbols[index % Self.profileSymbols.count],
+            tintHex: Self.profileTints[index % Self.profileTints.count],
+            storageScope: "profile.\(id)",
+            isPrimary: false
+        )
+        profiles.append(profile)
+        statusMessage = "Created \(profile.name)."
+        return profile
+    }
+
+    func delete(_ profile: BrowserProfile) {
+        guard profile.isPrimary == false,
+              profile.id != activeProfileID,
+              profiles.count > 1 else { return }
+        profiles.removeAll { $0.id == profile.id }
+        statusMessage = "Removed \(profile.name)."
+    }
+
     func switchTo(_ profile: BrowserProfile) {
         guard profile.id != activeProfileID, isSwitchingProfiles == false else { return }
         let currentProfile = activeProfile
@@ -194,21 +242,51 @@ final class BrowserProfileManager: ObservableObject {
     }
 
     private static func normalizedProfiles(_ rawProfiles: [BrowserProfile]) -> [BrowserProfile] {
-        var main = rawProfiles.first { $0.id == BrowserProfile.main.id } ?? .main
-        var second = rawProfiles.first { $0.id == BrowserProfile.second.id } ?? .second
-        main.id = BrowserProfile.main.id
-        main.storageScope = nil
-        main.isPrimary = true
-        if main.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            main.name = BrowserProfile.main.name
+        var values = rawProfiles.isEmpty ? BrowserProfile.defaults : rawProfiles
+        if values.contains(where: { $0.id == BrowserProfile.main.id }) == false {
+            values.insert(.main, at: 0)
         }
-        second.id = BrowserProfile.second.id
-        second.storageScope = BrowserProfile.second.storageScope
-        second.isPrimary = false
-        if second.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            second.name = BrowserProfile.second.name
+
+        var seenIDs = Set<String>()
+        var normalized: [BrowserProfile] = []
+        for (index, rawProfile) in values.enumerated() {
+            let fallbackID = index == 0 ? BrowserProfile.main.id : "glider-\(UUID().uuidString.lowercased())"
+            let cleanedID = sanitizedProfileID(rawProfile.id.isEmpty ? fallbackID : rawProfile.id)
+            guard seenIDs.contains(cleanedID) == false else { continue }
+            seenIDs.insert(cleanedID)
+
+            var profile = rawProfile
+            profile.id = cleanedID
+            profile.isPrimary = cleanedID == BrowserProfile.main.id
+            profile.storageScope = profile.isPrimary ? nil : (profile.storageScope ?? "profile.\(cleanedID)")
+            if profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profile.name = profile.isPrimary ? BrowserProfile.main.name : "Glider \(normalized.count + 1)"
+            }
+            if profile.symbolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profile.symbolName = profileSymbols[normalized.count % profileSymbols.count]
+            }
+            if Color.isValidHex(profile.tintHex) == false {
+                profile.tintHex = profileTints[normalized.count % profileTints.count]
+            }
+            normalized.append(profile)
+            if normalized.count >= maximumProfiles { break }
         }
-        return [main, second]
+
+        if let mainIndex = normalized.firstIndex(where: \.isPrimary), mainIndex != 0 {
+            let main = normalized.remove(at: mainIndex)
+            normalized.insert(main, at: 0)
+        }
+        return normalized
+    }
+
+    private static func sanitizedProfileID(_ rawID: String) -> String {
+        let cleaned = rawID
+            .lowercased()
+            .map { character -> Character in
+                character.isLetter || character.isNumber || character == "-" ? character : "-"
+            }
+        let value = String(cleaned).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return value.isEmpty ? "glider-\(UUID().uuidString.lowercased())" : value
     }
 
     private static func saveCurrentCookies(to vault: SecureBrowserVault) async {
@@ -2130,10 +2208,11 @@ final class BrowserViewModel: ObservableObject {
 
     func enterFullscreenBrowsing() {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-            chromePlacement = .floating
             areSideTabsCollapsed = true
             isTopSearchBarEnabled = false
             isDesktopZenModeEnabled = false
+            compactModeHidesQuickControls = true
+            arePageControlsCollapsed = true
             isFloatingSearchPresented = false
         }
     }
@@ -2820,7 +2899,8 @@ final class BrowserViewModel: ObservableObject {
             userBackgroundEnabled: theme.isUserBackgroundEnabled,
             colors: theme.colorConfig,
             gradientColors: theme.gradientColorConfig,
-            gradientCoordinates: theme.gradientCoordinateConfig
+            gradientCoordinates: theme.gradientCoordinateConfig,
+            customColors: theme.customColors
         )
 
         let encoder = JSONEncoder()
@@ -2920,6 +3000,7 @@ final class BrowserViewModel: ObservableObject {
             colors: config.colors,
             gradientColors: config.gradientColors,
             gradientCoordinates: config.gradientCoordinates,
+            customColors: config.customColors,
             tabBarTransparencyEnabled: config.tabBarTransparencyEnabled,
             tabBarTransparency: config.tabBarTransparency,
             userBackgroundEnabled: config.userBackgroundEnabled

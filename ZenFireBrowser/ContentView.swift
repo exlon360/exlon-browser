@@ -1129,7 +1129,8 @@ private struct ButtonGradientBackground: View {
             return LinearGradient(
                 colors: [
                     theme.color(.createTab).opacity(0.98),
-                    theme.gradientColor(.createTab).opacity(0.94),
+                    theme.gradientColor(.createTab).opacity(0.94)
+                ] + theme.customGradientColors.map { $0.opacity(0.9) } + [
                     theme.gradientColor(.accent).opacity(0.84),
                     theme.color(.surface).opacity(0.76)
                 ],
@@ -1140,7 +1141,8 @@ private struct ButtonGradientBackground: View {
             return LinearGradient(
                 colors: [
                     theme.color(.field).opacity(controlOpacity),
-                    theme.gradientColor(.field).opacity(max(controlOpacity, 0.64)),
+                    theme.gradientColor(.field).opacity(max(controlOpacity, 0.64))
+                ] + theme.customGradientColors.map { $0.opacity(0.34) } + [
                     theme.gradientColor(.accent).opacity(0.28)
                 ],
                 startPoint: theme.gradientStartPoint,
@@ -1150,7 +1152,8 @@ private struct ButtonGradientBackground: View {
             return LinearGradient(
                 colors: [
                     theme.color(.surface).opacity(max(controlOpacity, 0.48)),
-                    theme.gradientColor(.surface).opacity(max(controlOpacity, 0.42)),
+                    theme.gradientColor(.surface).opacity(max(controlOpacity, 0.42))
+                ] + theme.customGradientColors.map { $0.opacity(0.22) } + [
                     theme.gradientColor(.accent).opacity(0.16)
                 ],
                 startPoint: theme.gradientStartPoint,
@@ -3651,6 +3654,24 @@ private struct BrowserCommandCenterView: View {
                     CommandActionRow(symbol: "slider.horizontal.3", title: "Customization Hub", subtitle: "Profiles, resolution, colors, gradients") {
                         close { model.isSettingsPresented = true }
                     }
+                    CommandActionRow(symbol: "plus.circle.fill", title: "Add Glider", subtitle: "Create another browser profile instance") {
+                        close {
+                            let profile = profiles.createProfile()
+                            profiles.switchTo(profile)
+                        }
+                    }
+                }
+
+                CommandCenterSection(title: "Menu Customization", symbol: "ellipsis.circle") {
+                    CommandActionRow(symbol: "hand.draw", title: "Move Menu Button", subtitle: "Drag this control cluster anywhere") {
+                        close { model.beginPageControlsMove() }
+                    }
+                    CommandActionRow(symbol: "arrow.counterclockwise", title: "Reset Menu Button", subtitle: "Return the floating menu to its default spot") {
+                        close { model.resetPageControlsPosition() }
+                    }
+                    CommandActionRow(symbol: model.arePageControlsCollapsed ? "chevron.left" : "chevron.right", title: model.arePageControlsCollapsed ? "Expand Quick Buttons" : "Collapse Quick Buttons", subtitle: "Keep only the reveal handle visible") {
+                        close { model.togglePageControlsCollapsed() }
+                    }
                 }
 
                 CommandCenterSection(title: "Browser", symbol: "safari") {
@@ -5642,6 +5663,15 @@ private struct ProfileCustomizationPanel: View {
                 ProfileSlotEditor(profile: profile)
             }
 
+            Button {
+                profiles.createProfile()
+            } label: {
+                Label("Add Glider", systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 40))
+            .disabled(profiles.isSwitchingProfiles)
+
             if profiles.statusMessage.isEmpty == false {
                 Label(profiles.statusMessage, systemImage: "checkmark.circle")
                     .font(.caption.weight(.semibold))
@@ -5683,14 +5713,28 @@ private struct ProfileSlotEditor: View {
                     .labelsHidden()
             }
 
-            Button {
-                profiles.switchTo(profile)
-            } label: {
-                Label(profiles.isActive(profile) ? "Active Profile" : "Switch to \(profile.name)", systemImage: profiles.isActive(profile) ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                Button {
+                    profiles.switchTo(profile)
+                } label: {
+                    Label(profiles.isActive(profile) ? "Active Profile" : "Switch to \(profile.name)", systemImage: profiles.isActive(profile) ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(GlideGradientButtonStyle(prominence: profiles.isActive(profile) ? .primary : .standard, minHeight: 38))
+                .disabled(profiles.isActive(profile) || profiles.isSwitchingProfiles)
+
+                if profile.isPrimary == false {
+                    Button(role: .destructive) {
+                        profiles.delete(profile)
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 42)
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 38))
+                    .disabled(profiles.isActive(profile) || profiles.isSwitchingProfiles)
+                    .accessibilityLabel("Delete \(profile.name)")
+                }
             }
-            .buttonStyle(GlideGradientButtonStyle(prominence: profiles.isActive(profile) ? .primary : .standard, minHeight: 38))
-            .disabled(profiles.isActive(profile) || profiles.isSwitchingProfiles)
         }
         .padding(10)
         .background(ControlGlassBackground(cornerRadius: 8))
@@ -5785,6 +5829,8 @@ private struct QuickColorStudio: View {
                 paletteButton("Aurora", accent: "#7DD3FC", glow: "#A7F3D0", create: "#FDE68A", canvas: "#07110F", start: (0.08, 0.12), end: (0.9, 0.72))
                 paletteButton("Signal", accent: "#F0ABFC", glow: "#67E8F9", create: "#F9A8D4", canvas: "#090816", start: (0.82, 0.05), end: (0.12, 0.95))
             }
+
+            CustomColorStopsEditor()
         }
         .padding(.vertical, 4)
     }
@@ -5815,6 +5861,114 @@ private struct QuickColorStudio: View {
     }
 }
 
+private struct CustomColorStopsEditor: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Added Colors", systemImage: "plus.square.on.square")
+                    .font(.system(size: 14, weight: .black))
+                Spacer()
+                Button {
+                    theme.addCustomColor()
+                } label: {
+                    Label("Add Color", systemImage: "plus.circle.fill")
+                }
+                .font(.caption.weight(.bold))
+            }
+
+            if theme.customColors.isEmpty {
+                Text("No added colors yet.")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            } else {
+                ForEach(theme.customColors) { color in
+                    CustomColorStopRow(color: color)
+                }
+            }
+        }
+    }
+}
+
+private struct CustomColorStopRow: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let color: BrowserCustomThemeColor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("Color name", text: nameBinding)
+                    .font(.system(size: 14, weight: .bold))
+                    .textInputAutocapitalization(.words)
+
+                ColorPicker("Color", selection: baseColorBinding, supportsOpacity: false)
+                    .labelsHidden()
+                ColorPicker("Gradient", selection: gradientColorBinding, supportsOpacity: false)
+                    .labelsHidden()
+
+                Button(role: .destructive) {
+                    theme.removeCustomColor(color)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(color.name)")
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Gradient position")
+                    Spacer()
+                    Text("\(Int((color.location * 100).rounded()))%")
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+                .font(.caption.weight(.semibold))
+
+                Slider(value: locationBinding, in: 0...1, step: 0.01)
+            }
+        }
+        .padding(10)
+        .background(ControlGlassBackground(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(hex: color.colorHex).opacity(0.72), lineWidth: 1)
+        }
+    }
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { currentColor.name },
+            set: { theme.renameCustomColor(color, to: $0) }
+        )
+    }
+
+    private var baseColorBinding: Binding<Color> {
+        Binding(
+            get: { Color(hex: currentColor.colorHex) },
+            set: { theme.setCustomColor($0, for: color) }
+        )
+    }
+
+    private var gradientColorBinding: Binding<Color> {
+        Binding(
+            get: { Color(hex: currentColor.gradientHex) },
+            set: { theme.setCustomGradientColor($0, for: color) }
+        )
+    }
+
+    private var locationBinding: Binding<Double> {
+        Binding(
+            get: { currentColor.location },
+            set: { theme.setCustomColorLocation($0, for: color) }
+        )
+    }
+
+    private var currentColor: BrowserCustomThemeColor {
+        theme.customColors.first { $0.id == color.id } ?? color
+    }
+}
+
 private struct GradientMotionControl: View {
     @EnvironmentObject private var theme: BrowserTheme
 
@@ -5837,7 +5991,8 @@ private struct GradientMotionControl: View {
                             LinearGradient(
                                 colors: [
                                     theme.color(.accent),
-                                    theme.gradientColor(.accent),
+                                    theme.gradientColor(.accent)
+                                ] + theme.customGradientColors + [
                                     theme.color(.createTab)
                                 ],
                                 startPoint: theme.gradientStartPoint,
@@ -5910,6 +6065,94 @@ private struct GradientHandle: View {
                 .padding(.vertical, 3)
                 .background(Color.white.opacity(0.86), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
+    }
+}
+
+private struct ThreeDotMenuCustomizationPanel: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var profiles: BrowserProfileManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Menu Presets")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.color(.mutedText))
+
+                HStack(spacing: 8) {
+                    presetButton("Minimal", actions: [.tabFinder, .compact, .settings])
+                    presetButton("Browser", actions: [.back, .forward, .reload, .tabFinder, .history, .downloads, .websiteMode, .settings])
+                    presetButton("Everything", actions: BrowserToolbarAction.customizationCases)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        model.beginPageControlsMove()
+                    }
+                } label: {
+                    Label("Move Button", systemImage: "hand.draw")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 38))
+
+                Button {
+                    model.resetPageControlsPosition()
+                } label: {
+                    Label("Reset Spot", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 38))
+            }
+
+            Toggle("Start collapsed to a reveal handle", isOn: $model.arePageControlsCollapsed)
+
+            Button {
+                let profile = profiles.createProfile()
+                profiles.switchTo(profile)
+            } label: {
+                Label("Add Glider Profile", systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 40))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Actions In Menu")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.color(.mutedText))
+
+                ForEach(BrowserToolbarAction.customizationCases) { action in
+                    Toggle(isOn: moreMenuBinding(for: action)) {
+                        Label(action.title, systemImage: action.symbolName)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func presetButton(_ title: String, actions: [BrowserToolbarAction]) -> some View {
+        Button {
+            let actionSet = Set(actions.map(\.rawValue))
+            for action in BrowserToolbarAction.customizationCases {
+                model.setMoreMenuAction(action, enabled: actionSet.contains(action.rawValue))
+            }
+        } label: {
+            Text(title)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 34))
+    }
+
+    private func moreMenuBinding(for action: BrowserToolbarAction) -> Binding<Bool> {
+        Binding(
+            get: { model.isInMoreMenu(action) },
+            set: { model.setMoreMenuAction(action, enabled: $0) }
+        )
     }
 }
 
@@ -7056,7 +7299,8 @@ private struct BrowserBackground: View {
                 LinearGradient(
                     colors: [
                         theme.color(.canvas),
-                        theme.gradientColor(.chrome),
+                        theme.gradientColor(.chrome)
+                    ] + theme.customGradientColors.map { $0.opacity(0.72) } + [
                         theme.color(.canvas)
                     ],
                     startPoint: theme.gradientStartPoint,
@@ -7205,23 +7449,6 @@ private struct BrowserSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Customization Hub") {
-                    DisclosureGroup {
-                        ProfileCustomizationPanel()
-                        WebsiteResolutionControl()
-                        QuickColorStudio()
-                        GradientMotionControl()
-
-                        Button {
-                            model.isFeatureUpdatePresented = true
-                        } label: {
-                            Label("Show New Features", systemImage: "sparkles")
-                        }
-                    } label: {
-                        Label("Huge Customization Update", systemImage: "wand.and.stars.inverse")
-                    }
-                }
-
                 Section("Privacy") {
                     DisclosureGroup {
                         Toggle("Shields", isOn: adBlockerBinding)
@@ -7282,6 +7509,23 @@ private struct BrowserSettingsView: View {
                         }
                     } label: {
                         Label("Privacy", systemImage: "hand.raised.fill")
+                    }
+                }
+
+                Section("Customization Hub") {
+                    DisclosureGroup {
+                        ProfileCustomizationPanel()
+                        WebsiteResolutionControl()
+                        QuickColorStudio()
+                        GradientMotionControl()
+
+                        Button {
+                            model.isFeatureUpdatePresented = true
+                        } label: {
+                            Label("Show New Features", systemImage: "sparkles")
+                        }
+                    } label: {
+                        Label("Huge Customization Update", systemImage: "wand.and.stars.inverse")
                     }
                 }
 
@@ -7702,11 +7946,7 @@ private struct BrowserSettingsView: View {
 
                 Section("Three-Dot Menu") {
                     DisclosureGroup {
-                    ForEach(BrowserToolbarAction.customizationCases) { action in
-                        Toggle(isOn: moreMenuBinding(for: action)) {
-                            Label(action.title, systemImage: action.symbolName)
-                        }
-                    }
+                    ThreeDotMenuCustomizationPanel()
                     } label: {
                         Label("Three-Dot Menu", systemImage: "ellipsis.circle")
                     }
@@ -7840,6 +8080,9 @@ private struct BrowserSettingsView: View {
                             .labelsHidden()
                         }
                     }
+
+                    CustomColorStopsEditor()
+                    GradientMotionControl()
 
                     Button("Reset to Zen dark defaults") {
                         theme.resetToZenDefaults()
