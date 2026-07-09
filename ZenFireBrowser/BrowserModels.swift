@@ -889,16 +889,32 @@ struct BrowserHistoryItem: Identifiable, Codable, Equatable {
     var title: String
     var urlString: String
     var visitedAt: Date
+    var faviconURLString: String?
+    var accentColorHex: String?
 
-    init(id: UUID = UUID(), title: String, urlString: String, visitedAt: Date = Date()) {
+    init(
+        id: UUID = UUID(),
+        title: String,
+        urlString: String,
+        visitedAt: Date = Date(),
+        faviconURLString: String? = nil,
+        accentColorHex: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.urlString = urlString
         self.visitedAt = visitedAt
+        self.faviconURLString = faviconURLString
+        self.accentColorHex = accentColorHex
     }
 
     var url: URL? {
         URL(string: urlString)
+    }
+
+    var faviconURL: URL? {
+        faviconURLString.flatMap(URL.init(string:))
+            ?? BrowserWebsitePrivacyPolicy.defaultFaviconURL(for: url)
     }
 }
 
@@ -915,16 +931,114 @@ struct BrowserEssentialItem: Identifiable, Codable, Equatable {
     var title: String
     var urlString: String
     var addedAt: Date
+    var faviconURLString: String?
+    var accentColorHex: String?
 
-    init(id: UUID = UUID(), title: String, urlString: String, addedAt: Date = Date()) {
+    init(
+        id: UUID = UUID(),
+        title: String,
+        urlString: String,
+        addedAt: Date = Date(),
+        faviconURLString: String? = nil,
+        accentColorHex: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.urlString = urlString
         self.addedAt = addedAt
+        self.faviconURLString = faviconURLString
+        self.accentColorHex = accentColorHex
     }
 
     var url: URL? {
         URL(string: urlString)
+    }
+
+    var faviconURL: URL? {
+        faviconURLString.flatMap(URL.init(string:))
+            ?? BrowserWebsitePrivacyPolicy.defaultFaviconURL(for: url)
+    }
+}
+
+enum BrowserWebsitePrivacyPolicy {
+    static let storageKey = "ZenFireBrowser.websiteBlacklist"
+
+    static func normalizedDomain(from rawValue: String) -> String? {
+        var candidate = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard candidate.isEmpty == false else { return nil }
+
+        while candidate.hasPrefix("*.") {
+            candidate.removeFirst(2)
+        }
+
+        let host: String?
+        if let url = URL(string: candidate), url.host != nil {
+            host = url.host
+        } else {
+            host = URL(string: "https://\(candidate)")?.host
+        }
+
+        guard var domain = host?.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased(),
+              domain.isEmpty == false,
+              domain.contains(" ") == false else {
+            return nil
+        }
+
+        if domain.hasPrefix("www.") {
+            domain.removeFirst(4)
+        }
+
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789.-")
+        guard domain.unicodeScalars.allSatisfy({ allowed.contains($0) }),
+              domain.split(separator: ".").allSatisfy({ $0.isEmpty == false }) else {
+            return nil
+        }
+        return domain
+    }
+
+    static func normalizedDomains(_ domains: [String]) -> [String] {
+        Array(Set(domains.compactMap(normalizedDomain(from:)))).sorted()
+    }
+
+    static func domain(for url: URL?) -> String? {
+        guard let host = url?.host else { return nil }
+        return normalizedDomain(from: host)
+    }
+
+    static func matches<Domains: Collection>(host rawHost: String?, blockedDomains: Domains) -> Bool where Domains.Element == String {
+        guard let rawHost,
+              let host = normalizedDomain(from: rawHost) else { return false }
+        return blockedDomains.contains { domain in
+            host == domain || host.hasSuffix(".\(domain)")
+        }
+    }
+
+    static func matches<Domains: Collection>(url: URL?, blockedDomains: Domains) -> Bool where Domains.Element == String {
+        matches(host: url?.host, blockedDomains: blockedDomains)
+    }
+
+    static func matchesCookieDomain<Domains: Collection>(
+        _ rawCookieDomain: String,
+        blockedDomains: Domains
+    ) -> Bool where Domains.Element == String {
+        guard let cookieDomain = normalizedDomain(from: rawCookieDomain) else { return false }
+        return blockedDomains.contains { blockedDomain in
+            cookieDomain == blockedDomain
+                || cookieDomain.hasSuffix(".\(blockedDomain)")
+                || blockedDomain.hasSuffix(".\(cookieDomain)")
+        }
+    }
+
+    static func defaultFaviconURL(for pageURL: URL?) -> URL? {
+        guard let pageURL,
+              let scheme = pageURL.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = pageURL.host else { return nil }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.path = "/favicon.ico"
+        return components.url
     }
 }
 

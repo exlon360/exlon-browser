@@ -410,6 +410,8 @@ final class BrowserProfileManager: ObservableObject {
             guard let self else { return }
             await Self.saveCurrentCookies(to: self.vault(for: currentProfile))
             await Self.clearWebKitProfileData()
+            let targetDomains = Self.websiteBlacklist(in: self.vault(for: profile))
+            BrowserWebsitePrivacyController.shared.update(blockedDomains: targetDomains)
             await Self.restoreCookies(from: self.vault(for: profile))
             await MainActor.run {
                 self.activeProfileID = profile.id
@@ -472,16 +474,29 @@ final class BrowserProfileManager: ObservableObject {
     }
 
     private static func saveCurrentCookies(to vault: SecureBrowserVault) async {
-        let cookies = await allCookies().map(StoredBrowserCookie.init(cookie:))
+        let blockedDomains = websiteBlacklist(in: vault)
+        let cookies = await allCookies()
+            .filter { BrowserWebsitePrivacyPolicy.matchesCookieDomain($0.domain, blockedDomains: blockedDomains) == false }
+            .map(StoredBrowserCookie.init(cookie:))
         vault.save(cookies, forKey: cookiesKey)
     }
 
     private static func restoreCookies(from vault: SecureBrowserVault) async {
+        let blockedDomains = websiteBlacklist(in: vault)
         let cookies = vault.load([StoredBrowserCookie].self, forKey: cookiesKey, default: [])
-        for storedCookie in cookies {
+        for storedCookie in cookies where BrowserWebsitePrivacyPolicy.matchesCookieDomain(
+            storedCookie.domain,
+            blockedDomains: blockedDomains
+        ) == false {
             guard let cookie = storedCookie.httpCookie else { continue }
             await setCookie(cookie)
         }
+    }
+
+    private static func websiteBlacklist(in vault: SecureBrowserVault) -> [String] {
+        BrowserWebsitePrivacyPolicy.normalizedDomains(
+            vault.load([String].self, forKey: BrowserWebsitePrivacyPolicy.storageKey, default: [])
+        )
     }
 
     private static func allCookies() async -> [HTTPCookie] {
@@ -509,6 +524,98 @@ final class BrowserProfileManager: ObservableObject {
                     continuation.resume()
                 }
             }
+        }
+    }
+}
+
+final class BrowserWebsitePrivacyController: NSObject, WKHTTPCookieStoreObserver {
+    static let shared = BrowserWebsitePrivacyController()
+
+    private let lock = NSLock()
+    private var blockedDomains = Set<String>()
+    private var isPurgingCookies = false
+    private var shouldPurgeAgain = false
+
+    private override init() {
+        super.init()
+        WKWebsiteDataStore.default().httpCookieStore.add(self)
+    }
+
+    func update(blockedDomains domains: [String]) {
+        let normalized = Set(BrowserWebsitePrivacyPolicy.normalizedDomains(domains))
+        lock.lock()
+        blockedDomains = normalized
+        lock.unlock()
+        purgeBlockedCookies()
+    }
+
+    func purgeWebsiteData(for domains: [String]) {
+        let normalized = BrowserWebsitePrivacyPolicy.normalizedDomains(domains)
+        guard normalized.isEmpty == false else { return }
+        purgeBlockedCookies()
+
+        let dataStore = WKWebsiteDataStore.default()
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        dataStore.fetchDataRecords(ofTypes: dataTypes) { records in
+            let blockedRecords = records.filter { record in
+                BrowserWebsitePrivacyPolicy.matches(
+                    host: record.displayName,
+                    blockedDomains: normalized
+                )
+            }
+            guard blockedRecords.isEmpty == false else { return }
+            dataStore.removeData(ofTypes: dataTypes, for: blockedRecords) {}
+        }
+    }
+
+    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        purgeBlockedCookies(in: cookieStore)
+    }
+
+    private func purgeBlockedCookies(in cookieStore: WKHTTPCookieStore = WKWebsiteDataStore.default().httpCookieStore) {
+        lock.lock()
+        guard blockedDomains.isEmpty == false else {
+            lock.unlock()
+            return
+        }
+        if isPurgingCookies {
+            shouldPurgeAgain = true
+            lock.unlock()
+            return
+        }
+        isPurgingCookies = true
+        let domains = blockedDomains
+        lock.unlock()
+
+        cookieStore.getAllCookies { [weak self] cookies in
+            guard let self else { return }
+            let cookiesToDelete = cookies.filter { cookie in
+                BrowserWebsitePrivacyPolicy.matchesCookieDomain(
+                    cookie.domain,
+                    blockedDomains: domains
+                )
+            }
+            let group = DispatchGroup()
+            for cookie in cookiesToDelete {
+                group.enter()
+                cookieStore.delete(cookie) {
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) { [weak self] in
+                self?.finishedCookiePurge(cookieStore: cookieStore)
+            }
+        }
+    }
+
+    private func finishedCookiePurge(cookieStore: WKHTTPCookieStore) {
+        lock.lock()
+        let repeatPurge = shouldPurgeAgain
+        shouldPurgeAgain = false
+        isPurgingCookies = false
+        lock.unlock()
+        if repeatPurge {
+            purgeBlockedCookies(in: cookieStore)
         }
     }
 }
@@ -1704,6 +1811,8 @@ final class BrowserViewModel: ObservableObject {
     }
     @Published var history: [BrowserHistoryItem]
     @Published var essentials: [BrowserEssentialItem]
+    @Published private(set) var websiteBlacklist: [String]
+    @Published var websiteBlacklistStatusMessage = ""
     @Published var tabFolders: [BrowserTabFolder] {
         didSet {
             saveTabFolders()
@@ -1815,6 +1924,9 @@ final class BrowserViewModel: ObservableObject {
             .filter { BrowserToolbarAction(rawValue: $0)?.isLeanBuildUtility == false }
         let savedCustomIconNames = vault.load([String: String].self, forKey: Self.StorageKey.customIconNames, default: [:])
         let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
+        let savedWebsiteBlacklist = BrowserWebsitePrivacyPolicy.normalizedDomains(
+            vault.load([String].self, forKey: BrowserWebsitePrivacyPolicy.storageKey, default: [])
+        )
         let developerModeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.developerModeEnabled, default: false)
         let webInspectorEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.webInspectorEnabled, default: false)
         let devWebKitEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.devWebKitEnabled, default: false)
@@ -1824,7 +1936,12 @@ final class BrowserViewModel: ObservableObject {
                 rawValue: vault.load(String.self, forKey: Self.StorageKey.deviceExperienceOverride, default: "")
             ) ?? .automatic
         ) : .automatic
-        let savedHistory = Self.loadHistory(vault: vault)
+        let savedHistory = Self.loadHistory(vault: vault).filter { item in
+            BrowserWebsitePrivacyPolicy.matches(
+                host: item.url?.host,
+                blockedDomains: savedWebsiteBlacklist
+            ) == false
+        }
         let savedEssentials = Self.loadEssentials(vault: vault)
         let savedTabFolders = Self.loadTabFolders(vault: vault)
         let savedDownloads = Self.loadDownloads(vault: vault)
@@ -1882,7 +1999,8 @@ final class BrowserViewModel: ObservableObject {
             websiteDisplayMode: savedWebsiteDisplayMode,
             browserResolutionPreset: savedBrowserResolutionPreset,
             browserResolutionWidth: savedBrowserResolutionWidth,
-            webExtensions: savedWebExtensions
+            webExtensions: savedWebExtensions,
+            websiteBlacklist: savedWebsiteBlacklist
         )
         let savedTopSearchBarPlacement = BrowserTopSearchBarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
@@ -1929,6 +2047,7 @@ final class BrowserViewModel: ObservableObject {
         self.customIconImageDataBySlot = Self.sanitizedIconImageData(savedCustomIconImageData)
         self.history = savedHistory
         self.essentials = savedEssentials
+        self.websiteBlacklist = savedWebsiteBlacklist
         self.tabFolders = savedTabFolders
         self.downloads = savedDownloads
         self.passwordEntries = savedPasswordEntries
@@ -1977,6 +2096,7 @@ final class BrowserViewModel: ObservableObject {
         for tab in tabs {
             configure(tab)
         }
+        BrowserWebsitePrivacyController.shared.update(blockedDomains: websiteBlacklist)
         applyDeveloperOptionsToTabs()
         migrateLoadedStateToEncryptedVault()
         updateBrowserMusicPlayer()
@@ -2202,6 +2322,7 @@ final class BrowserViewModel: ObservableObject {
             browserResolutionPreset: browserResolutionPreset,
             browserResolutionWidth: browserResolutionWidth,
             webExtensions: installedWebExtensions,
+            websiteBlacklist: websiteBlacklist,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configure(tab)
@@ -2270,6 +2391,7 @@ final class BrowserViewModel: ObservableObject {
             browserResolutionPreset: browserResolutionPreset,
             browserResolutionWidth: browserResolutionWidth,
             webExtensions: installedWebExtensions,
+            websiteBlacklist: websiteBlacklist,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configureContained(tab)
@@ -2893,7 +3015,9 @@ final class BrowserViewModel: ObservableObject {
         let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let item = BrowserEssentialItem(
             title: title.isEmpty ? (url.host ?? url.absoluteString) : title,
-            urlString: url.absoluteString
+            urlString: url.absoluteString,
+            faviconURLString: tab.pageIconURLString,
+            accentColorHex: tab.pageThemeColorHex
         )
 
         essentials.removeAll { $0.urlString == item.urlString }
@@ -2917,6 +3041,65 @@ final class BrowserViewModel: ObservableObject {
     func removeEssential(_ item: BrowserEssentialItem) {
         essentials.removeAll { $0.id == item.id }
         saveEssentials()
+    }
+
+    func isEssentialOpen(_ item: BrowserEssentialItem) -> Bool {
+        guard let selectedHost = BrowserWebsitePrivacyPolicy.domain(for: selectedTab?.url),
+              let essentialHost = BrowserWebsitePrivacyPolicy.domain(for: item.url) else {
+            return false
+        }
+        return selectedHost == essentialHost
+    }
+
+    var currentWebsiteDomain: String? {
+        guard let tab = selectedTab,
+              tab.isPrivate == false,
+              let url = tab.url,
+              Self.shouldPersist(url: url) else { return nil }
+        return BrowserWebsitePrivacyPolicy.domain(for: url)
+    }
+
+    func isWebsiteBlacklisted(_ url: URL?) -> Bool {
+        BrowserWebsitePrivacyPolicy.matches(url: url, blockedDomains: websiteBlacklist)
+    }
+
+    func addCurrentWebsiteToBlacklist() {
+        guard let domain = currentWebsiteDomain else {
+            websiteBlacklistStatusMessage = "Open a website before adding it to the blacklist."
+            return
+        }
+        addWebsiteToBlacklist(domain)
+    }
+
+    func addWebsiteToBlacklist(_ rawValue: String) {
+        guard let domain = BrowserWebsitePrivacyPolicy.normalizedDomain(from: rawValue) else {
+            websiteBlacklistStatusMessage = "Enter a valid website such as example.com."
+            return
+        }
+        guard websiteBlacklist.contains(domain) == false else {
+            websiteBlacklistStatusMessage = "\(domain) is already blacklisted."
+            return
+        }
+
+        websiteBlacklist = BrowserWebsitePrivacyPolicy.normalizedDomains(websiteBlacklist + [domain])
+        history.removeAll { item in
+            BrowserWebsitePrivacyPolicy.matches(host: item.url?.host, blockedDomains: [domain])
+        }
+        saveHistory()
+        applyWebsiteBlacklist(purging: [domain])
+        websiteBlacklistStatusMessage = "\(domain) will not keep cookies or appear in History."
+    }
+
+    func removeWebsiteFromBlacklist(_ domain: String) {
+        websiteBlacklist.removeAll { $0 == domain }
+        applyWebsiteBlacklist()
+        websiteBlacklistStatusMessage = "\(domain) can save site data again."
+    }
+
+    func clearWebsiteBlacklist() {
+        websiteBlacklist = []
+        applyWebsiteBlacklist()
+        websiteBlacklistStatusMessage = "Website blacklist cleared."
     }
 
     func clearHistory() {
@@ -3799,6 +3982,7 @@ final class BrowserViewModel: ObservableObject {
         isRegionTricksEnabled = false
         regionTrickProfile = .unitedStates
         saveVPNProfile(.empty)
+        clearWebsiteBlacklist()
     }
 
     func enableGlideMaxProtection() {
@@ -3958,16 +4142,27 @@ final class BrowserViewModel: ObservableObject {
     }
 
     private func recordVisit(from tab: BrowserTab) {
+        objectWillChange.send()
         guard tab.isPrivate == false,
               let url = tab.url,
               Self.shouldPersist(url: url) else {
             return
         }
 
+        if isWebsiteBlacklisted(url) {
+            let matchingDomains = websiteBlacklist.filter { domain in
+                BrowserWebsitePrivacyPolicy.matches(host: url.host, blockedDomains: [domain])
+            }
+            BrowserWebsitePrivacyController.shared.purgeWebsiteData(for: matchingDomains)
+            return
+        }
+
         let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let item = BrowserHistoryItem(
             title: title.isEmpty ? url.absoluteString : title,
-            urlString: url.absoluteString
+            urlString: url.absoluteString,
+            faviconURLString: tab.pageIconURLString,
+            accentColorHex: tab.pageThemeColorHex
         )
 
         history.removeAll { $0.urlString == item.urlString }
@@ -3976,8 +4171,38 @@ final class BrowserViewModel: ObservableObject {
             history = Array(history.prefix(250))
         }
 
+        var didRefreshEssential = false
+        let visitedDomain = BrowserWebsitePrivacyPolicy.domain(for: url)
+        for index in essentials.indices where BrowserWebsitePrivacyPolicy.domain(for: essentials[index].url) == visitedDomain {
+            if let icon = tab.pageIconURLString, essentials[index].faviconURLString != icon {
+                essentials[index].faviconURLString = icon
+                didRefreshEssential = true
+            }
+            if let color = tab.pageThemeColorHex, essentials[index].accentColorHex != color {
+                essentials[index].accentColorHex = color
+                didRefreshEssential = true
+            }
+        }
+
         saveHistory()
+        if didRefreshEssential {
+            saveEssentials()
+        }
         persistOpenTabs()
+    }
+
+    private func applyWebsiteBlacklist(purging domains: [String] = []) {
+        vault.save(websiteBlacklist, forKey: BrowserWebsitePrivacyPolicy.storageKey)
+        for tab in tabs {
+            tab.setWebsiteBlacklist(websiteBlacklist)
+        }
+        for tab in containedTabs {
+            tab.setWebsiteBlacklist(websiteBlacklist)
+        }
+        BrowserWebsitePrivacyController.shared.update(blockedDomains: websiteBlacklist)
+        if domains.isEmpty == false {
+            BrowserWebsitePrivacyController.shared.purgeWebsiteData(for: domains)
+        }
     }
 
     private func persistOpenTabs() {
@@ -4311,6 +4536,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(installedWebExtensions, forKey: Self.StorageKey.webExtensions)
         vault.save(history, forKey: Self.StorageKey.history)
         vault.save(essentials, forKey: Self.StorageKey.essentials)
+        vault.save(websiteBlacklist, forKey: BrowserWebsitePrivacyPolicy.storageKey)
         vault.save(tabFolders, forKey: Self.StorageKey.tabFolders)
         vault.save(downloads, forKey: Self.StorageKey.downloads)
         vault.save(passwordEntries, forKey: Self.StorageKey.passwordEntries)
@@ -4375,7 +4601,8 @@ final class BrowserViewModel: ObservableObject {
         websiteDisplayMode: BrowserWebsiteDisplayMode,
         browserResolutionPreset: BrowserResolutionPreset,
         browserResolutionWidth: Double,
-        webExtensions: [BrowserWebExtension]
+        webExtensions: [BrowserWebExtension],
+        websiteBlacklist: [String]
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
@@ -4402,7 +4629,8 @@ final class BrowserViewModel: ObservableObject {
                 websiteDisplayMode: websiteDisplayMode,
                 browserResolutionPreset: browserResolutionPreset,
                 browserResolutionWidth: browserResolutionWidth,
-                webExtensions: webExtensions
+                webExtensions: webExtensions,
+                websiteBlacklist: websiteBlacklist
             )
             return ([firstTab], firstTab.id)
         }
@@ -4439,6 +4667,7 @@ final class BrowserViewModel: ObservableObject {
                 browserResolutionWidth: browserResolutionWidth,
                 folderID: savedTab.folderID,
                 webExtensions: webExtensions,
+                websiteBlacklist: websiteBlacklist,
                 webKitProfile: usesDevWebKitProfile ? .dev : .standard
             )
             tab.title = savedTab.title
@@ -4472,7 +4701,8 @@ final class BrowserViewModel: ObservableObject {
                 websiteDisplayMode: websiteDisplayMode,
                 browserResolutionPreset: browserResolutionPreset,
                 browserResolutionWidth: browserResolutionWidth,
-                webExtensions: webExtensions
+                webExtensions: webExtensions,
+                websiteBlacklist: websiteBlacklist
             )
             return ([firstTab], firstTab.id)
         }

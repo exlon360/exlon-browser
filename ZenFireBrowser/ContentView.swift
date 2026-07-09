@@ -5182,14 +5182,12 @@ private struct EssentialFinderRow: View {
         HStack(spacing: 12) {
             Button(action: selectAction) {
                 HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(theme.color(.createTab).opacity(0.28))
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(theme.color(.text))
-                    }
-                    .frame(width: 36, height: 36)
+                    WebsiteFaviconView(
+                        url: item.faviconURL,
+                        host: item.url?.host ?? item.title,
+                        accentColorHex: item.accentColorHex,
+                        size: 36
+                    )
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(item.title)
@@ -6809,22 +6807,46 @@ private struct BrowserHistoryView: View {
                             Button {
                                 model.openHistoryItem(item)
                             } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.title)
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(theme.color(.text))
-                                        .lineLimit(1)
+                                HStack(spacing: 12) {
+                                    WebsiteFaviconView(
+                                        url: item.faviconURL,
+                                        host: item.url?.host ?? item.title,
+                                        accentColorHex: item.accentColorHex,
+                                        size: 38
+                                    )
 
-                                    Text(item.urlString)
-                                        .font(.caption)
-                                        .foregroundStyle(theme.color(.mutedText))
-                                        .lineLimit(1)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(item.title)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(theme.color(.text))
+                                            .lineLimit(1)
 
-                                    Text(item.visitedAt, style: .relative)
-                                        .font(.caption2)
-                                        .foregroundStyle(theme.color(.mutedText))
+                                        Text(item.urlString)
+                                            .font(.caption)
+                                            .foregroundStyle(theme.color(.mutedText))
+                                            .lineLimit(1)
+
+                                        Text(item.visitedAt, style: .relative)
+                                            .font(.caption2)
+                                            .foregroundStyle(theme.color(.mutedText))
+                                    }
                                 }
                                 .padding(.vertical, 4)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    model.addWebsiteToBlacklist(item.urlString)
+                                } label: {
+                                    Label("Blacklist", systemImage: "shield.slash.fill")
+                                }
+                                .tint(.red)
+                            }
+                            .contextMenu {
+                                Button {
+                                    model.addWebsiteToBlacklist(item.urlString)
+                                } label: {
+                                    Label("Add to Website Blacklist", systemImage: "shield.slash.fill")
+                                }
                             }
                         }
                         .listRowBackground(theme.color(.surface))
@@ -6849,6 +6871,63 @@ private struct BrowserHistoryView: View {
                 }
             }
         }
+    }
+}
+
+private struct WebsiteFaviconView: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let url: URL?
+    let host: String
+    let accentColorHex: String?
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: min(9, size * 0.24), style: .continuous)
+                .fill(iconBackground)
+
+            if let url {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .padding(size * 0.18)
+                    case .empty:
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(theme.color(.mutedText))
+                    case .failure:
+                        fallbackIcon
+                    @unknown default:
+                        fallbackIcon
+                    }
+                }
+            } else {
+                fallbackIcon
+            }
+        }
+        .frame(width: size, height: size)
+        .overlay {
+            RoundedRectangle(cornerRadius: min(9, size * 0.24), style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var iconBackground: Color {
+        guard let accentColorHex, Color.isValidHex(accentColorHex) else {
+            return theme.color(.field)
+        }
+        return Color(hex: accentColorHex).opacity(0.72)
+    }
+
+    private var fallbackIcon: some View {
+        Text(host.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "W")
+            .font(.system(size: size * 0.42, weight: .black))
+            .foregroundStyle(Color.white)
+            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
     }
 }
 
@@ -7271,8 +7350,16 @@ private struct EssentialsSection: View {
                         .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
                 }
             } else {
-                ForEach(model.visibleEssentials) { item in
-                    EssentialPill(item: item, layout: .vertical)
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(minimum: 82), spacing: 8),
+                        GridItem(.flexible(minimum: 82), spacing: 8)
+                    ],
+                    spacing: 8
+                ) {
+                    ForEach(model.visibleEssentials) { item in
+                        EssentialPill(item: item, layout: .vertical)
+                    }
                 }
             }
         }
@@ -7294,39 +7381,91 @@ private struct EssentialPill: View {
         Button {
             model.openEssential(item)
         } label: {
-            HStack(spacing: 10) {
-                BrowserIcon(slot: .essentials, systemName: "pin.fill", size: 12, weight: .bold)
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(theme.color(.canvas))
-                    .background(ButtonGradientBackground(cornerRadius: 7, prominence: .primary))
+            Group {
+                if layout == .vertical {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(alignment: .top, spacing: 6) {
+                            WebsiteFaviconView(
+                                url: item.faviconURL,
+                                host: item.url?.host ?? item.title,
+                                accentColorHex: item.accentColorHex,
+                                size: 30
+                            )
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(theme.color(.text))
-                        .lineLimit(1)
+                            Spacer(minLength: 0)
 
-                    if layout == .vertical {
+                            if isOpen {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(tileForeground)
+                                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                            }
+                        }
+
+                        Text(item.title)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(tileForeground)
+                            .lineLimit(1)
+
                         Text(item.url?.host ?? item.urlString)
-                            .font(.caption2)
-                            .foregroundStyle(theme.color(.mutedText))
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(tileForeground.opacity(0.76))
                             .lineLimit(1)
                     }
-                }
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    HStack(spacing: 10) {
+                        WebsiteFaviconView(
+                            url: item.faviconURL,
+                            host: item.url?.host ?? item.title,
+                            accentColorHex: item.accentColorHex,
+                            size: 32
+                        )
 
-                Spacer(minLength: 0)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(tileForeground)
+                                .lineLimit(1)
+
+                            Text(item.url?.host ?? item.urlString)
+                                .font(.caption2)
+                                .foregroundStyle(tileForeground.opacity(0.76))
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        if isOpen {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(tileForeground)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                }
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 10)
-            .frame(width: layout == .horizontal ? 178 : nil, height: 44)
+            .frame(width: layout == .horizontal ? 178 : nil, height: layout == .vertical ? 88 : 54)
             .frame(maxWidth: layout == .vertical ? .infinity : nil)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .background(ControlGlassBackground(cornerRadius: 8))
+        .background {
+            if isOpen {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(activeColor)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.black.opacity(0.12))
+                    }
+            } else {
+                ControlGlassBackground(cornerRadius: 8)
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.color(.createTab).opacity(0.38), lineWidth: 1)
+                .stroke(isOpen ? Color.white.opacity(0.42) : theme.color(.createTab).opacity(0.38), lineWidth: 1)
         }
         .contextMenu {
             Button {
@@ -7341,6 +7480,32 @@ private struct EssentialPill: View {
                 Label("Remove from Essentials", systemImage: "xmark")
             }
         }
+    }
+
+    private var isOpen: Bool {
+        model.isEssentialOpen(item)
+    }
+
+    private var activeColor: Color {
+        guard let accentColorHex = item.accentColorHex,
+              Color.isValidHex(accentColorHex) else {
+            return theme.color(.accent)
+        }
+        return Color(hex: accentColorHex)
+    }
+
+    private var tileForeground: Color {
+        guard isOpen else { return theme.color(.text) }
+        guard let hex = item.accentColorHex,
+              Color.isValidHex(hex) else { return .white }
+        let sanitized = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        guard sanitized.count == 6,
+              let value = UInt64(sanitized, radix: 16) else { return .white }
+        let red = Double((value >> 16) & 0xFF) / 255
+        let green = Double((value >> 8) & 0xFF) / 255
+        let blue = Double(value & 0xFF) / 255
+        let luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
+        return luminance > 0.66 ? Color.black.opacity(0.84) : .white
     }
 }
 
@@ -7854,6 +8019,8 @@ private struct BrowserSettingsView: View {
                         } label: {
                             Label("Password Manager", systemImage: "key.fill")
                         }
+
+                        WebsiteBlacklistEditor()
 
                         Button {
                             model.clearPrivateBrowsingData()
@@ -8764,6 +8931,99 @@ private struct BrowserSettingsView: View {
             themeImportMessage = "Imported and applied \(importedTheme.name)."
         } catch {
             themeImportMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct WebsiteBlacklistEditor: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var draftDomain = ""
+
+    var body: some View {
+        DisclosureGroup {
+            HStack(spacing: 8) {
+                TextField("example.com", text: $draftDomain)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .onSubmit(addDraftDomain)
+
+                Button(action: addDraftDomain) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.bordered)
+                .disabled(draftDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("Add website to blacklist")
+                .help("Add website")
+            }
+
+            Button {
+                model.addCurrentWebsiteToBlacklist()
+            } label: {
+                Label(
+                    model.currentWebsiteDomain.map { "Blacklist \($0)" } ?? "Blacklist Current Website",
+                    systemImage: "plus.shield.fill"
+                )
+            }
+            .disabled(model.currentWebsiteDomain == nil || currentWebsiteIsBlacklisted)
+
+            if model.websiteBlacklist.isEmpty {
+                Label("No blacklisted websites", systemImage: "checkmark.shield")
+                    .foregroundStyle(theme.color(.mutedText))
+            } else {
+                ForEach(model.websiteBlacklist, id: \.self) { domain in
+                    HStack(spacing: 10) {
+                        Image(systemName: "shield.slash.fill")
+                            .foregroundStyle(.red)
+                            .frame(width: 22)
+
+                        Text(domain)
+                            .font(.body.monospaced())
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+
+                        Button(role: .destructive) {
+                            model.removeWebsiteFromBlacklist(domain)
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(domain) from blacklist")
+                        .help("Remove website")
+                    }
+                }
+
+                Button(role: .destructive) {
+                    model.clearWebsiteBlacklist()
+                } label: {
+                    Label("Clear Website Blacklist", systemImage: "trash")
+                }
+            }
+
+            if model.websiteBlacklistStatusMessage.isEmpty == false {
+                Text(model.websiteBlacklistStatusMessage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+        } label: {
+            Label("Website Blacklist", systemImage: "shield.slash.fill")
+        }
+    }
+
+    private var currentWebsiteIsBlacklisted: Bool {
+        model.isWebsiteBlacklisted(model.selectedTab?.url)
+    }
+
+    private func addDraftDomain() {
+        let value = draftDomain
+        model.addWebsiteToBlacklist(value)
+        if BrowserWebsitePrivacyPolicy.normalizedDomain(from: value) != nil {
+            draftDomain = ""
         }
     }
 }

@@ -61,6 +61,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var browserResolutionWidth: Double
     @Published var webExtensions: [BrowserWebExtension]
     @Published var folderID: UUID?
+    @Published private(set) var pageIconURLString: String?
+    @Published private(set) var pageThemeColorHex: String?
 
     var onNavigationFinished: (@MainActor (BrowserTab) -> Void)?
     var onDownloadUpdated: (@MainActor (BrowserDownloadItem) -> Void)?
@@ -81,6 +83,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private nonisolated(unsafe) var navigationRegionTricksEnabled: Bool
     private nonisolated(unsafe) var navigationRegionTrickProfile: BrowserRegionTrickProfile
     private nonisolated(unsafe) var navigationWebsiteDisplayMode: BrowserWebsiteDisplayMode
+    private var blockedPersistenceDomains: [String]
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -110,6 +113,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         browserResolutionWidth: Double = BrowserResolutionPreset.defaultScreenScale,
         folderID: UUID? = nil,
         webExtensions: [BrowserWebExtension] = [],
+        websiteBlacklist: [String] = [],
         webKitProfile: BrowserWebKitProfile = .standard
     ) {
         self.isPrivate = isPrivate
@@ -145,6 +149,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.browserResolutionWidth = BrowserResolutionPreset.clampedScreenScale(browserResolutionWidth)
         self.webExtensions = webExtensions
         self.folderID = folderID
+        self.pageIconURLString = nil
+        self.pageThemeColorHex = nil
+        self.blockedPersistenceDomains = BrowserWebsitePrivacyPolicy.normalizedDomains(websiteBlacklist)
         self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
         self.url = startURL
         self.addressText = startURL.absoluteString
@@ -406,6 +413,24 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         rebuildWebKitUserContent(reloadAfterChange: reloadAfterChange)
     }
 
+    func setWebsiteBlacklist(_ domains: [String]) {
+        let normalized = BrowserWebsitePrivacyPolicy.normalizedDomains(domains)
+        guard normalized != blockedPersistenceDomains else { return }
+        let wasCurrentWebsiteBlocked = BrowserWebsitePrivacyPolicy.matches(
+            url: url,
+            blockedDomains: blockedPersistenceDomains
+        )
+        blockedPersistenceDomains = normalized
+        let isCurrentWebsiteBlocked = BrowserWebsitePrivacyPolicy.matches(
+            url: url,
+            blockedDomains: normalized
+        )
+        rebuildWebKitUserContent(reloadAfterChange: wasCurrentWebsiteBlocked && isCurrentWebsiteBlocked == false)
+        if let script = Self.websiteBlacklistScript(for: normalized) {
+            webView.evaluateJavaScript(script)
+        }
+    }
+
     private func applyPageStyleOverrides(forceCleanup: Bool = false) {
         guard forceCleanup || hasActivePageStyleOverrides else { return }
         webView.evaluateJavaScript(Self.pageControlsScript(
@@ -429,6 +454,78 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private func applyRegionTricks() {
         guard let profile = activeRegionTrickProfile else { return }
         webView.evaluateJavaScript(Self.regionTricksScript(profile: profile))
+    }
+
+    private func capturePageIdentity(completion: @escaping () -> Void) {
+        guard let url,
+              Self.isStartPageURL(url) == false,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            pageIconURLString = nil
+            pageThemeColorHex = nil
+            completion()
+            return
+        }
+
+        let script = """
+        (() => {
+          const iconLink = Array.from(document.querySelectorAll('link[rel]')).find((node) => {
+            const rel = String(node.rel || '').toLowerCase().split(/\\s+/);
+            return rel.includes('icon') || rel.includes('apple-touch-icon');
+          });
+          let faviconURL = '';
+          try {
+            faviconURL = iconLink?.href || new URL('/favicon.ico', location.origin).href;
+          } catch (_) {}
+
+          const toHex = (value) => {
+            if (!value) return '';
+            const probe = document.createElement('span');
+            probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;color:' + value;
+            if (!probe.style.color) return '';
+            (document.documentElement || document.body).appendChild(probe);
+            const resolved = getComputedStyle(probe).color;
+            probe.remove();
+            const match = resolved.match(/rgba?\\(\\s*([\\d.]+)[,\\s]+([\\d.]+)[,\\s]+([\\d.]+)(?:[,\\s\\/]+([\\d.]+))?/i);
+            if (!match || (match[4] !== undefined && Number(match[4]) < 0.08)) return '';
+            return '#' + [match[1], match[2], match[3]]
+              .map((part) => Math.max(0, Math.min(255, Math.round(Number(part)))).toString(16).padStart(2, '0'))
+              .join('')
+              .toUpperCase();
+          };
+
+          const themeMeta = Array.from(document.querySelectorAll('meta[name="theme-color" i]'))
+            .find((node) => !node.media || matchMedia(node.media).matches);
+          const candidates = [
+            themeMeta?.content,
+            document.body ? getComputedStyle(document.body).backgroundColor : '',
+            document.documentElement ? getComputedStyle(document.documentElement).backgroundColor : ''
+          ];
+          let accentColorHex = '';
+          for (const candidate of candidates) {
+            accentColorHex = toHex(candidate);
+            if (accentColorHex) break;
+          }
+          return { faviconURL, accentColorHex };
+        })();
+        """
+
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            Task { @MainActor in
+                guard let self else {
+                    completion()
+                    return
+                }
+                let values = result as? [String: Any]
+                let iconValue = (values?["faviconURL"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let colorValue = (values?["accentColorHex"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.pageIconURLString = iconValue?.isEmpty == false ? iconValue : BrowserWebsitePrivacyPolicy.defaultFaviconURL(for: url)?.absoluteString
+                self.pageThemeColorHex = colorValue?.range(
+                    of: "^#[0-9A-Fa-f]{6}$",
+                    options: .regularExpression
+                ) != nil ? colorValue : nil
+                completion()
+            }
+        }
     }
 
     private func privacyAdjustedURL(for url: URL) -> URL {
@@ -464,6 +561,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
     private func additionalUserScripts() -> [WKUserScript] {
         var scripts: [WKUserScript] = []
+
+        if let blacklistScript = Self.websiteBlacklistScript(for: blockedPersistenceDomains) {
+            scripts.append(
+                WKUserScript(
+                    source: blacklistScript,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
 
         if let viewportScript = Self.viewportResolutionScript(for: browserResolutionPreset, width: browserResolutionWidth) {
             scripts.append(
@@ -517,6 +624,51 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         scripts.append(contentsOf: Self.webExtensionUserScripts(for: webExtensions))
 
         return scripts
+    }
+
+    private static func websiteBlacklistScript(for domains: [String]) -> String? {
+        let normalized = BrowserWebsitePrivacyPolicy.normalizedDomains(domains)
+        guard normalized.isEmpty == false,
+              let data = try? JSONSerialization.data(withJSONObject: normalized),
+              let payload = String(data: data, encoding: .utf8) else { return nil }
+
+        return """
+        (() => {
+          const blockedDomains = \(payload);
+          const host = String(location.hostname || '').toLowerCase().replace(/^www\\./, '');
+          const isBlocked = blockedDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+          if (!isBlocked) return;
+
+          const clearStorage = (storage) => {
+            try { storage.clear(); } catch (_) {}
+          };
+          clearStorage(window.localStorage);
+          clearStorage(window.sessionStorage);
+
+          try {
+            Object.defineProperty(Document.prototype, 'cookie', {
+              configurable: true,
+              get() { return ''; },
+              set(_) { return true; }
+            });
+          } catch (_) {}
+
+          try {
+            const denied = () => undefined;
+            Object.defineProperties(Storage.prototype, {
+              setItem: { configurable: true, value: denied },
+              removeItem: { configurable: true, value: denied },
+              clear: { configurable: true, value: denied }
+            });
+          } catch (_) {}
+
+          try {
+            if (window.caches) {
+              window.caches.keys().then((keys) => keys.forEach((key) => window.caches.delete(key)));
+            }
+          } catch (_) {}
+        })();
+        """
     }
 
     private func pageControlUserScripts() -> [WKUserScript] {
@@ -3455,7 +3607,10 @@ extension BrowserTab: WKNavigationDelegate {
             self.applyPageStyleOverrides()
             self.applyPrivacyOverrides()
             self.applyRegionTricks()
-            self.onNavigationFinished?(self)
+            self.capturePageIdentity { [weak self] in
+                guard let self else { return }
+                self.onNavigationFinished?(self)
+            }
         }
     }
 
