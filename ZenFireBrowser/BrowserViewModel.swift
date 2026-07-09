@@ -702,7 +702,7 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
         case .reload:
             return "Reload / Stop"
         case .tabFinder:
-            return "Tab Finder"
+            return "All Tabs"
         case .tabFolders:
             return "Tab Folders"
         case .closeAllTabs:
@@ -842,7 +842,7 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
         case .reload:
             return "Reload"
         case .tabFinder:
-            return "Tab Finder"
+            return "All Tabs"
         case .tabFolders:
             return "Tab Folders"
         case .closeAllTabs:
@@ -1860,6 +1860,8 @@ final class BrowserViewModel: ObservableObject {
     @Published var essentials: [BrowserEssentialItem]
     @Published private(set) var websiteBlacklist: [String]
     @Published var websiteBlacklistStatusMessage = ""
+    @Published private(set) var websiteProtectionWhitelist: [String]
+    @Published var websiteProtectionWhitelistStatusMessage = ""
     @Published var tabFolders: [BrowserTabFolder] {
         didSet {
             saveTabFolders()
@@ -1998,6 +2000,15 @@ final class BrowserViewModel: ObservableObject {
         let savedWebsiteBlacklist = BrowserWebsitePrivacyPolicy.normalizedDomains(
             vault.load([String].self, forKey: BrowserWebsitePrivacyPolicy.storageKey, default: [])
         )
+        let savedWebsiteProtectionWhitelist = BrowserWebsitePrivacyPolicy.normalizedDomains(
+            vault.load(
+                [String].self,
+                forKey: BrowserWebsitePrivacyPolicy.protectionWhitelistStorageKey,
+                default: []
+            )
+        ).filter { domain in
+            BrowserWebsitePrivacyPolicy.matches(host: domain, blockedDomains: savedWebsiteBlacklist) == false
+        }
         let developerModeEnabled = vault.load(Bool.self, forKey: Self.StorageKey.developerModeEnabled, default: false)
         let webInspectorEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.webInspectorEnabled, default: false)
         let devWebKitEnabled = developerModeEnabled && vault.load(Bool.self, forKey: Self.StorageKey.devWebKitEnabled, default: false)
@@ -2076,7 +2087,8 @@ final class BrowserViewModel: ObservableObject {
             browserResolutionPreset: savedBrowserResolutionPreset,
             browserResolutionWidth: savedBrowserResolutionWidth,
             webExtensions: savedWebExtensions,
-            websiteBlacklist: savedWebsiteBlacklist
+            websiteBlacklist: savedWebsiteBlacklist,
+            websiteProtectionWhitelist: savedWebsiteProtectionWhitelist
         )
         let savedTopSearchBarPlacement = BrowserToolbarPlacement(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.topSearchBarPlacement, default: "")
@@ -2127,6 +2139,7 @@ final class BrowserViewModel: ObservableObject {
         self.history = savedHistory
         self.essentials = savedEssentials
         self.websiteBlacklist = savedWebsiteBlacklist
+        self.websiteProtectionWhitelist = savedWebsiteProtectionWhitelist
         self.tabFolders = savedTabFolders
         self.collapsedTabFolderIDs = savedCollapsedTabFolderIDs
         self.downloads = savedDownloads
@@ -2304,6 +2317,12 @@ final class BrowserViewModel: ObservableObject {
         isTabFinderPresented = false
     }
 
+    func showAllTabs() {
+        isFloatingSearchPresented = false
+        isContainedBrowserPresented = false
+        isTabFinderPresented = true
+    }
+
     @discardableResult
     func createTabFolder(named rawName: String = "") -> BrowserTabFolder {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2426,6 +2445,7 @@ final class BrowserViewModel: ObservableObject {
             browserResolutionWidth: browserResolutionWidth,
             webExtensions: installedWebExtensions,
             websiteBlacklist: websiteBlacklist,
+            websiteProtectionWhitelist: websiteProtectionWhitelist,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configure(tab)
@@ -2495,6 +2515,7 @@ final class BrowserViewModel: ObservableObject {
             browserResolutionWidth: browserResolutionWidth,
             webExtensions: installedWebExtensions,
             websiteBlacklist: websiteBlacklist,
+            websiteProtectionWhitelist: websiteProtectionWhitelist,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
         )
         configureContained(tab)
@@ -3162,6 +3183,41 @@ final class BrowserViewModel: ObservableObject {
         return BrowserWebsitePrivacyPolicy.domain(for: url)
     }
 
+    var defaultProtectionScore: Int {
+        var score = 0
+        if isAdBlockerEnabled {
+            score += 24
+            if trackerBlockingLevel == .aggressive {
+                score += 8
+            }
+        }
+        if isHTTPSUpgradeEnabled { score += 12 }
+        if isScriptBlockingEnabled { score += 10 }
+        if isFingerprintProtectionEnabled { score += 14 }
+        if isSocialBlockingEnabled { score += 6 }
+        if isPopupBlockingEnabled { score += 8 }
+        if isTrackingParameterStrippingEnabled { score += 6 }
+        if isBounceTrackingProtectionEnabled { score += 6 }
+        if isWebRTCProtectionEnabled { score += 6 }
+        return min(score, 100)
+    }
+
+    var whitelistedProtectionScore: Int {
+        isHTTPSUpgradeEnabled ? 12 : 0
+    }
+
+    var currentWebsiteProtectionScore: Int {
+        isWebsiteProtectionWhitelisted(selectedTab?.url)
+            ? whitelistedProtectionScore
+            : defaultProtectionScore
+    }
+
+    func protectionScore(for domain: String) -> Int {
+        BrowserWebsitePrivacyPolicy.matches(host: domain, blockedDomains: websiteProtectionWhitelist)
+            ? whitelistedProtectionScore
+            : defaultProtectionScore
+    }
+
     func isWebsiteBlacklisted(_ url: URL?) -> Bool {
         BrowserWebsitePrivacyPolicy.matches(url: url, blockedDomains: websiteBlacklist)
     }
@@ -3184,6 +3240,14 @@ final class BrowserViewModel: ObservableObject {
             return
         }
 
+        let conflictingWhitelist = websiteProtectionWhitelist.filter {
+            Self.privacyDomainsConflict($0, domain)
+        }
+        if conflictingWhitelist.isEmpty == false {
+            websiteProtectionWhitelist.removeAll { conflictingWhitelist.contains($0) }
+            applyWebsiteProtectionWhitelist()
+        }
+
         websiteBlacklist = BrowserWebsitePrivacyPolicy.normalizedDomains(websiteBlacklist + [domain])
         history.removeAll { item in
             BrowserWebsitePrivacyPolicy.matches(host: item.url?.host, blockedDomains: [domain])
@@ -3203,6 +3267,55 @@ final class BrowserViewModel: ObservableObject {
         websiteBlacklist = []
         applyWebsiteBlacklist()
         websiteBlacklistStatusMessage = "Website blacklist cleared."
+    }
+
+    func isWebsiteProtectionWhitelisted(_ url: URL?) -> Bool {
+        BrowserWebsitePrivacyPolicy.matches(url: url, blockedDomains: websiteProtectionWhitelist)
+    }
+
+    func addCurrentWebsiteToProtectionWhitelist() {
+        guard let domain = currentWebsiteDomain else {
+            websiteProtectionWhitelistStatusMessage = "Open a website before adding it to the whitelist."
+            return
+        }
+        addWebsiteToProtectionWhitelist(domain)
+    }
+
+    func addWebsiteToProtectionWhitelist(_ rawValue: String) {
+        guard let domain = BrowserWebsitePrivacyPolicy.normalizedDomain(from: rawValue) else {
+            websiteProtectionWhitelistStatusMessage = "Enter a valid website such as example.com."
+            return
+        }
+        guard BrowserWebsitePrivacyPolicy.matches(host: domain, blockedDomains: websiteProtectionWhitelist) == false else {
+            websiteProtectionWhitelistStatusMessage = "\(domain) is already covered by the whitelist."
+            return
+        }
+
+        let conflictingBlacklist = websiteBlacklist.filter {
+            Self.privacyDomainsConflict($0, domain)
+        }
+        if conflictingBlacklist.isEmpty == false {
+            websiteBlacklist.removeAll { conflictingBlacklist.contains($0) }
+            applyWebsiteBlacklist()
+        }
+
+        websiteProtectionWhitelist = BrowserWebsitePrivacyPolicy.normalizedDomains(
+            websiteProtectionWhitelist + [domain]
+        )
+        applyWebsiteProtectionWhitelist()
+        websiteProtectionWhitelistStatusMessage = "\(domain) now uses \(whitelistedProtectionScore)% compatibility protection."
+    }
+
+    func removeWebsiteFromProtectionWhitelist(_ domain: String) {
+        websiteProtectionWhitelist.removeAll { $0 == domain }
+        applyWebsiteProtectionWhitelist()
+        websiteProtectionWhitelistStatusMessage = "\(domain) now uses \(defaultProtectionScore)% default protection."
+    }
+
+    func clearWebsiteProtectionWhitelist() {
+        websiteProtectionWhitelist = []
+        applyWebsiteProtectionWhitelist()
+        websiteProtectionWhitelistStatusMessage = "Protection whitelist cleared."
     }
 
     func clearHistory() {
@@ -3556,6 +3669,7 @@ final class BrowserViewModel: ObservableObject {
             stripTrackingParameters: isTrackingParameterStrippingEnabled,
             blockBounceTracking: isBounceTrackingProtectionEnabled,
             webRTCProtection: isWebRTCProtectionEnabled,
+            websiteProtectionWhitelist: websiteProtectionWhitelist,
             regionTricksEnabled: isRegionTricksEnabled,
             regionTrickProfile: regionTrickProfile.rawValue,
             moreMenuActions: BrowserToolbarAction.allCases
@@ -3656,6 +3770,13 @@ final class BrowserViewModel: ObservableObject {
         isTrackingParameterStrippingEnabled = config.stripTrackingParameters ?? true
         isBounceTrackingProtectionEnabled = config.blockBounceTracking ?? true
         isWebRTCProtectionEnabled = config.webRTCProtection ?? true
+        if let protectionWhitelist = config.websiteProtectionWhitelist {
+            websiteProtectionWhitelist = BrowserWebsitePrivacyPolicy.normalizedDomains(protectionWhitelist)
+                .filter { domain in
+                    BrowserWebsitePrivacyPolicy.matches(host: domain, blockedDomains: websiteBlacklist) == false
+                }
+            applyWebsiteProtectionWhitelist()
+        }
         if let regionProfileValue = config.regionTrickProfile,
            let profile = BrowserRegionTrickProfile(rawValue: regionProfileValue) {
             regionTrickProfile = profile
@@ -3692,7 +3813,7 @@ final class BrowserViewModel: ObservableObject {
         case .reload:
             reloadOrStop()
         case .tabFinder:
-            isTabFinderPresented = true
+            showAllTabs()
         case .tabFolders:
             showZenFolders()
         case .closeAllTabs:
@@ -4147,6 +4268,7 @@ final class BrowserViewModel: ObservableObject {
         regionTrickProfile = .unitedStates
         saveVPNProfile(.empty)
         clearWebsiteBlacklist()
+        clearWebsiteProtectionWhitelist()
     }
 
     func enableGlideMaxProtection() {
@@ -4369,6 +4491,23 @@ final class BrowserViewModel: ObservableObject {
         if domains.isEmpty == false {
             BrowserWebsitePrivacyController.shared.purgeWebsiteData(for: domains)
         }
+    }
+
+    private func applyWebsiteProtectionWhitelist() {
+        vault.save(
+            websiteProtectionWhitelist,
+            forKey: BrowserWebsitePrivacyPolicy.protectionWhitelistStorageKey
+        )
+        for tab in tabs {
+            tab.setWebsiteProtectionWhitelist(websiteProtectionWhitelist)
+        }
+        for tab in containedTabs {
+            tab.setWebsiteProtectionWhitelist(websiteProtectionWhitelist)
+        }
+    }
+
+    private static func privacyDomainsConflict(_ lhs: String, _ rhs: String) -> Bool {
+        lhs == rhs || lhs.hasSuffix(".\(rhs)") || rhs.hasSuffix(".\(lhs)")
     }
 
     private func persistOpenTabs() {
@@ -4704,6 +4843,10 @@ final class BrowserViewModel: ObservableObject {
         vault.save(history, forKey: Self.StorageKey.history)
         vault.save(essentials, forKey: Self.StorageKey.essentials)
         vault.save(websiteBlacklist, forKey: BrowserWebsitePrivacyPolicy.storageKey)
+        vault.save(
+            websiteProtectionWhitelist,
+            forKey: BrowserWebsitePrivacyPolicy.protectionWhitelistStorageKey
+        )
         vault.save(tabFolders, forKey: Self.StorageKey.tabFolders)
         vault.save(collapsedTabFolderIDs, forKey: Self.StorageKey.collapsedTabFolderIDs)
         vault.save(downloads, forKey: Self.StorageKey.downloads)
@@ -4770,7 +4913,8 @@ final class BrowserViewModel: ObservableObject {
         browserResolutionPreset: BrowserResolutionPreset,
         browserResolutionWidth: Double,
         webExtensions: [BrowserWebExtension],
-        websiteBlacklist: [String]
+        websiteBlacklist: [String],
+        websiteProtectionWhitelist: [String]
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
         let savedTabs = vault.load([PersistedBrowserTab].self, forKey: StorageKey.openTabs, default: [])
         guard savedTabs.isEmpty == false else {
@@ -4798,7 +4942,8 @@ final class BrowserViewModel: ObservableObject {
                 browserResolutionPreset: browserResolutionPreset,
                 browserResolutionWidth: browserResolutionWidth,
                 webExtensions: webExtensions,
-                websiteBlacklist: websiteBlacklist
+                websiteBlacklist: websiteBlacklist,
+                websiteProtectionWhitelist: websiteProtectionWhitelist
             )
             return ([firstTab], firstTab.id)
         }
@@ -4836,6 +4981,7 @@ final class BrowserViewModel: ObservableObject {
                 folderID: savedTab.folderID,
                 webExtensions: webExtensions,
                 websiteBlacklist: websiteBlacklist,
+                websiteProtectionWhitelist: websiteProtectionWhitelist,
                 webKitProfile: usesDevWebKitProfile ? .dev : .standard
             )
             tab.title = savedTab.title
@@ -4870,7 +5016,8 @@ final class BrowserViewModel: ObservableObject {
                 browserResolutionPreset: browserResolutionPreset,
                 browserResolutionWidth: browserResolutionWidth,
                 webExtensions: webExtensions,
-                websiteBlacklist: websiteBlacklist
+                websiteBlacklist: websiteBlacklist,
+                websiteProtectionWhitelist: websiteProtectionWhitelist
             )
             return ([firstTab], firstTab.id)
         }

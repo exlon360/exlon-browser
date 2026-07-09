@@ -679,11 +679,15 @@ enum BrowserContentBlocker {
         "dropbox.com"
     ]
 
-    private static let compatibilityRuleDomains = compatibilityDomains.map { "*\($0)" }
+    private static func compatibilityRuleDomains(adding whitelistedDomains: [String]) -> [String] {
+        BrowserWebsitePrivacyPolicy.normalizedDomains(compatibilityDomains + whitelistedDomains)
+            .map { "*\($0)" }
+    }
 
     private static let antiAdBlockScript = """
     (() => {
       if (window.__glideAggressiveAdBlockerInstalled) { return; }
+      if (window.__glideProtectionWhitelisted) { return; }
       window.__glideAggressiveAdBlockerInstalled = true;
 
       const compatibilityHosts = \(Self.javascriptArrayLiteral(from: compatibilityDomains));
@@ -1129,10 +1133,11 @@ enum BrowserContentBlocker {
     })();
     """
 
-    private static func rules(for level: BrowserTrackerBlockingLevel) -> String {
+    private static func rules(for level: BrowserTrackerBlockingLevel, whitelistedDomains: [String]) -> String {
         let domainPattern = blockedDomains
             .map { NSRegularExpression.escapedPattern(for: $0) }
             .joined(separator: "|")
+        let allowedDomains = compatibilityRuleDomains(adding: whitelistedDomains)
 
         var nativeRules: [[String: Any]] = [
             [
@@ -1140,7 +1145,7 @@ enum BrowserContentBlocker {
                     "url-filter": ".*(\(domainPattern)).*",
                     "resource-type": targetedBlockedResourceTypes,
                     "load-type": ["third-party"],
-                    "unless-domain": compatibilityRuleDomains
+                    "unless-domain": allowedDomains
                 ],
                 "action": [
                     "type": "block"
@@ -1149,7 +1154,7 @@ enum BrowserContentBlocker {
             [
                 "trigger": [
                     "url-filter": ".*",
-                    "unless-domain": compatibilityRuleDomains
+                    "unless-domain": allowedDomains
                 ],
                 "action": [
                     "type": "css-display-none",
@@ -1162,7 +1167,7 @@ enum BrowserContentBlocker {
             [
                 "trigger": [
                     "url-filter": pattern,
-                    "unless-domain": compatibilityRuleDomains
+                    "unless-domain": allowedDomains
                 ],
                 "action": [
                     "type": "block"
@@ -1177,7 +1182,7 @@ enum BrowserContentBlocker {
                         "url-filter": pattern,
                         "resource-type": broadBlockedResourceTypes,
                         "load-type": ["third-party"],
-                        "unless-domain": compatibilityRuleDomains
+                        "unless-domain": allowedDomains
                     ],
                     "action": [
                         "type": "block"
@@ -1190,7 +1195,7 @@ enum BrowserContentBlocker {
                     "trigger": [
                         "url-filter": pattern,
                         "resource-type": broadBlockedResourceTypes,
-                        "unless-domain": compatibilityRuleDomains
+                        "unless-domain": allowedDomains
                     ],
                     "action": [
                         "type": "block"
@@ -1207,11 +1212,13 @@ enum BrowserContentBlocker {
         return encodedRules
     }
 
-    private static func fallbackRules() -> String {
+    private static func fallbackRules(whitelistedDomains: [String]) -> String {
+        let allowedDomains = compatibilityRuleDomains(adding: whitelistedDomains)
         let nativeRules: [[String: Any]] = fallbackBlockedURLPatterns.map { pattern in
             [
                 "trigger": [
-                    "url-filter": pattern
+                    "url-filter": pattern,
+                    "unless-domain": allowedDomains
                 ],
                 "action": [
                     "type": "block"
@@ -1231,11 +1238,23 @@ enum BrowserContentBlocker {
         _ enabled: Bool,
         level: BrowserTrackerBlockingLevel = .aggressive,
         on userContentController: WKUserContentController,
+        whitelistedDomains: [String] = [],
         additionalUserScripts: [WKUserScript] = [],
         completion: ((Error?) -> Void)? = nil
     ) {
         userContentController.removeAllContentRuleLists()
         userContentController.removeAllUserScripts()
+
+        let normalizedWhitelist = BrowserWebsitePrivacyPolicy.normalizedDomains(whitelistedDomains)
+        if let whitelistScript = protectionWhitelistScript(for: normalizedWhitelist) {
+            userContentController.addUserScript(
+                WKUserScript(
+                    source: whitelistScript,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
 
         guard enabled else {
             for script in additionalUserScripts {
@@ -1257,8 +1276,8 @@ enum BrowserContentBlocker {
         }
 
         WKContentRuleListStore.default().compileContentRuleList(
-            forIdentifier: identifier,
-            encodedContentRuleList: rules(for: level)
+            forIdentifier: identifier(for: identifier, whitelistedDomains: normalizedWhitelist),
+            encodedContentRuleList: rules(for: level, whitelistedDomains: normalizedWhitelist)
         ) { ruleList, error in
             DispatchQueue.main.async {
                 if let ruleList = ruleList {
@@ -1268,8 +1287,8 @@ enum BrowserContentBlocker {
                 }
 
                 WKContentRuleListStore.default().compileContentRuleList(
-                    forIdentifier: fallbackIdentifier,
-                    encodedContentRuleList: fallbackRules()
+                    forIdentifier: identifier(for: fallbackIdentifier, whitelistedDomains: normalizedWhitelist),
+                    encodedContentRuleList: fallbackRules(whitelistedDomains: normalizedWhitelist)
                 ) { fallbackRuleList, fallbackError in
                     DispatchQueue.main.async {
                         if let fallbackRuleList = fallbackRuleList {
@@ -1288,5 +1307,31 @@ enum BrowserContentBlocker {
             return "[]"
         }
         return encoded
+    }
+
+    private static func protectionWhitelistScript(for domains: [String]) -> String? {
+        guard domains.isEmpty == false else { return nil }
+        let payload = javascriptArrayLiteral(from: domains)
+        return """
+        (() => {
+          const allowedDomains = \(payload);
+          const normalize = (value) => String(value || '').toLowerCase().replace(/^www\\./, '');
+          const hosts = [normalize(location.hostname)];
+          try { hosts.push(normalize(window.top.location.hostname)); } catch (_) {}
+          try { hosts.push(normalize(new URL(document.referrer).hostname)); } catch (_) {}
+          window.__glideProtectionWhitelisted = hosts.some((host) =>
+            allowedDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))
+          );
+        })();
+        """
+    }
+
+    private static func identifier(for base: String, whitelistedDomains: [String]) -> String {
+        var hash: UInt64 = 1469598103934665603
+        for byte in whitelistedDomains.joined(separator: "|").utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        return "\(base).\(String(hash, radix: 16))"
     }
 }

@@ -962,6 +962,7 @@ struct BrowserEssentialItem: Identifiable, Codable, Equatable {
 
 enum BrowserWebsitePrivacyPolicy {
     static let storageKey = "ZenFireBrowser.websiteBlacklist"
+    static let protectionWhitelistStorageKey = "ZenFireBrowser.websiteProtectionWhitelist"
 
     static func normalizedDomain(from rawValue: String) -> String? {
         var candidate = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1227,6 +1228,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var stripTrackingParameters: Bool?
     var blockBounceTracking: Bool?
     var webRTCProtection: Bool?
+    var websiteProtectionWhitelist: [String]?
     var regionTricksEnabled: Bool?
     var regionTrickProfile: String?
     var moreMenuActions: [String]

@@ -544,6 +544,12 @@ private struct BrowserShell: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                 }
 
+                if model.isTabFinderPresented {
+                    BrowserAllTabsWorkspace(experience: experience)
+                        .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
+                        .zIndex(30)
+                }
+
                 BrowserShellGestureInstaller(
                     isTwoFingerDoubleTapEnabled: experience == .phone || model.isTwoFingerDoubleTapCompactEnabledOnIPad,
                     onTwoFingerSwipe: { deltaX, deltaY in
@@ -570,6 +576,7 @@ private struct BrowserShell: View {
             }
             .animation(.spring(response: 0.25, dampingFraction: 0.86), value: model.isFloatingSearchPresented)
             .animation(.spring(response: 0.27, dampingFraction: 0.86), value: model.isContainedBrowserPresented)
+            .animation(.spring(response: 0.26, dampingFraction: 0.88), value: model.isTabFinderPresented)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: model.areSideTabsCollapsed)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.isDesktopZenModeEnabled)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isDesktopZenChromeHovered)
@@ -585,12 +592,6 @@ private struct BrowserShell: View {
                     .environmentObject(theme)
                     .environmentObject(security)
                     .environmentObject(profiles)
-                    .preferredColorScheme(.dark)
-            }
-            .sheet(isPresented: $model.isTabFinderPresented) {
-                BrowserTabFinderView()
-                    .environmentObject(model)
-                    .environmentObject(theme)
                     .preferredColorScheme(.dark)
             }
             .sheet(isPresented: $model.isHistoryPresented) {
@@ -1128,6 +1129,51 @@ private enum ButtonGradientProminence {
     case quiet
 }
 
+private struct TokenGradientField: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let token: BrowserThemeToken
+    var opacity = 1.0
+    var includesCustomColors = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            let radius = max(proxy.size.width, proxy.size.height) * 0.72
+            ZStack {
+                ForEach(Array(theme.gradientCircles(for: token).prefix(4))) { circle in
+                    RadialGradient(
+                        colors: [
+                            Color(hex: circle.colorHex).opacity(circle.intensity * opacity),
+                            Color(hex: circle.colorHex).opacity(0)
+                        ],
+                        center: UnitPoint(x: circle.x, y: circle.y),
+                        startRadius: 0,
+                        endRadius: max(radius, 24)
+                    )
+                }
+
+                if includesCustomColors {
+                    ForEach(Array(theme.customColors.prefix(8))) { customColor in
+                        RadialGradient(
+                            colors: [
+                                Color(hex: customColor.colorHex).opacity(theme.customColorIntensity(customColor) * opacity),
+                                Color(hex: customColor.gradientHex).opacity(theme.customColorIntensity(customColor) * opacity * 0.72),
+                                Color(hex: customColor.gradientHex).opacity(0)
+                            ],
+                            center: UnitPoint(
+                                x: customColor.gradientX ?? customColor.location,
+                                y: customColor.gradientY ?? 0.5
+                            ),
+                            startRadius: 0,
+                            endRadius: max(radius * 0.82, 20)
+                        )
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 private struct ButtonGradientBackground: View {
     @EnvironmentObject private var theme: BrowserTheme
     let cornerRadius: CGFloat
@@ -1142,6 +1188,14 @@ private struct ButtonGradientBackground: View {
                     .fill(gradient)
             }
             .overlay {
+                TokenGradientField(
+                    token: gradientToken,
+                    opacity: gradientFieldOpacity,
+                    includesCustomColors: false
+                )
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+            .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.16 : 0))
             }
@@ -1153,21 +1207,37 @@ private struct ButtonGradientBackground: View {
         case .primary:
             return LinearGradient(
                 colors: primaryGradientColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: theme.gradientStartPoint(for: .createTab),
+                endPoint: theme.gradientEndPoint(for: .createTab)
             )
         case .standard:
             return LinearGradient(
                 colors: standardGradientColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: theme.gradientStartPoint(for: .field),
+                endPoint: theme.gradientEndPoint(for: .field)
             )
         case .quiet:
             return LinearGradient(
                 colors: quietGradientColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: theme.gradientStartPoint(for: .surface),
+                endPoint: theme.gradientEndPoint(for: .surface)
             )
+        }
+    }
+
+    private var gradientToken: BrowserThemeToken {
+        switch prominence {
+        case .primary: return .createTab
+        case .standard: return .field
+        case .quiet: return .surface
+        }
+    }
+
+    private var gradientFieldOpacity: Double {
+        switch prominence {
+        case .primary: return 0.42
+        case .standard: return 0.24
+        case .quiet: return 0.18
         }
     }
 
@@ -1874,8 +1944,8 @@ private struct FloatingChrome: View {
                     FloatingTabSwitcher()
 
                     if model.isActionRelocated(.tabFinder) == false {
-                        ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
-                            model.isTabFinderPresented = true
+                        ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "All Tabs") {
+                            model.showAllTabs()
                         }
                     }
 
@@ -2035,8 +2105,8 @@ private struct ChromeFooter: View {
                 }
 
                 if model.isActionRelocated(.tabFinder) == false {
-                    ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "Tab Finder") {
-                        model.isTabFinderPresented = true
+                    ChromeButton(slot: .tabFinder, symbol: "square.grid.2x2", label: "All Tabs") {
+                        model.showAllTabs()
                     }
                 }
 
@@ -2099,6 +2169,11 @@ private struct ChromeGlassBackground: View {
                     .fill(theme.color(.chrome).opacity(chromeOpacity))
             }
             .overlay {
+                TokenGradientField(token: .chrome, opacity: 0.26, includesCustomColors: true)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .opacity(materialOpacity)
+            }
+            .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 * materialOpacity : 0))
             }
@@ -2138,6 +2213,11 @@ private struct FloatingChromeBackground: View {
             .overlay {
                 Capsule()
                     .fill(theme.color(.chrome).opacity(chromeOpacity))
+            }
+            .overlay {
+                TokenGradientField(token: .chrome, opacity: 0.26, includesCustomColors: true)
+                    .clipShape(Capsule())
+                    .opacity(materialOpacity)
             }
             .overlay {
                 Capsule()
@@ -2193,6 +2273,10 @@ private struct ControlGlassBackground: View {
                             endPoint: .bottomTrailing
                         )
                     )
+            }
+            .overlay {
+                TokenGradientField(token: .field, opacity: 0.24)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
     }
 
@@ -3772,8 +3856,8 @@ private struct BrowserCommandCenterView: View {
                 }
 
                 CommandCenterSection(title: "Browser", symbol: "safari") {
-                    CommandActionRow(symbol: "square.grid.2x2", title: "Find Tabs", subtitle: "\(model.chromeTabs.count) open") {
-                        close { model.isTabFinderPresented = true }
+                    CommandActionRow(symbol: "square.grid.2x2", title: "All Tabs", subtitle: "\(model.chromeTabs.count + model.visibleContainedTabs.count) open") {
+                        close { model.showAllTabs() }
                     }
                     CommandActionRow(symbol: model.areSideTabsCollapsed ? "sidebar.left" : "sidebar.leading", title: model.areSideTabsCollapsed ? "Reveal Tabs" : "Hide Tabs", subtitle: "Zen-style tab rail") {
                         close { model.setTabBarCollapsed(!model.areSideTabsCollapsed) }
@@ -4833,230 +4917,262 @@ private struct GlideFeatureUpdateView: View {
     }
 }
 
-private enum TabFinderScope: String, CaseIterable, Identifiable {
-    case all
-    case tabs
-    case essentials
-    case contained
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .all:
-            return "All"
-        case .tabs:
-            return "Tabs"
-        case .essentials:
-            return "Essentials"
-        case .contained:
-            return "Contained"
-        }
-    }
-}
-
-private struct BrowserTabFinderView: View {
+private struct BrowserAllTabsWorkspace: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
-    @Environment(\.dismiss) private var dismiss
+    let experience: GlideDeviceExperience
     @State private var query = ""
-    @State private var scope: TabFinderScope = .all
 
     var body: some View {
-        NavigationStack {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+
+            theme.color(.canvas)
+                .opacity(0.94)
+                .ignoresSafeArea()
+
             VStack(spacing: 0) {
-                if availableScopes.count > 1 {
-                    scopePicker
-                }
+                header
 
-                if visibleTabCount == 0 {
-                    VStack(spacing: 12) {
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 34, weight: .semibold))
-                        Text(emptyTitle)
-                            .font(.headline)
-                    }
-                    .foregroundStyle(theme.color(.mutedText))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List {
+                Divider()
+                    .overlay(theme.color(.border).opacity(0.72))
+
+                searchField
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 20) {
                         if model.isPrivateModeEnabled {
-                            tabSection("Private Mode", tabs: filtered(model.visiblePrivateTabs), isContained: false)
+                            tabSection(
+                                title: "Private Tabs",
+                                symbol: "theatermasks.fill",
+                                tabs: filtered(model.visiblePrivateTabs),
+                                isContained: false
+                            )
                         } else {
-                            if showsTabSections {
-                                tabSection("Normal", tabs: filtered(model.normalTabs), isContained: false)
-                            }
+                            tabSection(
+                                title: "Tabs",
+                                symbol: "rectangle.stack.fill",
+                                tabs: filtered(model.normalTabs),
+                                isContained: false
+                            )
 
-                            if showsEssentials {
-                                essentialsSection(filteredEssentials)
-                            }
+                            tabSection(
+                                title: "Contained Tabs",
+                                symbol: "rectangle.on.rectangle",
+                                tabs: filtered(model.containedTabs),
+                                isContained: true
+                            )
 
-                            if showsContainedTabs {
-                                tabSection("Contained", tabs: filtered(model.containedTabs), isContained: true)
+                            if model.privateTabs.isEmpty == false && trimmedQuery.isEmpty {
+                                lockedPrivateSection
                             }
                         }
-                    }
-                    .scrollContentBackground(.hidden)
-                }
-            }
-            .background(theme.color(.canvas))
-            .navigationTitle(model.isPrivateModeEnabled ? "Private Mode" : "Tab Finder")
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find tabs")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
-                        dismiss()
-                    } label: {
-                        Label(model.isPrivateModeEnabled ? "New Private Tab" : "New Tab", systemImage: model.isPrivateModeEnabled ? "theatermasks" : "plus")
-                    }
-                }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
+                        if filteredTabCount == 0 && showsLockedPrivateSection == false {
+                            emptyState
+                        }
                     }
+                    .padding(.horizontal, workspacePadding)
+                    .padding(.top, 4)
+                    .padding(.bottom, 28)
                 }
-            }
-            .onAppear(perform: normalizeScope)
-            .onChange(of: model.isPrivateModeEnabled) { _, _ in
-                normalizeScope()
+                .scrollDismissesKeyboard(.interactively)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("All Tabs")
     }
 
-    private var scopePicker: some View {
-        Picker("Scope", selection: $scope) {
-            ForEach(availableScopes) { finderScope in
-                Text(finderScope.title).tag(finderScope)
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "square.grid.2x2.fill")
+                .font(.system(size: 18, weight: .black))
+                .foregroundStyle(theme.color(.canvas))
+                .frame(width: 40, height: 40)
+                .background(ButtonGradientBackground(cornerRadius: 8, prominence: .primary))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("All Tabs")
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(theme.color(.text))
+
+                Text(tabCountLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                model.isTabFinderPresented = false
+                model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .black))
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .background(ControlGlassBackground(cornerRadius: 8))
+            .accessibilityLabel(model.isPrivateModeEnabled ? "New private tab" : "New tab")
+            .help(model.isPrivateModeEnabled ? "New private tab" : "New tab")
+
+            Button {
+                model.isTabFinderPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .black))
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .background(ControlGlassBackground(cornerRadius: 8))
+            .accessibilityLabel("Close All Tabs view")
+            .help("Close")
+        }
+        .padding(.horizontal, workspacePadding)
+        .padding(.vertical, 12)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(theme.color(.mutedText))
+
+            TextField("Search open tabs", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .foregroundStyle(theme.color(.text))
+
+            if query.isEmpty == false {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear tab search")
             }
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(theme.color(.canvas))
+        .padding(.horizontal, 12)
+        .frame(height: 42)
+        .frame(maxWidth: 760)
+        .background(ControlGlassBackground(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.58), lineWidth: 1)
+        }
+        .padding(.horizontal, workspacePadding)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
-    private func tabSection(_ title: String, tabs: [BrowserTab], isContained: Bool) -> some View {
+    private func tabSection(title: String, symbol: String, tabs: [BrowserTab], isContained: Bool) -> some View {
         if tabs.isEmpty == false {
-            Section("\(title) (\(tabs.count))") {
-                ForEach(tabs) { tab in
-                    TabFinderRow(tab: tab, isContained: isContained) {
-                        model.selectFromFinder(tab)
-                    } closeAction: {
-                        model.closeFromFinder(tab)
-                    }
-                    .listRowBackground(theme.color(.surface))
-                    .contextMenu {
-                        if isContained == false && tab.isPrivate == false {
-                            Button {
-                                model.addEssential(from: tab)
-                            } label: {
-                                Label("Add to Essentials", systemImage: "sparkle")
-                            }
-                        }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: symbol)
+                    Text(title.uppercased())
+                    Text("\(tabs.count)")
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+                .font(.caption.weight(.black))
+                .foregroundStyle(theme.color(.mutedText))
 
-                        Button(role: .destructive) {
-                            model.closeFromFinder(tab)
-                        } label: {
-                            Label("Close Tab", systemImage: "xmark")
-                        }
+                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 10) {
+                    ForEach(tabs) { tab in
+                        AllTabsCard(tab: tab, isContained: isContained)
                     }
                 }
             }
         }
     }
 
-    @ViewBuilder
-    private func essentialsSection(_ items: [BrowserEssentialItem]) -> some View {
-        if items.isEmpty == false {
-            Section("Essentials (\(items.count))") {
-                ForEach(items) { item in
-                    EssentialFinderRow(item: item) {
-                        model.openEssential(item)
-                        dismiss()
-                    } openInNewTabAction: {
-                        model.openEssentialInNewTab(item)
-                        dismiss()
-                    } removeAction: {
-                        model.removeEssential(item)
+    private var lockedPrivateSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("PRIVATE TABS", systemImage: "lock.shield.fill")
+                .font(.caption.weight(.black))
+                .foregroundStyle(theme.color(.mutedText))
+
+            Button {
+                model.isTabFinderPresented = false
+                model.requestPrivateModeToggle()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 18, weight: .black))
+                        .frame(width: 40, height: 40)
+                        .foregroundStyle(theme.color(.privateAccent))
+                        .background(theme.color(.privateAccent).opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(model.privateTabs.count) locked private tab\(model.privateTabs.count == 1 ? "" : "s")")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(theme.color(.text))
+                        Text("Unlock Private Mode")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.color(.mutedText))
                     }
-                    .listRowBackground(theme.color(.surface))
+
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundStyle(theme.color(.mutedText))
                 }
+                .padding(12)
+                .frame(maxWidth: 420)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(theme.color(.surface).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.color(.privateAccent).opacity(0.38), lineWidth: 1)
             }
         }
     }
 
-    private var visibleTabCount: Int {
-        if model.isPrivateModeEnabled {
-            return filtered(model.visiblePrivateTabs).count
+    private var emptyState: some View {
+        VStack(spacing: 11) {
+            Image(systemName: trimmedQuery.isEmpty ? "rectangle.stack" : "magnifyingglass")
+                .font(.system(size: 30, weight: .semibold))
+            Text(trimmedQuery.isEmpty ? "No tabs open" : "No matching tabs")
+                .font(.headline)
         }
-
-        var count = 0
-        if showsTabSections {
-            count += filtered(model.normalTabs).count
-        }
-        if showsEssentials {
-            count += filteredEssentials.count
-        }
-        if showsContainedTabs {
-            count += filtered(model.containedTabs).count
-        }
-        return count
+        .foregroundStyle(theme.color(.mutedText))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 72)
     }
 
-    private var availableScopes: [TabFinderScope] {
-        model.isPrivateModeEnabled ? [.all] : TabFinderScope.allCases
+    private var allVisibleTabs: [BrowserTab] {
+        model.isPrivateModeEnabled ? model.visiblePrivateTabs : model.normalTabs + model.containedTabs
     }
 
-    private var showsTabSections: Bool {
-        scope == .all || scope == .tabs
+    private var filteredTabCount: Int {
+        filtered(allVisibleTabs).count
     }
 
-    private var showsEssentials: Bool {
-        model.isPrivateModeEnabled == false && (scope == .all || scope == .essentials)
+    private var totalTabCount: Int {
+        allVisibleTabs.count + (model.isPrivateModeEnabled ? 0 : model.privateTabs.count)
     }
 
-    private var showsContainedTabs: Bool {
-        model.isPrivateModeEnabled == false && (scope == .all || scope == .contained)
+    private var tabCountLabel: String {
+        trimmedQuery.isEmpty ? "\(totalTabCount) open" : "\(filteredTabCount) matching"
     }
 
-    private var emptyTitle: String {
-        guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "No matching items"
-        }
-
-        switch scope {
-        case .essentials:
-            return "No essentials yet"
-        case .contained:
-            return "No contained tabs"
-        default:
-            return "No tabs open"
-        }
+    private var showsLockedPrivateSection: Bool {
+        model.isPrivateModeEnabled == false && model.privateTabs.isEmpty == false && trimmedQuery.isEmpty
     }
 
-    private var filteredEssentials: [BrowserEssentialItem] {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard trimmedQuery.isEmpty == false else { return model.visibleEssentials }
-
-        return model.visibleEssentials.filter { item in
-            [
-                item.title,
-                item.urlString,
-                item.url?.host ?? ""
-            ]
-            .joined(separator: " ")
-            .lowercased()
-            .contains(trimmedQuery)
-        }
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func filtered(_ tabs: [BrowserTab]) -> [BrowserTab] {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard trimmedQuery.isEmpty == false else { return tabs }
-
         return tabs.filter { tab in
             [
                 tab.title,
@@ -5070,9 +5186,12 @@ private struct BrowserTabFinderView: View {
         }
     }
 
-    private func normalizeScope() {
-        guard availableScopes.contains(scope) == false else { return }
-        scope = .all
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: experience == .phone ? 168 : 238, maximum: 380), spacing: 10)]
+    }
+
+    private var workspacePadding: CGFloat {
+        experience == .phone ? 14 : 20
     }
 }
 
@@ -5249,152 +5368,161 @@ private struct FolderTabRow: View {
     }
 }
 
-private struct EssentialFinderRow: View {
-    @EnvironmentObject private var theme: BrowserTheme
-    let item: BrowserEssentialItem
-    let selectAction: () -> Void
-    let openInNewTabAction: () -> Void
-    let removeAction: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: selectAction) {
-                HStack(spacing: 12) {
-                    WebsiteFaviconView(
-                        url: item.faviconURL,
-                        host: item.url?.host ?? item.title,
-                        accentColorHex: item.accentColorHex,
-                        size: 36
-                    )
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.title)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(theme.color(.text))
-                            .lineLimit(1)
-
-                        Text(item.url?.host ?? item.urlString)
-                            .font(.caption)
-                            .foregroundStyle(theme.color(.mutedText))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Button(action: openInNewTabAction) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(theme.color(.mutedText))
-            .accessibilityLabel("Open \(item.title) in a new tab")
-
-            Button(role: .destructive, action: removeAction) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(theme.color(.mutedText))
-            .accessibilityLabel("Remove \(item.title) from Essentials")
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct TabFinderRow: View {
+private struct AllTabsCard: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @ObservedObject var tab: BrowserTab
     let isContained: Bool
-    let selectAction: () -> Void
-    let closeAction: () -> Void
-
-    private var isSelected: Bool {
-        if isContained {
-            return model.selectedContainedTabID == tab.id
-        }
-        return model.selectedTabID == tab.id
-    }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button(action: selectAction) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(iconFill)
-                        Image(systemName: iconName)
+        ZStack(alignment: .topTrailing) {
+            Button {
+                model.selectFromFinder(tab)
+            } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        tabIcon
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            PrivateRedactedText(
+                                text: tab.title,
+                                isPrivate: tab.isPrivate,
+                                minWidth: 78,
+                                maxWidth: 190,
+                                height: 11
+                            )
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(theme.color(.text))
-                    }
-                    .frame(width: 36, height: 36)
+                            .lineLimit(1)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            PrivateRedactedText(text: tab.title, isPrivate: tab.isPrivate, minWidth: 84, maxWidth: 210, height: 11)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(theme.color(.text))
-                                .lineLimit(1)
-
-                            if isSelected {
-                                Text("ACTIVE")
-                                    .font(.system(size: 9, weight: .black))
-                                    .foregroundStyle(theme.color(.canvas))
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 3)
-                                    .background(ButtonGradientBackground(cornerRadius: 5, prominence: .primary))
-                            }
-                        }
-
-                        PrivateRedactedText(text: subtitle, isPrivate: tab.isPrivate, minWidth: 72, maxWidth: 190, height: 9)
-                            .font(.caption)
+                            PrivateRedactedText(
+                                text: subtitle,
+                                isPrivate: tab.isPrivate,
+                                minWidth: 64,
+                                maxWidth: 170,
+                                height: 8
+                            )
+                            .font(.caption2.weight(.semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 32)
                     }
 
-                    Spacer(minLength: 0)
+                    HStack(spacing: 7) {
+                        Label(kindTitle, systemImage: kindSymbol)
+                            .lineLimit(1)
+
+                        if let folderName = model.folderName(for: tab), isContained == false {
+                            Label(folderName, systemImage: "folder.fill")
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        if isSelected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(theme.color(.createTab))
+                                .accessibilityLabel("Active tab")
+                        }
+                    }
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.color(.mutedText))
+
+                    if tab.isLoading {
+                        ProgressView(value: tab.estimatedProgress)
+                            .tint(theme.color(.createTab))
+                            .frame(height: 2)
+                    }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            Button(role: .destructive, action: closeAction) {
+            Button(role: .destructive) {
+                model.closeFromFinder(tab)
+            } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 10, weight: .black))
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.color(.mutedText))
-            .accessibilityLabel("Close \(tab.title)")
+            .accessibilityLabel("Close tab")
+            .help("Close tab")
+            .padding(5)
         }
-        .padding(.vertical, 4)
+        .background(theme.color(.surface).opacity(isSelected ? 0.88 : 0.66), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isSelected ? theme.color(.createTab).opacity(0.9) : theme.color(.border).opacity(0.52), lineWidth: isSelected ? 2 : 1)
+        }
+        .draggable(tab.id.uuidString)
+        .contextMenu {
+            if isContained == false && tab.isPrivate == false {
+                Button {
+                    model.addEssential(from: tab)
+                } label: {
+                    Label("Add to Essentials", systemImage: "sparkle")
+                }
+            }
+
+            Button(role: .destructive) {
+                model.closeFromFinder(tab)
+            } label: {
+                Label("Close Tab", systemImage: "xmark")
+            }
+        }
     }
 
-    private var iconName: String {
-        if isContained {
-            return "rectangle.on.rectangle"
+    @ViewBuilder
+    private var tabIcon: some View {
+        if tab.isPrivate {
+            Image(systemName: "theatermasks.fill")
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(theme.color(.text))
+                .frame(width: 38, height: 38)
+                .background(theme.color(.privateAccent).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else if isContained {
+            Image(systemName: "rectangle.on.rectangle")
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(theme.color(.text))
+                .frame(width: 38, height: 38)
+                .background(theme.color(.accent).opacity(0.24), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            WebsiteFaviconView(
+                url: faviconURL,
+                host: tab.url?.host ?? tab.title,
+                accentColorHex: tab.pageThemeColorHex,
+                size: 38
+            )
         }
-        return tab.isPrivate ? "theatermasks" : "globe"
     }
 
-    private var iconFill: Color {
-        if isContained {
-            return theme.color(.accent).opacity(0.28)
-        }
-        return tab.isPrivate ? theme.color(.privateAccent).opacity(0.82) : theme.color(.accent).opacity(0.24)
+    private var faviconURL: URL? {
+        tab.pageIconURLString.flatMap(URL.init(string:))
+            ?? BrowserWebsitePrivacyPolicy.defaultFaviconURL(for: tab.url)
+    }
+
+    private var isSelected: Bool {
+        isContained ? model.selectedContainedTabID == tab.id : model.selectedTabID == tab.id
     }
 
     private var subtitle: String {
-        if BrowserTab.isStartPageURL(tab.url) {
-            return "Start Page"
-        }
-        return tab.url?.absoluteString ?? "No URL"
+        BrowserTab.isStartPageURL(tab.url) ? "Start Page" : (tab.url?.host ?? "No address")
+    }
+
+    private var kindTitle: String {
+        if isContained { return "Contained" }
+        return tab.isPrivate ? "Private" : "Tab"
+    }
+
+    private var kindSymbol: String {
+        if isContained { return "rectangle.on.rectangle" }
+        return tab.isPrivate ? "lock.fill" : "globe"
     }
 }
 
@@ -6041,6 +6169,15 @@ private struct QuickColorStudio: View {
             theme.setGradientColor(Color(hex: accent), for: .createTab)
             theme.setColor(Color(hex: canvas), for: .canvas)
             theme.setGradientColor(Color(hex: glow), for: .chrome)
+            let position = BrowserGradientPosition(
+                startX: start.0,
+                startY: start.1,
+                endX: end.0,
+                endY: end.1
+            )
+            for token in [BrowserThemeToken.accent, .createTab, .chrome] {
+                theme.setGradientPosition(position, for: token)
+            }
         } label: {
             Text(title)
                 .frame(maxWidth: .infinity)
@@ -6092,12 +6229,16 @@ private struct ThemeColorGradientMenu: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [theme.color(token)] + theme.gradientColors(for: token),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                            gradient: Gradient(stops: theme.gradientStops(for: token)),
+                            startPoint: theme.gradientStartPoint(for: token),
+                            endPoint: theme.gradientEndPoint(for: token)
                         )
                     )
                     .frame(width: 34, height: 34)
+                    .overlay {
+                        TokenGradientField(token: token, opacity: 0.72)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
                     .overlay {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(theme.color(.border).opacity(0.6), lineWidth: 1)
@@ -6238,11 +6379,16 @@ private struct CustomColorStopRow: View {
                     baseColor: Color(hex: currentColor.colorHex),
                     circles: [
                         BrowserThemeGradientCircle(
+                            id: currentColor.id,
                             colorHex: currentColor.gradientHex,
-                            intensity: theme.customColorIntensity(currentColor)
+                            intensity: theme.customColorIntensity(currentColor),
+                            x: currentColor.gradientX ?? currentColor.location,
+                            y: currentColor.gradientY ?? 0.5
                         )
                     ]
-                )
+                ) { _, x, y in
+                    theme.setCustomGradientFocus(x: x, y: y, for: color)
+                }
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -6269,14 +6415,23 @@ private struct CustomColorStopRow: View {
         } label: {
             HStack(spacing: 10) {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: currentColor.colorHex), Color(hex: currentColor.gradientHex)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(Color(hex: currentColor.colorHex))
                     .frame(width: 34, height: 34)
+                    .overlay {
+                        RadialGradient(
+                            colors: [
+                                Color(hex: currentColor.gradientHex).opacity(theme.customColorIntensity(currentColor)),
+                                Color(hex: currentColor.gradientHex).opacity(0)
+                            ],
+                            center: UnitPoint(
+                                x: currentColor.gradientX ?? currentColor.location,
+                                y: currentColor.gradientY ?? 0.5
+                            ),
+                            startRadius: 0,
+                            endRadius: 30
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
                     .overlay {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(Color(hex: currentColor.colorHex).opacity(0.72), lineWidth: 1)
@@ -6351,17 +6506,24 @@ private struct GradientCircleCanvas: View {
             GeometryReader { proxy in
                 ZStack {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [baseColor] + circles.map { Color(hex: $0.colorHex).opacity(max(0.08, $0.intensity)) } + [baseColor.opacity(0.72)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(baseColor)
                         .overlay {
                             RoundedRectangle(cornerRadius: 9, style: .continuous)
                                 .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
                         }
+
+                    ForEach(circles) { circle in
+                        RadialGradient(
+                            colors: [
+                                Color(hex: circle.colorHex).opacity(circle.intensity),
+                                Color(hex: circle.colorHex).opacity(0)
+                            ],
+                            center: UnitPoint(x: circle.x, y: circle.y),
+                            startRadius: 0,
+                            endRadius: max(proxy.size.width, proxy.size.height) * 0.72
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
 
                     ForEach(circles) { circle in
                         Circle()
@@ -8008,9 +8170,9 @@ private struct FloatingTabSwitcher: View {
             Divider()
 
             Button {
-                model.isTabFinderPresented = true
+                model.showAllTabs()
             } label: {
-                Label("Tab Finder", systemImage: "square.grid.2x2")
+                Label("All Tabs", systemImage: "square.grid.2x2")
             }
 
             PlacementMenuContent()
@@ -8122,18 +8284,29 @@ private struct BrowserBackground: View {
                     .opacity(0.34)
                     .ignoresSafeArea()
             } else {
-                LinearGradient(
-                    colors: [
-                        theme.color(.canvas),
-                    ] + theme.gradientColors(for: .chrome) + theme.customGradientColors.map { $0.opacity(0.72) } + [
-                        theme.color(.canvas)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+                ZStack {
+                    LinearGradient(
+                        gradient: Gradient(
+                            stops: backgroundGradientStops
+                        ),
+                        startPoint: theme.gradientStartPoint(for: .chrome),
+                        endPoint: theme.gradientEndPoint(for: .chrome)
+                    )
+
+                    TokenGradientField(token: .chrome, opacity: 0.72, includesCustomColors: true)
+                }
+                .background(theme.color(.canvas))
                 .ignoresSafeArea()
             }
         }
+    }
+
+    private var backgroundGradientStops: [Gradient.Stop] {
+        let middleStops = theme.combinedGradientStops(for: .chrome, includeCustomColors: true)
+            .filter { $0.location > 0 && $0.location < 1 }
+        return [Gradient.Stop(color: theme.color(.canvas), location: 0)]
+            + middleStops
+            + [Gradient.Stop(color: theme.color(.canvas), location: 1)]
     }
 }
 
@@ -8320,6 +8493,8 @@ private struct BrowserSettingsView: View {
                             Label("Password Manager", systemImage: "key.fill")
                         }
 
+                        WebsiteProtectionSummary()
+                        WebsiteProtectionWhitelistEditor()
                         WebsiteBlacklistEditor()
 
                         Button {
@@ -8549,9 +8724,9 @@ private struct BrowserSettingsView: View {
                         }
                     }
 
-                    Button("Tab Finder") {
+                    Button("All Tabs") {
                         presentAfterDismiss {
-                            model.isTabFinderPresented = true
+                            model.showAllTabs()
                         }
                     }
 
@@ -9224,6 +9399,170 @@ private struct BrowserSettingsView: View {
             themeImportMessage = "Imported and applied \(importedTheme.name)."
         } catch {
             themeImportMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct WebsiteProtectionSummary: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: isCurrentSiteWhitelisted ? "shield.slash.fill" : "shield.checkered")
+                    .foregroundStyle(protectionTint)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.currentWebsiteDomain ?? "Default protection")
+                        .font(.system(size: 14, weight: .bold))
+                        .lineLimit(1)
+                    Text(isCurrentSiteWhitelisted ? "Compatibility protection" : "Glide protection")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+
+                Spacer(minLength: 0)
+
+                Text("\(model.currentWebsiteProtectionScore)%")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(protectionTint)
+                    .monospacedDigit()
+            }
+
+            ProgressView(value: Double(model.currentWebsiteProtectionScore), total: 100)
+                .tint(protectionTint)
+        }
+        .padding(.vertical, 5)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Current website protection \(model.currentWebsiteProtectionScore) percent")
+    }
+
+    private var isCurrentSiteWhitelisted: Bool {
+        model.isWebsiteProtectionWhitelisted(model.selectedTab?.url)
+    }
+
+    private var protectionTint: Color {
+        let score = model.currentWebsiteProtectionScore
+        if score >= 75 { return theme.color(.createTab) }
+        if score >= 40 { return theme.color(.accent) }
+        return .orange
+    }
+}
+
+private struct WebsiteProtectionWhitelistEditor: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var draftDomain = ""
+
+    var body: some View {
+        DisclosureGroup {
+            HStack(spacing: 8) {
+                TextField("example.com", text: $draftDomain)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .onSubmit(addDraftDomain)
+
+                Button(action: addDraftDomain) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.bordered)
+                .disabled(draftDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("Add website to protection whitelist")
+                .help("Add website")
+            }
+
+            Button {
+                model.addCurrentWebsiteToProtectionWhitelist()
+            } label: {
+                Label(
+                    model.currentWebsiteDomain.map { "Whitelist \($0)" } ?? "Whitelist Current Website",
+                    systemImage: "checkmark.shield.fill"
+                )
+            }
+            .disabled(model.currentWebsiteDomain == nil || currentWebsiteIsWhitelisted)
+
+            LabeledContent("Default protection") {
+                Text("\(model.defaultProtectionScore)%")
+                    .fontWeight(.bold)
+                    .foregroundStyle(theme.color(.createTab))
+                    .monospacedDigit()
+            }
+
+            LabeledContent("Whitelisted protection") {
+                Text("\(model.whitelistedProtectionScore)%")
+                    .fontWeight(.bold)
+                    .foregroundStyle(.orange)
+                    .monospacedDigit()
+            }
+
+            if model.websiteProtectionWhitelist.isEmpty {
+                Label("No whitelisted websites", systemImage: "shield.checkered")
+                    .foregroundStyle(theme.color(.mutedText))
+            } else {
+                ForEach(model.websiteProtectionWhitelist, id: \.self) { domain in
+                    HStack(spacing: 10) {
+                        Image(systemName: "shield.slash.fill")
+                            .foregroundStyle(.orange)
+                            .frame(width: 22)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(domain)
+                                .font(.body.monospaced())
+                                .lineLimit(1)
+                            Text("Compatibility")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Text("\(model.protectionScore(for: domain))%")
+                            .font(.caption.weight(.black))
+                            .foregroundStyle(.orange)
+                            .monospacedDigit()
+
+                        Button(role: .destructive) {
+                            model.removeWebsiteFromProtectionWhitelist(domain)
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(domain) from protection whitelist")
+                        .help("Remove website")
+                    }
+                }
+
+                Button(role: .destructive) {
+                    model.clearWebsiteProtectionWhitelist()
+                } label: {
+                    Label("Clear Protection Whitelist", systemImage: "trash")
+                }
+            }
+
+            if model.websiteProtectionWhitelistStatusMessage.isEmpty == false {
+                Text(model.websiteProtectionWhitelistStatusMessage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+        } label: {
+            Label("Protection Whitelist", systemImage: "checkmark.shield.fill")
+        }
+    }
+
+    private var currentWebsiteIsWhitelisted: Bool {
+        model.isWebsiteProtectionWhitelisted(model.selectedTab?.url)
+    }
+
+    private func addDraftDomain() {
+        let value = draftDomain
+        model.addWebsiteToProtectionWhitelist(value)
+        if BrowserWebsitePrivacyPolicy.normalizedDomain(from: value) != nil {
+            draftDomain = ""
         }
     }
 }

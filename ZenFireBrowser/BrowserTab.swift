@@ -83,7 +83,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private nonisolated(unsafe) var navigationRegionTricksEnabled: Bool
     private nonisolated(unsafe) var navigationRegionTrickProfile: BrowserRegionTrickProfile
     private nonisolated(unsafe) var navigationWebsiteDisplayMode: BrowserWebsiteDisplayMode
+    private nonisolated(unsafe) var navigationProtectionWhitelistDomains: [String]
     private var blockedPersistenceDomains: [String]
+    private var protectionWhitelistDomains: [String]
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -114,6 +116,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         folderID: UUID? = nil,
         webExtensions: [BrowserWebExtension] = [],
         websiteBlacklist: [String] = [],
+        websiteProtectionWhitelist: [String] = [],
         webKitProfile: BrowserWebKitProfile = .standard
     ) {
         self.isPrivate = isPrivate
@@ -141,6 +144,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.navigationRegionTricksEnabled = isRegionTricksEnabled
         self.navigationRegionTrickProfile = regionTrickProfile
         self.navigationWebsiteDisplayMode = websiteDisplayMode
+        self.navigationProtectionWhitelistDomains = BrowserWebsitePrivacyPolicy.normalizedDomains(websiteProtectionWhitelist)
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
         self.websiteResolutionScale = websiteResolutionScale
@@ -152,6 +156,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.pageIconURLString = nil
         self.pageThemeColorHex = nil
         self.blockedPersistenceDomains = BrowserWebsitePrivacyPolicy.normalizedDomains(websiteBlacklist)
+        self.protectionWhitelistDomains = BrowserWebsitePrivacyPolicy.normalizedDomains(websiteProtectionWhitelist)
         self.title = isContainedBrowser ? "Contained Browser" : (webKitProfile == .dev ? "Dev WebKit" : (isPrivate ? "Private Start" : "Start"))
         self.url = startURL
         self.addressText = startURL.absoluteString
@@ -431,6 +436,24 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         }
     }
 
+    func setWebsiteProtectionWhitelist(_ domains: [String]) {
+        let normalized = BrowserWebsitePrivacyPolicy.normalizedDomains(domains)
+        guard normalized != protectionWhitelistDomains else { return }
+        let wasCurrentWebsiteWhitelisted = BrowserWebsitePrivacyPolicy.matches(
+            url: url,
+            blockedDomains: protectionWhitelistDomains
+        )
+        protectionWhitelistDomains = normalized
+        navigationProtectionWhitelistDomains = normalized
+        let isCurrentWebsiteWhitelisted = BrowserWebsitePrivacyPolicy.matches(
+            url: url,
+            blockedDomains: normalized
+        )
+        rebuildWebKitUserContent(
+            reloadAfterChange: wasCurrentWebsiteWhitelisted != isCurrentWebsiteWhitelisted
+        )
+    }
+
     private func applyPageStyleOverrides(forceCleanup: Bool = false) {
         guard forceCleanup || hasActivePageStyleOverrides else { return }
         webView.evaluateJavaScript(Self.pageControlsScript(
@@ -529,11 +552,15 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     }
 
     private func privacyAdjustedURL(for url: URL) -> URL {
-        Self.privacyAdjustedURL(
+        let isProtectionWhitelisted = BrowserWebsitePrivacyPolicy.matches(
+            url: url,
+            blockedDomains: protectionWhitelistDomains
+        )
+        return Self.privacyAdjustedURL(
             for: url,
             upgradeHTTPS: isHTTPSUpgradeEnabled,
-            stripTrackingParameters: isTrackingParameterStrippingEnabled,
-            blockBounceTracking: isBounceTrackingProtectionEnabled
+            stripTrackingParameters: isTrackingParameterStrippingEnabled && isProtectionWhitelisted == false,
+            blockBounceTracking: isBounceTrackingProtectionEnabled && isProtectionWhitelisted == false
         )
     }
 
@@ -545,6 +572,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             isAdBlockerEnabled,
             level: trackerBlockingLevel,
             on: webView.configuration.userContentController,
+            whitelistedDomains: protectionWhitelistDomains,
             additionalUserScripts: additionalUserScripts()
         ) { [weak self] _ in
             guard let self = self else {
@@ -2048,6 +2076,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
 
         return """
         (() => {
+          if (window.__glideProtectionWhitelisted) { return; }
           const config = {
             fingerprintProtection: \(fingerprintLiteral),
             socialBlocking: \(socialLiteral),
@@ -3544,7 +3573,12 @@ extension BrowserTab: WKNavigationDelegate {
         preferences: WKWebpagePreferences,
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
-        preferences.allowsContentJavaScript = !navigationScriptBlockingEnabled
+        let requestURL = navigationAction.request.url
+        let isProtectionWhitelisted = BrowserWebsitePrivacyPolicy.matches(
+            url: requestURL,
+            blockedDomains: navigationProtectionWhitelistDomains
+        )
+        preferences.allowsContentJavaScript = isProtectionWhitelisted || !navigationScriptBlockingEnabled
         preferences.preferredContentMode = Self.webpageContentMode(for: navigationWebsiteDisplayMode)
         if let promotedURL = Self.promotedContainedURL(from: navigationAction) {
             decisionHandler(.cancel, preferences)
@@ -3552,12 +3586,12 @@ extension BrowserTab: WKNavigationDelegate {
                 for: promotedURL,
                 regionProfile: navigationRegionTricksEnabled ? navigationRegionTrickProfile : nil
             ))
-        } else if let requestURL = navigationAction.request.url {
+        } else if let requestURL {
             let adjustedURL = Self.privacyAdjustedURL(
                 for: requestURL,
                 upgradeHTTPS: navigationHTTPSUpgradeEnabled,
-                stripTrackingParameters: navigationTrackingParameterStrippingEnabled,
-                blockBounceTracking: navigationBounceTrackingProtectionEnabled
+                stripTrackingParameters: navigationTrackingParameterStrippingEnabled && isProtectionWhitelisted == false,
+                blockBounceTracking: navigationBounceTrackingProtectionEnabled && isProtectionWhitelisted == false
             )
             if adjustedURL != requestURL {
                 decisionHandler(.cancel, preferences)

@@ -560,15 +560,51 @@ final class BrowserTheme: ObservableObject {
     }
 
     func gradientColors(for token: BrowserThemeToken) -> [Color] {
-        let circles = gradientCircles(for: token)
+        let circles = gradientCircles(for: token).sorted {
+            gradientLocation(for: $0, token: token) < gradientLocation(for: $1, token: token)
+        }
         guard circles.isEmpty == false else {
             return [gradientColor(token)]
         }
-        return circles.sorted { lhs, rhs in
-            (lhs.x + lhs.y) < (rhs.x + rhs.y)
-        }.map { circle in
-            Color(hex: circle.colorHex).opacity(max(0.08, circle.intensity))
+        return circles.map { circle in
+            Color(hex: circle.colorHex).opacity(circle.intensity)
         }
+    }
+
+    func gradientStops(for token: BrowserThemeToken) -> [Gradient.Stop] {
+        var stops = [Gradient.Stop(color: color(token), location: 0)]
+        stops.append(contentsOf: gradientCircles(for: token).map { circle in
+            Gradient.Stop(
+                color: Color(hex: circle.colorHex).opacity(circle.intensity),
+                location: CGFloat(gradientLocation(for: circle, token: token))
+            )
+        })
+        stops.append(Gradient.Stop(color: color(token).opacity(0.86), location: 1))
+        return stops.sorted { $0.location < $1.location }
+    }
+
+    var customGradientStops: [Gradient.Stop] {
+        customColors.flatMap { color -> [Gradient.Stop] in
+            let intensity = customColorIntensity(color)
+            let center = customGradientLocation(for: color)
+            let spread = 0.04 + (0.08 * intensity)
+            return [
+                Gradient.Stop(
+                    color: Color(hex: color.colorHex).opacity(intensity),
+                    location: CGFloat(max(0, center - spread))
+                ),
+                Gradient.Stop(
+                    color: Color(hex: color.gradientHex).opacity(intensity),
+                    location: CGFloat(min(1, center + spread))
+                )
+            ]
+        }
+        .sorted { $0.location < $1.location }
+    }
+
+    func combinedGradientStops(for token: BrowserThemeToken, includeCustomColors: Bool) -> [Gradient.Stop] {
+        let stops = gradientStops(for: token) + (includeCustomColors ? customGradientStops : [])
+        return stops.sorted { $0.location < $1.location }
     }
 
     @discardableResult
@@ -650,6 +686,15 @@ final class BrowserTheme: ObservableObject {
 
     func updateGradientFocus(x: Double, y: Double, for token: BrowserThemeToken) {
         gradientPositionByToken[token.rawValue] = BrowserGradientPosition(focusX: x, focusY: y)
+    }
+
+    func setGradientPosition(_ position: BrowserGradientPosition, for token: BrowserThemeToken) {
+        gradientPositionByToken[token.rawValue] = BrowserGradientPosition(
+            startX: position.startX,
+            startY: position.startY,
+            endX: position.endX,
+            endY: position.endY
+        )
     }
 
     func resetGradientFocus(for token: BrowserThemeToken) {
@@ -1063,11 +1108,37 @@ final class BrowserTheme: ObservableObject {
 
     private func setGradientCircles(_ circles: [BrowserThemeGradientCircle], for token: BrowserThemeToken) {
         var values = gradientCirclesByToken
-        values[token.rawValue] = Self.normalizedGradientCircleList(
+        let normalized = Self.normalizedGradientCircleList(
             circles,
             fallbackHex: gradientHex(for: token)
         )
+        values[token.rawValue] = normalized
         gradientCirclesByToken = values
+        if let primaryHex = normalized.first?.colorHex {
+            gradientColorHexByToken[token] = primaryHex
+            vault.save(primaryHex, forKey: Self.gradientStorageKey(for: token))
+        }
+    }
+
+    private func gradientLocation(for circle: BrowserThemeGradientCircle, token: BrowserThemeToken) -> Double {
+        Self.projectedGradientLocation(
+            x: circle.x,
+            y: circle.y,
+            position: gradientPosition(for: token)
+        )
+    }
+
+    private func customGradientLocation(for color: BrowserCustomThemeColor) -> Double {
+        Self.projectedGradientLocation(
+            x: color.gradientX ?? color.location,
+            y: color.gradientY ?? 0.5,
+            position: BrowserGradientPosition(
+                startX: gradientStartX,
+                startY: gradientStartY,
+                endX: gradientEndX,
+                endY: gradientEndY
+            )
+        )
     }
 
     private func syncLegacyGradientPositionToAllTokens() {
@@ -1252,6 +1323,21 @@ final class BrowserTheme: ObservableObject {
     private static func clampedUnit(_ value: Double) -> Double {
         guard value.isFinite else { return 0.0 }
         return min(max(value, 0.0), 1.0)
+    }
+
+    private static func projectedGradientLocation(
+        x: Double,
+        y: Double,
+        position: BrowserGradientPosition
+    ) -> Double {
+        let deltaX = position.endX - position.startX
+        let deltaY = position.endY - position.startY
+        let lengthSquared = (deltaX * deltaX) + (deltaY * deltaY)
+        guard lengthSquared > 0.0001 else {
+            return clampedUnit((x + y) * 0.5)
+        }
+        let projected = (((x - position.startX) * deltaX) + ((y - position.startY) * deltaY)) / lengthSquared
+        return clampedUnit(projected)
     }
 
     private static func normalizedCustomColors(_ colors: [BrowserCustomThemeColor]) -> [BrowserCustomThemeColor] {
