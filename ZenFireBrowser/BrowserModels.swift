@@ -1097,6 +1097,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var stylusCatppuccinEnabled: Bool?
     var fpsForcerEnabled: Bool?
     var forcedFPS: Double?
+    var websiteResolutionScale: Double?
     var browserMusicEnabled: Bool?
     var browserMusicTrack: String?
     var browserMusicVolume: Double?
@@ -1121,6 +1122,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var userBackgroundEnabled: Bool
     var colors: [String: String]
     var gradientColors: [String: String]?
+    var gradientCoordinates: [String: Double]?
 }
 
 enum BrowserRegionTrickProfile: String, CaseIterable, Identifiable, Codable {

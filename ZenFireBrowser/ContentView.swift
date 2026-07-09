@@ -28,10 +28,25 @@ struct ContentView: View {
 }
 
 private struct BrowserUnlockedRoot: View {
+    @StateObject private var profiles: BrowserProfileManager
+
+    init(vault: SecureBrowserVault) {
+        _profiles = StateObject(wrappedValue: BrowserProfileManager(vault: vault))
+    }
+
+    var body: some View {
+        BrowserProfileSessionRoot(vault: profiles.activeVault, profileID: profiles.activeProfile.id)
+            .id(profiles.activeProfile.id)
+            .environmentObject(profiles)
+            .preferredColorScheme(.dark)
+    }
+}
+
+private struct BrowserProfileSessionRoot: View {
     @StateObject private var model: BrowserViewModel
     @StateObject private var theme: BrowserTheme
 
-    init(vault: SecureBrowserVault) {
+    init(vault: SecureBrowserVault, profileID: String) {
         _model = StateObject(wrappedValue: BrowserViewModel(vault: vault))
         _theme = StateObject(wrappedValue: BrowserTheme(vault: vault))
     }
@@ -269,7 +284,7 @@ private struct PremiumSetupPreview: View {
                     Text("Premium private setup")
                         .font(.system(size: 15, weight: .black))
                         .foregroundStyle(Color.white.opacity(0.94))
-                    Text("Fullscreen browsing, encrypted vault, Shields Max, and Glide AI are ready after unlock.")
+                    Text("Profiles, resolution, color studio, moving gradients, and Shields Max are ready after unlock.")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.62))
                         .fixedSize(horizontal: false, vertical: true)
@@ -277,9 +292,9 @@ private struct PremiumSetupPreview: View {
             }
 
             HStack(spacing: 8) {
-                PremiumSetupChip(symbol: "rectangle.expand.vertical", title: "Fullscreen")
-                PremiumSetupChip(symbol: "shield.lefthalf.filled", title: "Private")
-                PremiumSetupChip(symbol: "sparkles", title: "AI")
+                PremiumSetupChip(symbol: "person.2.fill", title: "Profiles")
+                PremiumSetupChip(symbol: "rectangle.resize", title: "Resolution")
+                PremiumSetupChip(symbol: "paintpalette.fill", title: "Color")
             }
         }
         .padding(14)
@@ -404,6 +419,7 @@ private struct BrowserShell: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @EnvironmentObject private var security: AppSecurityModel
+    @EnvironmentObject private var profiles: BrowserProfileManager
     @State private var isDesktopZenChromeHovered = false
 
     var body: some View {
@@ -639,6 +655,14 @@ private struct BrowserShell: View {
                 FirstRunTutorialView()
                     .environmentObject(model)
                     .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+                    .interactiveDismissDisabled()
+            }
+            .fullScreenCover(isPresented: $model.isFeatureUpdatePresented) {
+                GlideFeatureUpdateView()
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .environmentObject(profiles)
                     .preferredColorScheme(.dark)
                     .interactiveDismissDisabled()
             }
@@ -1109,8 +1133,8 @@ private struct ButtonGradientBackground: View {
                     theme.gradientColor(.accent).opacity(0.84),
                     theme.color(.surface).opacity(0.76)
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: theme.gradientStartPoint,
+                endPoint: theme.gradientEndPoint
             )
         case .standard:
             return LinearGradient(
@@ -1119,8 +1143,8 @@ private struct ButtonGradientBackground: View {
                     theme.gradientColor(.field).opacity(max(controlOpacity, 0.64)),
                     theme.gradientColor(.accent).opacity(0.28)
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: theme.gradientStartPoint,
+                endPoint: theme.gradientEndPoint
             )
         case .quiet:
             return LinearGradient(
@@ -1129,8 +1153,8 @@ private struct ButtonGradientBackground: View {
                     theme.gradientColor(.surface).opacity(max(controlOpacity, 0.42)),
                     theme.gradientColor(.accent).opacity(0.16)
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: theme.gradientStartPoint,
+                endPoint: theme.gradientEndPoint
             )
         }
     }
@@ -3489,6 +3513,7 @@ private struct PrivateModeAuthView: View {
 private struct MoreTabButton: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var profiles: BrowserProfileManager
     @State private var isCommandCenterPresented = false
 
     var body: some View {
@@ -3509,6 +3534,7 @@ private struct MoreTabButton: View {
             BrowserCommandCenterView(isPresented: $isCommandCenterPresented)
                 .environmentObject(model)
                 .environmentObject(theme)
+                .environmentObject(profiles)
                 .frame(minWidth: 340, idealWidth: 380, maxWidth: 420)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -3582,6 +3608,7 @@ private struct MoreTabButton: View {
 private struct BrowserCommandCenterView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var profiles: BrowserProfileManager
     @Binding var isPresented: Bool
 
     var body: some View {
@@ -3606,6 +3633,22 @@ private struct BrowserCommandCenterView: View {
                         close { model.isAddOnsPresented = true }
                     }
                     CommandQuickTile(symbol: "star.circle.fill", title: "Settings") {
+                        close { model.isSettingsPresented = true }
+                    }
+                }
+
+                CommandCenterSection(title: "Profile", symbol: profiles.activeProfile.symbolName) {
+                    ForEach(profiles.profiles) { profile in
+                        CommandActionRow(
+                            symbol: profile.symbolName,
+                            title: profile.name,
+                            subtitle: profiles.isActive(profile) ? "Active profile instance" : "Switch tabs, history, theme, and cookies",
+                            isDisabled: profiles.isActive(profile) || profiles.isSwitchingProfiles
+                        ) {
+                            close { profiles.switchTo(profile) }
+                        }
+                    }
+                    CommandActionRow(symbol: "slider.horizontal.3", title: "Customization Hub", subtitle: "Profiles, resolution, colors, gradients") {
                         close { model.isSettingsPresented = true }
                     }
                 }
@@ -4272,6 +4315,7 @@ private struct FirstRunTutorialView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @State private var step = 0
+    private let finalStep = 2
 
     var body: some View {
         ZStack {
@@ -4302,17 +4346,20 @@ private struct FirstRunTutorialView: View {
                     Group {
                         if step == 0 {
                             VStack(spacing: 10) {
-                                Text("Glide is ready")
+                                Text("Build your Glide")
                                     .font(.system(size: 38, weight: .black))
                                     .foregroundStyle(theme.color(.text))
                                     .multilineTextAlignment(.center)
 
-                                Text("A premium fullscreen browser with private defaults, glass controls, and AI built into the flow.")
+                                Text("Start with privacy, profiles, resolution, and moving gradients before the first tab even loads.")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(theme.color(.mutedText))
                                     .multilineTextAlignment(.center)
                             }
                             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
+                        } else if step == 1 {
+                            SetupCustomizationStage()
+                                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
                         } else {
                             VStack(spacing: 12) {
                                 Text("Ready to glide the web")
@@ -4322,27 +4369,27 @@ private struct FirstRunTutorialView: View {
 
                                 VStack(spacing: 0) {
                                     TutorialFeatureRow(
-                                        symbol: "rectangle.expand.vertical",
-                                        title: "Fullscreen by default",
-                                        detail: "Websites take the whole screen. Use the floating controls when you want search, tabs, or settings.",
+                                        symbol: "person.2.fill",
+                                        title: "Two profile instances",
+                                        detail: "Main Glide and Alt Glide keep separate tabs, history, downloads, passwords, themes, and cookies.",
                                         tint: .accent
                                     )
 
                                     TutorialDivider()
 
                                     TutorialFeatureRow(
-                                        symbol: "shield.lefthalf.filled",
-                                        title: "Privacy presets",
-                                        detail: "Shields Max is on deck, Ghost Mode is stricter, and private data can be cleared in one tap.",
+                                        symbol: "rectangle.resize",
+                                        title: "Resolution changer",
+                                        detail: "Tune website scale from compact to large without changing the whole app layout.",
                                         tint: .accent
                                     )
 
                                     TutorialDivider()
 
                                     TutorialFeatureRow(
-                                        symbol: "sparkle",
-                                        title: "Glide AI",
-                                        detail: "The AI button reads page context, builds a prompt, and lets you send it to your AI of choice.",
+                                        symbol: "point.topleft.down.curvedto.point.bottomright.up",
+                                        title: "Movable gradients",
+                                        detail: "Drag the gradient start and end points to change how color flows through Glide.",
                                         tint: .createTab
                                     )
                                 }
@@ -4368,9 +4415,9 @@ private struct FirstRunTutorialView: View {
                     .padding(.horizontal, 22)
 
                 Button {
-                    if step == 0 {
+                    if step < finalStep {
                         withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-                            step = 1
+                            step += 1
                         }
                     } else {
                         model.completeTutorial()
@@ -4378,7 +4425,7 @@ private struct FirstRunTutorialView: View {
                     }
                 } label: {
                     HStack(spacing: 10) {
-                        Text(step == 0 ? "Next" : "Start browsing")
+                        Text(step < finalStep ? "Next" : "Start browsing")
                             .font(.system(size: 16, weight: .bold))
                         Image(systemName: "arrow.right")
                             .font(.system(size: 14, weight: .black))
@@ -4389,7 +4436,7 @@ private struct FirstRunTutorialView: View {
                     .background(ButtonGradientBackground(cornerRadius: 14, prominence: .primary))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(step == 0 ? "Next" : "Start browsing")
+                .accessibilityLabel(step < finalStep ? "Next" : "Start browsing")
                 .padding(.horizontal, 22)
                 .padding(.bottom, 24)
             }
@@ -4430,6 +4477,37 @@ private struct TutorialQuickCustomization: View {
             .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
         }
         .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
+        }
+    }
+}
+
+private struct SetupCustomizationStage: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Make it yours")
+                        .font(.system(size: 32, weight: .black))
+                        .foregroundStyle(theme.color(.text))
+                    Text("Pick the site density, add color, and drag the gradient handles before browsing.")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                WebsiteResolutionControl()
+                QuickColorStudio()
+                GradientMotionControl()
+            }
+            .padding(14)
+        }
+        .frame(maxHeight: 500)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -4480,6 +4558,104 @@ private struct TutorialDivider: View {
             .fill(theme.color(.border).opacity(0.32))
             .frame(height: 1)
             .padding(.leading, 60)
+    }
+}
+
+private struct GlideFeatureUpdateView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var profiles: BrowserProfileManager
+
+    var body: some View {
+        ZStack {
+            BrowserBackground()
+
+            VStack(spacing: 18) {
+                Spacer(minLength: 20)
+
+                VStack(spacing: 16) {
+                    Image(systemName: "wand.and.stars.inverse")
+                        .font(.system(size: 30, weight: .black))
+                        .frame(width: 72, height: 72)
+                        .foregroundStyle(theme.color(.canvas))
+                        .background(ButtonGradientBackground(cornerRadius: 18, prominence: .primary))
+                        .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
+
+                    VStack(spacing: 8) {
+                        Text("Huge Customization Update")
+                            .font(.system(size: 38, weight: .black))
+                            .foregroundStyle(theme.color(.text))
+                            .multilineTextAlignment(.center)
+
+                        Text("Existing Glide installs now get profile instances, resolution controls, color presets, and movable gradients.")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(theme.color(.mutedText))
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(maxWidth: 560)
+                .padding(.horizontal, 22)
+
+                VStack(spacing: 0) {
+                    TutorialFeatureRow(
+                        symbol: "person.2.fill",
+                        title: "\(profiles.profiles.count) Profile Instances",
+                        detail: "Switch between \(profiles.profiles.map(\.name).joined(separator: " and ")) with separate Glide state and saved cookies.",
+                        tint: .accent
+                    )
+
+                    TutorialDivider()
+
+                    TutorialFeatureRow(
+                        symbol: "rectangle.resize",
+                        title: "Resolution Changer",
+                        detail: "Change website scale per profile for compact, default, or larger browsing.",
+                        tint: .createTab
+                    )
+
+                    TutorialDivider()
+
+                    TutorialFeatureRow(
+                        symbol: "paintpalette.fill",
+                        title: "Color Studio",
+                        detail: "Add accent colors, apply premium palettes, and move gradient start and end points.",
+                        tint: .accent
+                    )
+                }
+                .frame(maxWidth: 560)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.72), lineWidth: 1)
+                }
+                .padding(.horizontal, 22)
+
+                Spacer(minLength: 8)
+
+                VStack(spacing: 10) {
+                    Button {
+                        model.dismissFeatureUpdate()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            model.isSettingsPresented = true
+                        }
+                    } label: {
+                        Label("Open Customization", systemImage: "slider.horizontal.3")
+                            .frame(maxWidth: 560)
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 52, cornerRadius: 14))
+
+                    Button {
+                        model.dismissFeatureUpdate()
+                    } label: {
+                        Text("Start browsing")
+                            .frame(maxWidth: 560)
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 46, cornerRadius: 12))
+                }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 24)
+            }
+        }
     }
 }
 
@@ -5445,6 +5621,296 @@ private struct ActivityShareController: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct ProfileCustomizationPanel: View {
+    @EnvironmentObject private var profiles: BrowserProfileManager
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Profiles", systemImage: "person.2.fill")
+                    .font(.system(size: 14, weight: .black))
+                Spacer()
+                Text(profiles.isSwitchingProfiles ? "Switching..." : profiles.activeProfile.name)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+
+            ForEach(profiles.profiles) { profile in
+                ProfileSlotEditor(profile: profile)
+            }
+
+            if profiles.statusMessage.isEmpty == false {
+                Label(profiles.statusMessage, systemImage: "checkmark.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct ProfileSlotEditor: View {
+    @EnvironmentObject private var profiles: BrowserProfileManager
+    @EnvironmentObject private var theme: BrowserTheme
+    let profile: BrowserProfile
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: profile.symbolName)
+                    .font(.system(size: 16, weight: .bold))
+                    .frame(width: 34, height: 34)
+                    .foregroundStyle(theme.color(.canvas))
+                    .background(profile.tintColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("Profile name", text: profileNameBinding)
+                        .font(.system(size: 15, weight: .bold))
+                        .textInputAutocapitalization(.words)
+
+                    Text(profile.isPrimary ? "Original Glide state" : "Separate tabs, history, passwords, theme, cookies")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                ColorPicker("Profile color", selection: profileTintBinding, supportsOpacity: false)
+                    .labelsHidden()
+            }
+
+            Button {
+                profiles.switchTo(profile)
+            } label: {
+                Label(profiles.isActive(profile) ? "Active Profile" : "Switch to \(profile.name)", systemImage: profiles.isActive(profile) ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(GlideGradientButtonStyle(prominence: profiles.isActive(profile) ? .primary : .standard, minHeight: 38))
+            .disabled(profiles.isActive(profile) || profiles.isSwitchingProfiles)
+        }
+        .padding(10)
+        .background(ControlGlassBackground(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(profiles.isActive(profile) ? profile.tintColor.opacity(0.75) : theme.color(.border).opacity(0.45), lineWidth: 1)
+        }
+    }
+
+    private var profileNameBinding: Binding<String> {
+        Binding(
+            get: {
+                profiles.profiles.first { $0.id == profile.id }?.name ?? profile.name
+            },
+            set: {
+                profiles.rename(profile, to: $0)
+            }
+        )
+    }
+
+    private var profileTintBinding: Binding<Color> {
+        Binding(
+            get: {
+                profiles.profiles.first { $0.id == profile.id }?.tintColor ?? profile.tintColor
+            },
+            set: {
+                profiles.setTint($0, for: profile)
+            }
+        )
+    }
+}
+
+private struct WebsiteResolutionControl: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Resolution", systemImage: "rectangle.resize")
+                    .font(.system(size: 14, weight: .black))
+                Spacer()
+                Text(model.websiteResolutionLabel)
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+
+            Slider(
+                value: Binding(
+                    get: { model.websiteResolutionScale },
+                    set: { model.setWebsiteResolutionScale($0) }
+                ),
+                in: BrowserViewModel.minimumWebsiteResolutionScale...BrowserViewModel.maximumWebsiteResolutionScale,
+                step: 0.01
+            )
+
+            HStack(spacing: 8) {
+                resolutionPreset("Compact", scale: 0.85)
+                resolutionPreset("Default", scale: 1.0)
+                resolutionPreset("Large", scale: 1.15)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func resolutionPreset(_ title: String, scale: Double) -> some View {
+        Button {
+            model.setWebsiteResolutionScale(scale)
+        } label: {
+            Text(title)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(GlideGradientButtonStyle(prominence: abs(model.websiteResolutionScale - scale) < 0.005 ? .primary : .standard, minHeight: 34))
+    }
+}
+
+private struct QuickColorStudio: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Color Studio", systemImage: "paintpalette.fill")
+                .font(.system(size: 14, weight: .black))
+
+            HStack(spacing: 10) {
+                ColorPicker("Accent", selection: theme.binding(for: .accent), supportsOpacity: false)
+                ColorPicker("Add Color", selection: theme.binding(for: .createTab), supportsOpacity: false)
+            }
+
+            HStack(spacing: 8) {
+                paletteButton("Prism", accent: "#8DD7FF", glow: "#C4B5FD", create: "#D6E2FF", canvas: "#07090D", start: (0.0, 0.0), end: (1.0, 1.0))
+                paletteButton("Aurora", accent: "#7DD3FC", glow: "#A7F3D0", create: "#FDE68A", canvas: "#07110F", start: (0.08, 0.12), end: (0.9, 0.72))
+                paletteButton("Signal", accent: "#F0ABFC", glow: "#67E8F9", create: "#F9A8D4", canvas: "#090816", start: (0.82, 0.05), end: (0.12, 0.95))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func paletteButton(
+        _ title: String,
+        accent: String,
+        glow: String,
+        create: String,
+        canvas: String,
+        start: (Double, Double),
+        end: (Double, Double)
+    ) -> some View {
+        Button {
+            theme.setColor(Color(hex: accent), for: .accent)
+            theme.setGradientColor(Color(hex: glow), for: .accent)
+            theme.setColor(Color(hex: create), for: .createTab)
+            theme.setGradientColor(Color(hex: accent), for: .createTab)
+            theme.setColor(Color(hex: canvas), for: .canvas)
+            theme.setGradientColor(Color(hex: glow), for: .chrome)
+            theme.updateGradientStart(x: start.0, y: start.1)
+            theme.updateGradientEnd(x: end.0, y: end.1)
+        } label: {
+            Text(title)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(GlideGradientButtonStyle(prominence: .standard, minHeight: 34))
+    }
+}
+
+private struct GradientMotionControl: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Gradient Motion", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
+                    .font(.system(size: 14, weight: .black))
+                Spacer()
+                Button("Reset") {
+                    theme.resetGradientMotion()
+                }
+                .font(.caption.weight(.bold))
+            }
+
+            GeometryReader { proxy in
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    theme.color(.accent),
+                                    theme.gradientColor(.accent),
+                                    theme.color(.createTab)
+                                ],
+                                startPoint: theme.gradientStartPoint,
+                                endPoint: theme.gradientEndPoint
+                            )
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(theme.color(.border).opacity(0.65), lineWidth: 1)
+                        }
+
+                    GradientHandle(title: "Start", color: theme.color(.accent))
+                        .position(handlePosition(x: theme.gradientStartX, y: theme.gradientStartY, in: proxy.size))
+                        .gesture(handleDrag(in: proxy.size) { x, y in
+                            theme.updateGradientStart(x: x, y: y)
+                        })
+
+                    GradientHandle(title: "End", color: theme.color(.createTab))
+                        .position(handlePosition(x: theme.gradientEndX, y: theme.gradientEndY, in: proxy.size))
+                        .gesture(handleDrag(in: proxy.size) { x, y in
+                            theme.updateGradientEnd(x: x, y: y)
+                        })
+                }
+            }
+            .frame(height: 170)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func handlePosition(x: Double, y: Double, in size: CGSize) -> CGPoint {
+        CGPoint(
+            x: min(max(CGFloat(x) * size.width, 22), max(22, size.width - 22)),
+            y: min(max(CGFloat(y) * size.height, 22), max(22, size.height - 22))
+        )
+    }
+
+    private func handleDrag(in size: CGSize, update: @escaping (Double, Double) -> Void) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                update(
+                    Double(min(max(value.location.x / size.width, 0), 1)),
+                    Double(min(max(value.location.y / size.height, 0), 1))
+                )
+            }
+    }
+}
+
+private struct GradientHandle: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let title: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Circle()
+                .fill(color)
+                .frame(width: 24, height: 24)
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(0.85), lineWidth: 2)
+                }
+                .shadow(color: Color.black.opacity(0.32), radius: 8, y: 4)
+
+            Text(title)
+                .font(.system(size: 9, weight: .black))
+                .foregroundStyle(theme.color(.canvas))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.86), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+    }
 }
 
 private struct PasswordManagerView: View {
@@ -6590,11 +7056,11 @@ private struct BrowserBackground: View {
                 LinearGradient(
                     colors: [
                         theme.color(.canvas),
-                        theme.color(.chrome),
+                        theme.gradientColor(.chrome),
                         theme.color(.canvas)
                     ],
-                    startPoint: .top,
-                    endPoint: .bottom
+                    startPoint: theme.gradientStartPoint,
+                    endPoint: theme.gradientEndPoint
                 )
                 .ignoresSafeArea()
             }
@@ -6726,6 +7192,7 @@ private struct BrowserSettingsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @EnvironmentObject private var security: AppSecurityModel
+    @EnvironmentObject private var profiles: BrowserProfileManager
     @Environment(\.dismiss) private var dismiss
     let currentExperience: GlideDeviceExperience
     @State private var isBackgroundImporterPresented = false
@@ -6738,6 +7205,23 @@ private struct BrowserSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Customization Hub") {
+                    DisclosureGroup {
+                        ProfileCustomizationPanel()
+                        WebsiteResolutionControl()
+                        QuickColorStudio()
+                        GradientMotionControl()
+
+                        Button {
+                            model.isFeatureUpdatePresented = true
+                        } label: {
+                            Label("Show New Features", systemImage: "sparkles")
+                        }
+                    } label: {
+                        Label("Huge Customization Update", systemImage: "wand.and.stars.inverse")
+                    }
+                }
+
                 Section("Privacy") {
                     DisclosureGroup {
                         Toggle("Shields", isOn: adBlockerBinding)

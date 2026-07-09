@@ -55,6 +55,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     @Published var regionTrickProfile: BrowserRegionTrickProfile
     @Published var isFPSForcerEnabled: Bool
     @Published var forcedFPS: Double
+    @Published var websiteResolutionScale: Double
     @Published var websiteDisplayMode: BrowserWebsiteDisplayMode
     @Published var webExtensions: [BrowserWebExtension]
     @Published var folderID: UUID?
@@ -100,6 +101,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         regionTrickProfile: BrowserRegionTrickProfile = .unitedStates,
         isFPSForcerEnabled: Bool = false,
         forcedFPS: Double = 60,
+        websiteResolutionScale: Double = 1.0,
         websiteDisplayMode: BrowserWebsiteDisplayMode = .automatic,
         folderID: UUID? = nil,
         webExtensions: [BrowserWebExtension] = [],
@@ -131,6 +133,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         self.navigationRegionTrickProfile = regionTrickProfile
         self.isFPSForcerEnabled = isFPSForcerEnabled
         self.forcedFPS = forcedFPS
+        self.websiteResolutionScale = websiteResolutionScale
         self.websiteDisplayMode = websiteDisplayMode
         self.webExtensions = webExtensions
         self.folderID = folderID
@@ -159,6 +162,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         super.init()
 
         webView.customUserAgent = Self.userAgent(for: websiteDisplayMode)
+        webView.pageZoom = Self.clampedWebsiteResolutionScale(websiteResolutionScale)
         if #available(iOS 16.4, *), webKitProfile == .dev {
             webView.isInspectable = true
         }
@@ -235,6 +239,12 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               Self.isStartPageURL(url) == false,
               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
         webView.reload()
+    }
+
+    func setWebsiteResolutionScale(_ scale: Double) {
+        let clamped = Self.clampedWebsiteResolutionScale(scale)
+        websiteResolutionScale = clamped
+        webView.pageZoom = clamped
     }
 
     func fillCredentials(username: String, password: String) {
@@ -665,6 +675,10 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         case .desktop:
             return desktopSafariUserAgent()
         }
+    }
+
+    static func clampedWebsiteResolutionScale(_ scale: Double) -> Double {
+        min(max(scale, 0.72), 1.36)
     }
 
     private static func safariCompatibleUserAgent() -> String {

@@ -5,6 +5,7 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 import UIKit
+import WebKit
 
 enum BrowserChromePlacement: String, CaseIterable, Identifiable {
     case top
@@ -73,6 +74,221 @@ enum BrowserDeviceExperienceOverride: String, CaseIterable, Identifiable {
         case .iPad:
             return "ipad"
         }
+    }
+}
+
+struct BrowserProfile: Identifiable, Codable, Equatable {
+    var id: String
+    var name: String
+    var symbolName: String
+    var tintHex: String
+    var storageScope: String?
+    var isPrimary: Bool
+
+    var tintColor: Color {
+        Color(hex: tintHex)
+    }
+
+    static let main = BrowserProfile(
+        id: "main",
+        name: "Main Glide",
+        symbolName: "sparkles.rectangle.stack",
+        tintHex: "#D6E2FF",
+        storageScope: nil,
+        isPrimary: true
+    )
+
+    static let second = BrowserProfile(
+        id: "second",
+        name: "Alt Glide",
+        symbolName: "person.crop.circle.badge.plus",
+        tintHex: "#C4B5FD",
+        storageScope: "profile.second",
+        isPrimary: false
+    )
+
+    static let defaults: [BrowserProfile] = [.main, .second]
+}
+
+@MainActor
+final class BrowserProfileManager: ObservableObject {
+    @Published var profiles: [BrowserProfile] {
+        didSet {
+            profiles = Self.normalizedProfiles(profiles)
+            vault.save(profiles, forKey: Self.profilesKey)
+        }
+    }
+    @Published private(set) var activeProfileID: String {
+        didSet {
+            vault.save(activeProfileID, forKey: Self.activeProfileKey)
+        }
+    }
+    @Published var isSwitchingProfiles = false
+    @Published var statusMessage = ""
+
+    private let vault: SecureBrowserVault
+    private static let profilesKey = "ZenFireBrowser.global.profiles"
+    private static let activeProfileKey = "ZenFireBrowser.global.activeProfile"
+    private static let cookiesKey = "ZenFireBrowser.profile.cookies"
+
+    init(vault: SecureBrowserVault) {
+        self.vault = vault
+        let savedProfiles = vault.load([BrowserProfile].self, forKey: Self.profilesKey, default: BrowserProfile.defaults)
+        let normalizedProfiles = Self.normalizedProfiles(savedProfiles)
+        self.profiles = normalizedProfiles
+        let savedActiveID = vault.load(String.self, forKey: Self.activeProfileKey, default: BrowserProfile.main.id)
+        self.activeProfileID = normalizedProfiles.contains(where: { $0.id == savedActiveID }) ? savedActiveID : BrowserProfile.main.id
+        vault.save(normalizedProfiles, forKey: Self.profilesKey)
+        vault.save(activeProfileID, forKey: Self.activeProfileKey)
+    }
+
+    var activeProfile: BrowserProfile {
+        profile(withID: activeProfileID) ?? BrowserProfile.main
+    }
+
+    var activeVault: SecureBrowserVault {
+        vault(for: activeProfile)
+    }
+
+    func vault(for profile: BrowserProfile) -> SecureBrowserVault {
+        vault.scoped(to: profile.storageScope)
+    }
+
+    func isActive(_ profile: BrowserProfile) -> Bool {
+        profile.id == activeProfileID
+    }
+
+    func rename(_ profile: BrowserProfile, to rawName: String) {
+        guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return }
+        profiles[index].name = trimmed
+    }
+
+    func setTint(_ color: Color, for profile: BrowserProfile) {
+        guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
+        profiles[index].tintHex = color.hexString ?? profiles[index].tintHex
+    }
+
+    func switchTo(_ profile: BrowserProfile) {
+        guard profile.id != activeProfileID, isSwitchingProfiles == false else { return }
+        let currentProfile = activeProfile
+        isSwitchingProfiles = true
+        statusMessage = "Saving \(currentProfile.name)..."
+
+        Task { [weak self] in
+            guard let self else { return }
+            await Self.saveCurrentCookies(to: self.vault(for: currentProfile))
+            await Self.clearWebKitProfileData()
+            await Self.restoreCookies(from: self.vault(for: profile))
+            await MainActor.run {
+                self.activeProfileID = profile.id
+                self.statusMessage = "\(profile.name) is active."
+                self.isSwitchingProfiles = false
+            }
+        }
+    }
+
+    private func profile(withID id: String) -> BrowserProfile? {
+        profiles.first { $0.id == id }
+    }
+
+    private static func normalizedProfiles(_ rawProfiles: [BrowserProfile]) -> [BrowserProfile] {
+        var main = rawProfiles.first { $0.id == BrowserProfile.main.id } ?? .main
+        var second = rawProfiles.first { $0.id == BrowserProfile.second.id } ?? .second
+        main.id = BrowserProfile.main.id
+        main.storageScope = nil
+        main.isPrimary = true
+        if main.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            main.name = BrowserProfile.main.name
+        }
+        second.id = BrowserProfile.second.id
+        second.storageScope = BrowserProfile.second.storageScope
+        second.isPrimary = false
+        if second.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            second.name = BrowserProfile.second.name
+        }
+        return [main, second]
+    }
+
+    private static func saveCurrentCookies(to vault: SecureBrowserVault) async {
+        let cookies = await allCookies().map(StoredBrowserCookie.init(cookie:))
+        vault.save(cookies, forKey: cookiesKey)
+    }
+
+    private static func restoreCookies(from vault: SecureBrowserVault) async {
+        let cookies = vault.load([StoredBrowserCookie].self, forKey: cookiesKey, default: [])
+        for storedCookie in cookies {
+            guard let cookie = storedCookie.httpCookie else { continue }
+            await setCookie(cookie)
+        }
+    }
+
+    private static func allCookies() async -> [HTTPCookie] {
+        await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+                continuation.resume(returning: cookies)
+            }
+        }
+    }
+
+    private static func setCookie(_ cookie: HTTPCookie) async {
+        await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.default().httpCookieStore.setCookie(cookie) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private static func clearWebKitProfileData() async {
+        await withCheckedContinuation { continuation in
+            let dataStore = WKWebsiteDataStore.default()
+            dataStore.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { records in
+                dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: records) {
+                    URLCache.shared.removeAllCachedResponses()
+                    continuation.resume()
+                }
+            }
+        }
+    }
+}
+
+private struct StoredBrowserCookie: Codable, Equatable {
+    var name: String
+    var value: String
+    var domain: String
+    var path: String
+    var expiresDate: Date?
+    var isSecure: Bool
+    var isHTTPOnly: Bool
+
+    init(cookie: HTTPCookie) {
+        name = cookie.name
+        value = cookie.value
+        domain = cookie.domain
+        path = cookie.path
+        expiresDate = cookie.expiresDate
+        isSecure = cookie.isSecure
+        isHTTPOnly = cookie.isHTTPOnly
+    }
+
+    var httpCookie: HTTPCookie? {
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .name: name,
+            .value: value,
+            .domain: domain,
+            .path: path
+        ]
+        if let expiresDate {
+            properties[.expires] = expiresDate
+        }
+        if isSecure {
+            properties[.secure] = "TRUE"
+        }
+        if isHTTPOnly {
+            properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
+        }
+        return HTTPCookie(properties: properties)
     }
 }
 
@@ -768,6 +984,9 @@ final class BrowserViewModel: ObservableObject {
     static let minimumForcedFPS = 15.0
     static let maximumFiniteForcedFPS = 240.0
     static let infiniteForcedFPSValue = 241.0
+    static let minimumWebsiteResolutionScale = 0.72
+    static let maximumWebsiteResolutionScale = 1.36
+    static let currentFeatureUpdateVersion = 3
     static var supportsDesktopZenMode: Bool {
         #if targetEnvironment(macCatalyst)
         return true
@@ -859,6 +1078,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var allowsMultipleWebFileImport = false
     @Published var isLocalAIImporterPresented = false
     @Published var isTutorialPresented: Bool
+    @Published var isFeatureUpdatePresented: Bool
     @Published var isDarkReaderEnabled: Bool
     @Published var darkReaderTheme: BrowserDarkReaderTheme {
         didSet {
@@ -906,6 +1126,22 @@ final class BrowserViewModel: ObservableObject {
             }
             for tab in containedTabs {
                 tab.setForcedFPS(forcedFPS)
+            }
+        }
+    }
+    @Published var websiteResolutionScale: Double {
+        didSet {
+            let clamped = Self.clampedWebsiteResolutionScale(websiteResolutionScale)
+            if clamped != websiteResolutionScale {
+                websiteResolutionScale = clamped
+                return
+            }
+            vault.save(websiteResolutionScale, forKey: Self.StorageKey.websiteResolutionScale)
+            for tab in tabs {
+                tab.setWebsiteResolutionScale(websiteResolutionScale)
+            }
+            for tab in containedTabs {
+                tab.setWebsiteResolutionScale(websiteResolutionScale)
             }
         }
     }
@@ -1263,6 +1499,9 @@ final class BrowserViewModel: ObservableObject {
         let savedForcedFPS = Self.clampedForcedFPS(
             vault.load(Double.self, forKey: Self.StorageKey.forcedFPS, default: 60)
         )
+        let savedWebsiteResolutionScale = Self.clampedWebsiteResolutionScale(
+            vault.load(Double.self, forKey: Self.StorageKey.websiteResolutionScale, default: 1.0)
+        )
         let savedShieldEngineVersion = vault.load(Int.self, forKey: Self.StorageKey.shieldEngineVersion, default: 0)
         let shouldUpgradeShields = savedShieldEngineVersion < BrowserContentBlocker.engineVersion
         if shouldUpgradeShields {
@@ -1323,6 +1562,8 @@ final class BrowserViewModel: ObservableObject {
         let savedWebsiteDisplayMode = BrowserWebsiteDisplayMode(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.websiteDisplayMode, default: "")
         ) ?? .automatic
+        let hasCompletedTutorial = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false)
+        let savedFeatureUpdateVersion = vault.load(Int.self, forKey: Self.StorageKey.featureUpdateVersion, default: 0)
         let savedVPNCountry = vault.load(String.self, forKey: Self.StorageKey.selectedVPNCountry, default: savedVPNProfile.countryName)
         let savedBrowserMusicTrack = BrowserMusicTrack(
             rawValue: vault.load(String.self, forKey: Self.StorageKey.browserMusicTrack, default: "")
@@ -1347,6 +1588,7 @@ final class BrowserViewModel: ObservableObject {
             isRegionTricksEnabled: regionTricksEnabled,
             regionTrickProfile: savedRegionTrickProfile,
             isDeveloperModeEnabled: developerModeEnabled,
+            websiteResolutionScale: savedWebsiteResolutionScale,
             websiteDisplayMode: savedWebsiteDisplayMode,
             webExtensions: savedWebExtensions
         )
@@ -1401,12 +1643,14 @@ final class BrowserViewModel: ObservableObject {
         self.installedWebExtensions = savedWebExtensions
         self.webExtensionImportMessage = ""
         self.websiteDisplayMode = savedWebsiteDisplayMode
-        self.isTutorialPresented = vault.load(Bool.self, forKey: Self.StorageKey.hasCompletedTutorial, default: false) == false
+        self.isTutorialPresented = hasCompletedTutorial == false
+        self.isFeatureUpdatePresented = hasCompletedTutorial && savedFeatureUpdateVersion < Self.currentFeatureUpdateVersion
         self.isDarkReaderEnabled = darkReaderEnabled
         self.darkReaderTheme = savedDarkReaderTheme
         self.isStylusCatppuccinEnabled = stylusCatppuccinEnabled
         self.isFPSForcerEnabled = fpsForcerEnabled
         self.forcedFPS = savedForcedFPS
+        self.websiteResolutionScale = savedWebsiteResolutionScale
         self.isAdBlockerEnabled = adBlockerEnabled
         self.trackerBlockingLevel = savedTrackerBlockingLevel
         self.isScriptBlockingEnabled = scriptBlockingEnabled
@@ -1448,6 +1692,10 @@ final class BrowserViewModel: ObservableObject {
 
     var forcedFPSLabel: String {
         forcedFPS >= Self.infiniteForcedFPSValue ? "Infinite" : "\(Int(forcedFPS.rounded())) FPS"
+    }
+
+    var websiteResolutionLabel: String {
+        "\(Int((websiteResolutionScale * 100).rounded()))%"
     }
 
     var selectedTab: BrowserTab? {
@@ -1631,6 +1879,7 @@ final class BrowserViewModel: ObservableObject {
             regionTrickProfile: regionTrickProfile,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
+            websiteResolutionScale: websiteResolutionScale,
             websiteDisplayMode: websiteDisplayMode,
             webExtensions: installedWebExtensions,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
@@ -1696,6 +1945,7 @@ final class BrowserViewModel: ObservableObject {
             regionTrickProfile: regionTrickProfile,
             isFPSForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
+            websiteResolutionScale: websiteResolutionScale,
             websiteDisplayMode: websiteDisplayMode,
             webExtensions: installedWebExtensions,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
@@ -1954,6 +2204,10 @@ final class BrowserViewModel: ObservableObject {
         forcedFPS = fps
     }
 
+    func setWebsiteResolutionScale(_ scale: Double) {
+        websiteResolutionScale = scale
+    }
+
     func setAdBlockerEnabled(_ enabled: Bool) {
         isAdBlockerEnabled = enabled
         vault.save(enabled, forKey: Self.StorageKey.adBlockerEnabled)
@@ -2210,6 +2464,12 @@ final class BrowserViewModel: ObservableObject {
     func completeTutorial() {
         isTutorialPresented = false
         vault.save(true, forKey: Self.StorageKey.hasCompletedTutorial)
+        vault.save(Self.currentFeatureUpdateVersion, forKey: Self.StorageKey.featureUpdateVersion)
+    }
+
+    func dismissFeatureUpdate() {
+        isFeatureUpdatePresented = false
+        vault.save(Self.currentFeatureUpdateVersion, forKey: Self.StorageKey.featureUpdateVersion)
     }
 
     func handleThreeFingerSwipe(deltaX: CGFloat) {
@@ -2532,6 +2792,7 @@ final class BrowserViewModel: ObservableObject {
             stylusCatppuccinEnabled: isStylusCatppuccinEnabled,
             fpsForcerEnabled: isFPSForcerEnabled,
             forcedFPS: forcedFPS,
+            websiteResolutionScale: websiteResolutionScale,
             browserMusicEnabled: isBrowserMusicEnabled,
             browserMusicTrack: browserMusicTrack.rawValue,
             browserMusicVolume: browserMusicVolume,
@@ -2558,7 +2819,8 @@ final class BrowserViewModel: ObservableObject {
             tabBarTransparency: theme.tabBarTransparency,
             userBackgroundEnabled: theme.isUserBackgroundEnabled,
             colors: theme.colorConfig,
-            gradientColors: theme.gradientColorConfig
+            gradientColors: theme.gradientColorConfig,
+            gradientCoordinates: theme.gradientCoordinateConfig
         )
 
         let encoder = JSONEncoder()
@@ -2618,6 +2880,7 @@ final class BrowserViewModel: ObservableObject {
         isStylusCatppuccinEnabled = config.stylusCatppuccinEnabled ?? false
         isFPSForcerEnabled = config.fpsForcerEnabled ?? false
         forcedFPS = Self.clampedForcedFPS(config.forcedFPS ?? 60)
+        websiteResolutionScale = Self.clampedWebsiteResolutionScale(config.websiteResolutionScale ?? 1.0)
         isBrowserMusicEnabled = config.browserMusicEnabled ?? false
         if let browserMusicTrackValue = config.browserMusicTrack,
            let track = BrowserMusicTrack(rawValue: browserMusicTrackValue) {
@@ -2656,6 +2919,7 @@ final class BrowserViewModel: ObservableObject {
         theme.applyAdvancedConfig(
             colors: config.colors,
             gradientColors: config.gradientColors,
+            gradientCoordinates: config.gradientCoordinates,
             tabBarTransparencyEnabled: config.tabBarTransparencyEnabled,
             tabBarTransparency: config.tabBarTransparency,
             userBackgroundEnabled: config.userBackgroundEnabled
@@ -3182,6 +3446,7 @@ final class BrowserViewModel: ObservableObject {
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
         newTabOpensSearch = true
         autoCompactAfterSearchOnPhone = true
+        websiteResolutionScale = 1.0
         localAIName = "Local AI"
         localAIURLText = ""
     }
@@ -3656,6 +3921,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(isStylusCatppuccinEnabled, forKey: Self.StorageKey.stylusCatppuccinEnabled)
         vault.save(isFPSForcerEnabled, forKey: Self.StorageKey.fpsForcerEnabled)
         vault.save(forcedFPS, forKey: Self.StorageKey.forcedFPS)
+        vault.save(websiteResolutionScale, forKey: Self.StorageKey.websiteResolutionScale)
         vault.save(isBrowserMusicEnabled, forKey: Self.StorageKey.browserMusicEnabled)
         vault.save(browserMusicTrack.rawValue, forKey: Self.StorageKey.browserMusicTrack)
         vault.save(browserMusicVolume, forKey: Self.StorageKey.browserMusicVolume)
@@ -3664,6 +3930,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(autoCompactAfterSearchOnPhone, forKey: Self.StorageKey.autoCompactAfterSearchOnPhone)
         vault.save(BrowserContentBlocker.engineVersion, forKey: Self.StorageKey.shieldEngineVersion)
         vault.save(isTutorialPresented == false, forKey: Self.StorageKey.hasCompletedTutorial)
+        vault.save(isFeatureUpdatePresented ? 0 : Self.currentFeatureUpdateVersion, forKey: Self.StorageKey.featureUpdateVersion)
         vault.save(selectedVPNCountry, forKey: Self.StorageKey.selectedVPNCountry)
         vault.save(vpnProfile, forKey: Self.StorageKey.vpnProfile)
         persistOpenTabs()
@@ -3689,6 +3956,7 @@ final class BrowserViewModel: ObservableObject {
         isRegionTricksEnabled: Bool,
         regionTrickProfile: BrowserRegionTrickProfile,
         isDeveloperModeEnabled: Bool,
+        websiteResolutionScale: Double,
         websiteDisplayMode: BrowserWebsiteDisplayMode,
         webExtensions: [BrowserWebExtension]
     ) -> (tabs: [BrowserTab], selectedTabID: BrowserTab.ID?) {
@@ -3713,6 +3981,7 @@ final class BrowserViewModel: ObservableObject {
                 regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
+                websiteResolutionScale: websiteResolutionScale,
                 websiteDisplayMode: websiteDisplayMode,
                 webExtensions: webExtensions
             )
@@ -3745,6 +4014,7 @@ final class BrowserViewModel: ObservableObject {
                 regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
+                websiteResolutionScale: websiteResolutionScale,
                 websiteDisplayMode: websiteDisplayMode,
                 folderID: savedTab.folderID,
                 webExtensions: webExtensions,
@@ -3777,6 +4047,7 @@ final class BrowserViewModel: ObservableObject {
                 regionTrickProfile: regionTrickProfile,
                 isFPSForcerEnabled: isFPSForcerEnabled,
                 forcedFPS: forcedFPS,
+                websiteResolutionScale: websiteResolutionScale,
                 websiteDisplayMode: websiteDisplayMode,
                 webExtensions: webExtensions
             )
@@ -3843,6 +4114,12 @@ final class BrowserViewModel: ObservableObject {
     private static func clampedForcedFPS(_ value: Double) -> Double {
         guard value.isFinite else { return infiniteForcedFPSValue }
         return min(max(value.rounded(), minimumForcedFPS), infiniteForcedFPSValue)
+    }
+
+    private static func clampedWebsiteResolutionScale(_ value: Double) -> Double {
+        guard value.isFinite else { return 1.0 }
+        let rounded = (value * 100).rounded() / 100
+        return min(max(rounded, minimumWebsiteResolutionScale), maximumWebsiteResolutionScale)
     }
 
     private static func countLabel(_ count: Int, singular: String) -> String {
@@ -3922,6 +4199,7 @@ final class BrowserViewModel: ObservableObject {
         static let stylusCatppuccinEnabled = "ZenFireBrowser.stylusCatppuccinEnabled"
         static let fpsForcerEnabled = "ZenFireBrowser.fpsForcerEnabled"
         static let forcedFPS = "ZenFireBrowser.forcedFPS"
+        static let websiteResolutionScale = "ZenFireBrowser.websiteResolutionScale"
         static let browserMusicEnabled = "ZenFireBrowser.browserMusicEnabled"
         static let browserMusicTrack = "ZenFireBrowser.browserMusicTrack"
         static let browserMusicVolume = "ZenFireBrowser.browserMusicVolume"
@@ -3929,6 +4207,7 @@ final class BrowserViewModel: ObservableObject {
         static let newTabOpensSearch = "ZenFireBrowser.newTabOpensSearch"
         static let autoCompactAfterSearchOnPhone = "ZenFireBrowser.autoCompactAfterSearchOnPhone"
         static let hasCompletedTutorial = "ZenFireBrowser.hasCompletedTutorial"
+        static let featureUpdateVersion = "ZenFireBrowser.featureUpdateVersion"
         static let downloads = "ZenFireBrowser.downloads"
         static let passwordEntries = "ZenFireBrowser.passwordEntries"
         static let websiteDisplayMode = "ZenFireBrowser.websiteDisplayMode"

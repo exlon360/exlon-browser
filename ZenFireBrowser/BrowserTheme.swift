@@ -98,6 +98,10 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
     var name: String
     var colorHexByToken: [String: String]
     var gradientColorHexByToken: [String: String]?
+    var gradientStartX: Double?
+    var gradientStartY: Double?
+    var gradientEndX: Double?
+    var gradientEndY: Double?
     var isTabBarTransparencyEnabled: Bool
     var tabBarTransparency: Double
     var isUserBackgroundEnabled: Bool
@@ -112,6 +116,10 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         name: String,
         colorHexByToken: [String: String],
         gradientColorHexByToken: [String: String]? = nil,
+        gradientStartX: Double? = nil,
+        gradientStartY: Double? = nil,
+        gradientEndX: Double? = nil,
+        gradientEndY: Double? = nil,
         isTabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
         isUserBackgroundEnabled: Bool,
@@ -125,6 +133,10 @@ struct SavedBrowserTheme: Identifiable, Codable, Equatable {
         self.name = name
         self.colorHexByToken = colorHexByToken
         self.gradientColorHexByToken = gradientColorHexByToken
+        self.gradientStartX = gradientStartX
+        self.gradientStartY = gradientStartY
+        self.gradientEndX = gradientEndX
+        self.gradientEndY = gradientEndY
         self.isTabBarTransparencyEnabled = isTabBarTransparencyEnabled
         self.tabBarTransparency = tabBarTransparency
         self.isUserBackgroundEnabled = isUserBackgroundEnabled
@@ -144,6 +156,46 @@ extension UTType {
 final class BrowserTheme: ObservableObject {
     @Published private var colorHexByToken: [BrowserThemeToken: String]
     @Published private var gradientColorHexByToken: [BrowserThemeToken: String]
+    @Published var gradientStartX: Double {
+        didSet {
+            let clamped = Self.clampedUnit(gradientStartX)
+            if clamped != gradientStartX {
+                gradientStartX = clamped
+                return
+            }
+            vault.save(gradientStartX, forKey: Self.gradientStartXKey)
+        }
+    }
+    @Published var gradientStartY: Double {
+        didSet {
+            let clamped = Self.clampedUnit(gradientStartY)
+            if clamped != gradientStartY {
+                gradientStartY = clamped
+                return
+            }
+            vault.save(gradientStartY, forKey: Self.gradientStartYKey)
+        }
+    }
+    @Published var gradientEndX: Double {
+        didSet {
+            let clamped = Self.clampedUnit(gradientEndX)
+            if clamped != gradientEndX {
+                gradientEndX = clamped
+                return
+            }
+            vault.save(gradientEndX, forKey: Self.gradientEndXKey)
+        }
+    }
+    @Published var gradientEndY: Double {
+        didSet {
+            let clamped = Self.clampedUnit(gradientEndY)
+            if clamped != gradientEndY {
+                gradientEndY = clamped
+                return
+            }
+            vault.save(gradientEndY, forKey: Self.gradientEndYKey)
+        }
+    }
     @Published var isTabBarTransparencyEnabled: Bool {
         didSet {
             vault.save(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
@@ -183,6 +235,10 @@ final class BrowserTheme: ObservableObject {
     private static let userBackgroundVideoContentTypeKey = "\(storagePrefix)userBackgroundVideoContentType"
     private static let userBackgroundVideoDurationKey = "\(storagePrefix)userBackgroundVideoDuration"
     private static let savedThemesKey = "\(storagePrefix)savedThemes"
+    private static let gradientStartXKey = "\(storagePrefix)gradientStartX"
+    private static let gradientStartYKey = "\(storagePrefix)gradientStartY"
+    private static let gradientEndXKey = "\(storagePrefix)gradientEndX"
+    private static let gradientEndYKey = "\(storagePrefix)gradientEndY"
     private static let videoBackgroundMinimumDuration = 5.0
     private static let videoBackgroundMaximumDuration = 15.0 * 60.0
     private static let backgroundVideoDirectoryName = "GlideBackgroundVideos"
@@ -202,6 +258,10 @@ final class BrowserTheme: ObservableObject {
         }
         self.colorHexByToken = values
         self.gradientColorHexByToken = gradientValues
+        self.gradientStartX = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientStartXKey, default: 0.0))
+        self.gradientStartY = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientStartYKey, default: 0.0))
+        self.gradientEndX = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndXKey, default: 1.0))
+        self.gradientEndY = Self.clampedUnit(vault.load(Double.self, forKey: Self.gradientEndYKey, default: 1.0))
         self.isTabBarTransparencyEnabled = vault.load(Bool.self, forKey: Self.tabBarTransparencyEnabledKey, default: true)
         self.tabBarTransparency = vault.load(Double.self, forKey: Self.tabBarTransparencyKey, default: 0.82)
         self.isUserBackgroundEnabled = vault.load(Bool.self, forKey: Self.userBackgroundEnabledKey, default: false)
@@ -241,6 +301,23 @@ final class BrowserTheme: ObservableObject {
         Dictionary(uniqueKeysWithValues: BrowserThemeToken.allCases.map { token in
             (token.rawValue, gradientHex(for: token))
         })
+    }
+
+    var gradientStartPoint: UnitPoint {
+        UnitPoint(x: gradientStartX, y: gradientStartY)
+    }
+
+    var gradientEndPoint: UnitPoint {
+        UnitPoint(x: gradientEndX, y: gradientEndY)
+    }
+
+    var gradientCoordinateConfig: [String: Double] {
+        [
+            "startX": gradientStartX,
+            "startY": gradientStartY,
+            "endX": gradientEndX,
+            "endY": gradientEndY
+        ]
     }
 
     var tabBarOpacity: Double {
@@ -304,6 +381,23 @@ final class BrowserTheme: ObservableObject {
         vault.save(hex, forKey: Self.gradientStorageKey(for: token))
     }
 
+    func updateGradientStart(x: Double, y: Double) {
+        gradientStartX = x
+        gradientStartY = y
+    }
+
+    func updateGradientEnd(x: Double, y: Double) {
+        gradientEndX = x
+        gradientEndY = y
+    }
+
+    func resetGradientMotion() {
+        gradientStartX = 0.0
+        gradientStartY = 0.0
+        gradientEndX = 1.0
+        gradientEndY = 1.0
+    }
+
     func currentTheme(named rawName: String) -> SavedBrowserTheme {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let themeName = trimmedName.isEmpty ? "Glide Theme" : trimmedName
@@ -313,6 +407,10 @@ final class BrowserTheme: ObservableObject {
             name: themeName,
             colorHexByToken: savedColors,
             gradientColorHexByToken: savedGradientColors,
+            gradientStartX: gradientStartX,
+            gradientStartY: gradientStartY,
+            gradientEndX: gradientEndX,
+            gradientEndY: gradientEndY,
             isTabBarTransparencyEnabled: isTabBarTransparencyEnabled,
             tabBarTransparency: tabBarTransparency,
             isUserBackgroundEnabled: isUserBackgroundEnabled,
@@ -333,6 +431,7 @@ final class BrowserTheme: ObservableObject {
 
         isTabBarTransparencyEnabled = true
         tabBarTransparency = 0.82
+        resetGradientMotion()
         isUserBackgroundEnabled = false
         userBackgroundImageData = nil
         userBackgroundVideoData = nil
@@ -349,6 +448,7 @@ final class BrowserTheme: ObservableObject {
     func applyAdvancedConfig(
         colors: [String: String],
         gradientColors: [String: String]?,
+        gradientCoordinates: [String: Double]?,
         tabBarTransparencyEnabled: Bool,
         tabBarTransparency: Double,
         userBackgroundEnabled: Bool
@@ -366,6 +466,12 @@ final class BrowserTheme: ObservableObject {
                 gradientColorHexByToken[token] = hex
                 vault.save(hex, forKey: Self.gradientStorageKey(for: token))
             }
+        }
+        if let gradientCoordinates {
+            gradientStartX = gradientCoordinates["startX"] ?? gradientStartX
+            gradientStartY = gradientCoordinates["startY"] ?? gradientStartY
+            gradientEndX = gradientCoordinates["endX"] ?? gradientEndX
+            gradientEndY = gradientCoordinates["endY"] ?? gradientEndY
         }
 
         isTabBarTransparencyEnabled = tabBarTransparencyEnabled
@@ -493,6 +599,10 @@ final class BrowserTheme: ObservableObject {
             vault.save(gradientValue, forKey: Self.gradientStorageKey(for: token))
         }
 
+        gradientStartX = savedTheme.gradientStartX ?? 0.0
+        gradientStartY = savedTheme.gradientStartY ?? 0.0
+        gradientEndX = savedTheme.gradientEndX ?? 1.0
+        gradientEndY = savedTheme.gradientEndY ?? 1.0
         isTabBarTransparencyEnabled = savedTheme.isTabBarTransparencyEnabled
         tabBarTransparency = savedTheme.tabBarTransparency
         userBackgroundImageData = savedTheme.userBackgroundImageData
@@ -582,6 +692,10 @@ final class BrowserTheme: ObservableObject {
         }
         vault.save(isTabBarTransparencyEnabled, forKey: Self.tabBarTransparencyEnabledKey)
         vault.save(tabBarTransparency, forKey: Self.tabBarTransparencyKey)
+        vault.save(gradientStartX, forKey: Self.gradientStartXKey)
+        vault.save(gradientStartY, forKey: Self.gradientStartYKey)
+        vault.save(gradientEndX, forKey: Self.gradientEndXKey)
+        vault.save(gradientEndY, forKey: Self.gradientEndYKey)
         vault.save(isUserBackgroundEnabled, forKey: Self.userBackgroundEnabledKey)
         if let userBackgroundImageData = userBackgroundImageData {
             vault.save(userBackgroundImageData, forKey: Self.userBackgroundImageDataKey)
@@ -730,6 +844,11 @@ final class BrowserTheme: ObservableObject {
 
     private static func gradientStorageKey(for token: BrowserThemeToken) -> String {
         "\(storagePrefix)\(token.rawValue).gradient"
+    }
+
+    private static func clampedUnit(_ value: Double) -> Double {
+        guard value.isFinite else { return 0.0 }
+        return min(max(value, 0.0), 1.0)
     }
 
     private static func safeThemeFilename(_ filename: String) -> String {

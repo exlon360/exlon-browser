@@ -54,6 +54,7 @@ final class SecureBrowserVault {
     private let key: SymmetricKey
     private let salt: Data
     private let defaults: UserDefaults
+    private let storageScope: String
 
     private static let verifierKey = "ZenFireBrowser.secure.pinVerifier"
     private static let saltKey = "ZenFireBrowser.secure.pinSalt"
@@ -63,10 +64,19 @@ final class SecureBrowserVault {
     private static let kdfIterations = 210_000
     private static let keySize = 32
 
-    init(key: SymmetricKey, salt: Data, defaults: UserDefaults = .standard) {
+    init(key: SymmetricKey, salt: Data, defaults: UserDefaults = .standard, storageScope: String = "") {
         self.key = key
         self.salt = salt
         self.defaults = defaults
+        self.storageScope = storageScope
+    }
+
+    func scoped(to rawScope: String?) -> SecureBrowserVault {
+        let scope = rawScope?
+            .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            .lowercased() ?? ""
+        guard scope.isEmpty == false else { return self }
+        return SecureBrowserVault(key: key, salt: salt, defaults: defaults, storageScope: scope)
     }
 
     static func prepareLaunchPrivacy() {
@@ -193,7 +203,8 @@ final class SecureBrowserVault {
             return value
         }
 
-        if let legacyData = defaults.data(forKey: key) {
+        let legacyKey = scopedStorageKey(for: key)
+        if let legacyData = defaults.data(forKey: legacyKey) {
             if let direct = legacyData as? T {
                 return direct
             }
@@ -202,18 +213,18 @@ final class SecureBrowserVault {
             }
         }
 
-        return defaults.object(forKey: key) as? T
+        return defaults.object(forKey: legacyKey) as? T
     }
 
     func save<T: Encodable>(_ value: T, forKey key: String) {
         guard let encryptedData = try? encrypt(value) else { return }
         defaults.set(encryptedData, forKey: secureKey(for: key))
-        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: scopedStorageKey(for: key))
     }
 
     func remove(_ key: String) {
         defaults.removeObject(forKey: secureKey(for: key))
-        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: scopedStorageKey(for: key))
     }
 
     func encryptData(_ data: Data) throws -> Data {
@@ -225,7 +236,11 @@ final class SecureBrowserVault {
     }
 
     private func secureKey(for key: String) -> String {
-        "\(Self.storagePrefix)\(key)"
+        "\(Self.storagePrefix)\(scopedStorageKey(for: key))"
+    }
+
+    private func scopedStorageKey(for key: String) -> String {
+        storageScope.isEmpty ? key : "\(storageScope).\(key)"
     }
 
     private func encrypt<T: Encodable>(_ value: T) throws -> Data {
