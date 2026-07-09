@@ -797,68 +797,137 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private static func webExtensionCompatibilityBridgeScript() -> String {
         """
         const glideStoragePrefix = '__glide_webextension_' + glideExtensionID + '_';
-        window.browser = window.browser || {};
-        window.browser.runtime = window.browser.runtime || {};
-        window.browser.runtime.id = window.browser.runtime.id || glideExtensionID;
-        window.browser.runtime.getURL = window.browser.runtime.getURL || ((path = '') => 'glide-extension://' + glideExtensionID + '/' + String(path).replace(/^\\/+/, ''));
-        window.browser.runtime.sendMessage = window.browser.runtime.sendMessage || (() => Promise.resolve(undefined));
-        window.browser.storage = window.browser.storage || {};
-        window.browser.storage.local = window.browser.storage.local || {
-          get(keys) {
-            const read = (key) => {
-              const value = localStorage.getItem(glideStoragePrefix + key);
-              if (value === null) { return undefined; }
-              try { return JSON.parse(value); } catch (_) { return value; }
-            };
-            if (keys == null) {
-              const all = {};
-              for (let index = 0; index < localStorage.length; index += 1) {
-                const key = localStorage.key(index);
-                if (key && key.startsWith(glideStoragePrefix)) {
-                  all[key.slice(glideStoragePrefix.length)] = read(key.slice(glideStoragePrefix.length));
-                }
-              }
-              return Promise.resolve(all);
+        const glideMakeEvent = () => {
+          const listeners = new Set();
+          return {
+            addListener(listener) {
+              if (typeof listener === 'function') { listeners.add(listener); }
+            },
+            removeListener(listener) {
+              listeners.delete(listener);
+            },
+            hasListener(listener) {
+              return listeners.has(listener);
+            },
+            hasListeners() {
+              return listeners.size > 0;
+            },
+            __dispatch(...args) {
+              listeners.forEach((listener) => {
+                try { listener(...args); } catch (error) { console.warn('[Glide WebExtension event]', error); }
+              });
             }
-            if (typeof keys === 'string') {
-              return Promise.resolve({ [keys]: read(keys) });
-            }
-            if (Array.isArray(keys)) {
-              return Promise.resolve(keys.reduce((result, key) => {
-                result[key] = read(key);
-                return result;
-              }, {}));
-            }
-            return Promise.resolve(Object.keys(keys).reduce((result, key) => {
-              const value = read(key);
-              result[key] = value === undefined ? keys[key] : value;
-              return result;
-            }, {}));
-          },
-          set(items) {
-            Object.entries(items || {}).forEach(([key, value]) => {
-              localStorage.setItem(glideStoragePrefix + key, JSON.stringify(value));
-            });
-            return Promise.resolve();
-          },
-          remove(keys) {
-            (Array.isArray(keys) ? keys : [keys]).forEach((key) => localStorage.removeItem(glideStoragePrefix + key));
-            return Promise.resolve();
-          },
-          clear() {
-            const keys = [];
+          };
+        };
+        const glideResolveWithCallback = (promise, callback) => {
+          if (typeof callback === 'function') {
+            promise.then((value) => callback(value)).catch(() => callback(undefined));
+            return undefined;
+          }
+          return promise;
+        };
+        const glideReadStorage = (key) => {
+          const value = localStorage.getItem(glideStoragePrefix + key);
+          if (value === null) { return undefined; }
+          try { return JSON.parse(value); } catch (_) { return value; }
+        };
+        const glideStorageGet = (keys) => {
+          if (keys == null) {
+            const all = {};
             for (let index = 0; index < localStorage.length; index += 1) {
               const key = localStorage.key(index);
-              if (key && key.startsWith(glideStoragePrefix)) { keys.push(key); }
+              if (key && key.startsWith(glideStoragePrefix)) {
+                all[key.slice(glideStoragePrefix.length)] = glideReadStorage(key.slice(glideStoragePrefix.length));
+              }
             }
-            keys.forEach((key) => localStorage.removeItem(key));
-            return Promise.resolve();
+            return all;
+          }
+          if (typeof keys === 'string') {
+            return { [keys]: glideReadStorage(keys) };
+          }
+          if (Array.isArray(keys)) {
+            return keys.reduce((result, key) => {
+              result[key] = glideReadStorage(key);
+              return result;
+            }, {});
+          }
+          return Object.keys(keys).reduce((result, key) => {
+            const value = glideReadStorage(key);
+            result[key] = value === undefined ? keys[key] : value;
+            return result;
+          }, {});
+        };
+        const browserRoot = window.browser = window.browser || {};
+        browserRoot.runtime = browserRoot.runtime || {};
+        browserRoot.runtime.id = browserRoot.runtime.id || glideExtensionID;
+        browserRoot.runtime.lastError = browserRoot.runtime.lastError || null;
+        browserRoot.runtime.getURL = browserRoot.runtime.getURL || ((path = '') => 'glide-extension://' + glideExtensionID + '/' + String(path).replace(/^\\/+/, ''));
+        browserRoot.runtime.getManifest = browserRoot.runtime.getManifest || (() => ({
+          manifest_version: 3,
+          name: glideExtensionName,
+          version: '',
+          browser_specific_settings: { gecko: { id: glideExtensionID } }
+        }));
+        browserRoot.runtime.sendMessage = browserRoot.runtime.sendMessage || ((...args) => {
+          const callback = args.find((value) => typeof value === 'function');
+          return glideResolveWithCallback(Promise.resolve(undefined), callback);
+        });
+        browserRoot.runtime.onMessage = browserRoot.runtime.onMessage || glideMakeEvent();
+        browserRoot.runtime.onConnect = browserRoot.runtime.onConnect || glideMakeEvent();
+        browserRoot.i18n = browserRoot.i18n || {
+          getMessage(messageName, substitutions) {
+            if (Array.isArray(substitutions)) {
+              return substitutions.reduce((result, value, index) => result.replace('$' + (index + 1), value), String(messageName || ''));
+            }
+            if (substitutions != null) {
+              return String(messageName || '').replace('$1', String(substitutions));
+            }
+            return String(messageName || '');
           }
         };
-        window.chrome = window.chrome || window.browser;
+        browserRoot.storage = browserRoot.storage || {};
+        browserRoot.storage.onChanged = browserRoot.storage.onChanged || glideMakeEvent();
+        browserRoot.storage.local = browserRoot.storage.local || {};
+        browserRoot.storage.local.get = browserRoot.storage.local.get || ((keys, callback) => {
+          return glideResolveWithCallback(Promise.resolve(glideStorageGet(keys)), callback);
+        });
+        browserRoot.storage.local.set = browserRoot.storage.local.set || ((items, callback) => {
+          Object.entries(items || {}).forEach(([key, value]) => {
+            localStorage.setItem(glideStoragePrefix + key, JSON.stringify(value));
+          });
+          browserRoot.storage.onChanged.__dispatch({}, 'local');
+          return glideResolveWithCallback(Promise.resolve(), callback);
+        });
+        browserRoot.storage.local.remove = browserRoot.storage.local.remove || ((keys, callback) => {
+          (Array.isArray(keys) ? keys : [keys]).filter((key) => key != null).forEach((key) => {
+            localStorage.removeItem(glideStoragePrefix + key);
+          });
+          browserRoot.storage.onChanged.__dispatch({}, 'local');
+          return glideResolveWithCallback(Promise.resolve(), callback);
+        });
+        browserRoot.storage.local.clear = browserRoot.storage.local.clear || ((callback) => {
+          const keys = [];
+          for (let index = 0; index < localStorage.length; index += 1) {
+            const key = localStorage.key(index);
+            if (key && key.startsWith(glideStoragePrefix)) { keys.push(key); }
+          }
+          keys.forEach((key) => localStorage.removeItem(key));
+          browserRoot.storage.onChanged.__dispatch({}, 'local');
+          return glideResolveWithCallback(Promise.resolve(), callback);
+        });
+        browserRoot.tabs = browserRoot.tabs || {};
+        browserRoot.tabs.query = browserRoot.tabs.query || ((queryInfo, callback) => glideResolveWithCallback(Promise.resolve([]), callback));
+        browserRoot.tabs.sendMessage = browserRoot.tabs.sendMessage || ((tabID, message, options, callback) => {
+          const responseCallback = [message, options, callback].find((value) => typeof value === 'function');
+          return glideResolveWithCallback(Promise.resolve(undefined), responseCallback);
+        });
+        window.chrome = window.chrome || {};
+        window.chrome.runtime = window.chrome.runtime || browserRoot.runtime;
+        window.chrome.i18n = window.chrome.i18n || browserRoot.i18n;
+        window.chrome.storage = window.chrome.storage || browserRoot.storage;
+        window.chrome.tabs = window.chrome.tabs || browserRoot.tabs;
         """
     }
-
     private static func javascriptJSONLiteral<T: Encodable>(_ value: T) -> String {
         guard let data = try? JSONEncoder().encode(value),
               let literal = String(data: data, encoding: .utf8) else {

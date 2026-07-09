@@ -48,6 +48,7 @@ private struct BrowserLockView: View {
     @EnvironmentObject private var security: AppSecurityModel
     @State private var pin = ""
     @State private var confirmation = ""
+    @State private var isForgotPINAlertPresented = false
     @FocusState private var focusedField: LockField?
 
     private enum LockField {
@@ -168,6 +169,19 @@ private struct BrowserLockView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    if security.isConfigured {
+                        Button(role: .destructive) {
+                            isForgotPINAlertPresented = true
+                        } label: {
+                            Label("Forgot PIN?", systemImage: "exclamationmark.lock")
+                                .font(.system(size: 14, weight: .bold))
+                                .frame(maxWidth: 440)
+                                .frame(height: 42)
+                                .foregroundStyle(Color.white.opacity(0.72))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 24)
 
@@ -189,6 +203,17 @@ private struct BrowserLockView: View {
             if cleaned != value {
                 confirmation = cleaned
             }
+        }
+        .alert("Reset Glide vault?", isPresented: $isForgotPINAlertPresented) {
+            Button("Cancel", role: .cancel) {}
+            Button("Erase and Reset PIN", role: .destructive) {
+                security.resetForgottenPIN()
+                pin = ""
+                confirmation = ""
+                focusedField = .pin
+            }
+        } message: {
+            Text("This erases saved tabs, passwords, add-ons, settings, cookies, and local browser data. Use it only if the PIN is lost.")
         }
     }
 
@@ -1413,25 +1438,29 @@ private struct SideChrome: View {
 
             SearchTrigger(style: .sidebar)
 
-            NewTabActions(layout: .sidebar)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    NewTabActions(layout: .sidebar)
 
-            TabBarStyleControl(compact: false)
+                    TabBarStyleControl(compact: false)
 
-            if model.visibleEssentials.isEmpty == false {
-                EssentialsSection()
-            }
+                    if model.isPrivateModeEnabled == false {
+                        EssentialsSection()
+                    }
 
-            if model.isPrivateModeEnabled {
-                TabSection(title: "Private Mode", tabs: model.visiblePrivateTabs)
-            } else {
-                TabSection(title: "Tabs", tabs: model.visibleNormalTabs)
+                    if model.isPrivateModeEnabled {
+                        TabSection(title: "Private Mode", tabs: model.visiblePrivateTabs)
+                    } else {
+                        TabSection(title: "Tabs", tabs: model.visibleNormalTabs)
 
-                if model.visiblePrivateTabs.isEmpty == false {
-                    TabSection(title: "Private", tabs: model.visiblePrivateTabs)
+                        if model.visiblePrivateTabs.isEmpty == false {
+                            TabSection(title: "Private", tabs: model.visiblePrivateTabs)
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-
-            Spacer(minLength: 8)
+            .frame(maxHeight: .infinity)
 
             ChromeFooter()
         }
@@ -3345,16 +3374,29 @@ private struct MoreTabButton: View {
     var body: some View {
         Menu {
             Button {
+                model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
+            } label: {
+                Label(model.isPrivateModeEnabled ? "New Private Tab" : "New Tab", systemImage: model.isPrivateModeEnabled ? "theatermasks" : "plus")
+            }
+
+            Button {
+                model.isTabFinderPresented = true
+            } label: {
+                Label("Find Tabs", systemImage: "magnifyingglass")
+            }
+
+            Button {
                 model.requestPrivateModeToggle()
             } label: {
                 Label(model.isPrivateModeEnabled ? "Close Private Mode" : "Private Mode", systemImage: "lock.shield")
             }
 
-            Button(role: .destructive) {
-                model.requestCloseAllTabs()
+            Button {
+                model.isAddOnsPresented = true
             } label: {
-                Label("Close All Tabs", systemImage: "xmark.square")
+                Label("Extensions & Add-ons", systemImage: "puzzlepiece")
             }
+            .disabled(model.isPrivateModeEnabled)
 
             Divider()
 
@@ -3373,16 +3415,15 @@ private struct MoreTabButton: View {
             }
 
             Button {
-                model.isAddOnsPresented = true
-            } label: {
-                Label("Add-ons Library", systemImage: "puzzlepiece")
-            }
-            .disabled(model.isPrivateModeEnabled)
-
-            Button {
                 model.isSettingsPresented = true
             } label: {
-                Label("Customize More Menu", systemImage: "slider.horizontal.3")
+                Label("Settings", systemImage: "gearshape")
+            }
+
+            Button(role: .destructive) {
+                model.requestCloseAllTabs()
+            } label: {
+                Label("Close All Tabs", systemImage: "xmark.square")
             }
         } label: {
             BrowserIcon(slot: .more, systemName: "ellipsis", size: 18, weight: .black)
@@ -3401,7 +3442,7 @@ private struct MoreTabButton: View {
         BrowserToolbarAction.allCases
             .filter { $0.isLeanBuildUtility == false }
             .filter { model.isInMoreMenu($0) }
-            .filter { $0 != .closeAllTabs }
+            .filter { [.closeAllTabs, .settings, .tabFinder].contains($0) == false }
             .filter { action in
                 guard model.isPrivateModeEnabled else { return true }
                 return [.tabFolders, .containedTabs, .downloadCurrent, .history, .downloads].contains(action) == false
@@ -4011,39 +4052,73 @@ private struct TutorialDivider: View {
     }
 }
 
+private enum TabFinderScope: String, CaseIterable, Identifiable {
+    case all
+    case tabs
+    case essentials
+    case contained
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "All"
+        case .tabs:
+            return "Tabs"
+        case .essentials:
+            return "Essentials"
+        case .contained:
+            return "Contained"
+        }
+    }
+}
+
 private struct BrowserTabFinderView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var scope: TabFinderScope = .all
 
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 0) {
+                if availableScopes.count > 1 {
+                    scopePicker
+                }
+
                 if visibleTabCount == 0 {
                     VStack(spacing: 12) {
                         Image(systemName: "square.grid.2x2")
                             .font(.system(size: 34, weight: .semibold))
-                        Text(query.isEmpty ? "No tabs open" : "No matching tabs")
+                        Text(emptyTitle)
                             .font(.headline)
                     }
                     .foregroundStyle(theme.color(.mutedText))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(theme.color(.canvas))
                 } else {
                     List {
                         if model.isPrivateModeEnabled {
                             tabSection("Private Mode", tabs: filtered(model.visiblePrivateTabs), isContained: false)
                         } else {
-                            tabSection("Normal", tabs: filtered(model.normalTabs), isContained: false)
-                            tabSection("Private", tabs: filtered(model.visiblePrivateTabs), isContained: false)
-                            tabSection("Contained", tabs: filtered(model.containedTabs), isContained: true)
+                            if showsTabSections {
+                                tabSection("Normal", tabs: filtered(model.normalTabs), isContained: false)
+                            }
+
+                            if showsEssentials {
+                                essentialsSection(filteredEssentials)
+                            }
+
+                            if showsContainedTabs {
+                                tabSection("Contained", tabs: filtered(model.containedTabs), isContained: true)
+                            }
                         }
                     }
                     .scrollContentBackground(.hidden)
-                    .background(theme.color(.canvas))
                 }
             }
+            .background(theme.color(.canvas))
             .navigationTitle(model.isPrivateModeEnabled ? "Private Mode" : "Tab Finder")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find tabs")
             .toolbar {
@@ -4062,7 +4137,23 @@ private struct BrowserTabFinderView: View {
                     }
                 }
             }
+            .onAppear(perform: normalizeScope)
+            .onChange(of: model.isPrivateModeEnabled) { _, _ in
+                normalizeScope()
+            }
         }
+    }
+
+    private var scopePicker: some View {
+        Picker("Scope", selection: $scope) {
+            ForEach(availableScopes) { finderScope in
+                Text(finderScope.title).tag(finderScope)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(theme.color(.canvas))
     }
 
     @ViewBuilder
@@ -4096,12 +4187,89 @@ private struct BrowserTabFinderView: View {
         }
     }
 
+    @ViewBuilder
+    private func essentialsSection(_ items: [BrowserEssentialItem]) -> some View {
+        if items.isEmpty == false {
+            Section("Essentials (\(items.count))") {
+                ForEach(items) { item in
+                    EssentialFinderRow(item: item) {
+                        model.openEssential(item)
+                        dismiss()
+                    } openInNewTabAction: {
+                        model.openEssentialInNewTab(item)
+                        dismiss()
+                    } removeAction: {
+                        model.removeEssential(item)
+                    }
+                    .listRowBackground(theme.color(.surface))
+                }
+            }
+        }
+    }
+
     private var visibleTabCount: Int {
         if model.isPrivateModeEnabled {
             return filtered(model.visiblePrivateTabs).count
         }
 
-        return filtered(model.normalTabs).count + filtered(model.visiblePrivateTabs).count + filtered(model.containedTabs).count
+        var count = 0
+        if showsTabSections {
+            count += filtered(model.normalTabs).count
+        }
+        if showsEssentials {
+            count += filteredEssentials.count
+        }
+        if showsContainedTabs {
+            count += filtered(model.containedTabs).count
+        }
+        return count
+    }
+
+    private var availableScopes: [TabFinderScope] {
+        model.isPrivateModeEnabled ? [.all] : TabFinderScope.allCases
+    }
+
+    private var showsTabSections: Bool {
+        scope == .all || scope == .tabs
+    }
+
+    private var showsEssentials: Bool {
+        model.isPrivateModeEnabled == false && (scope == .all || scope == .essentials)
+    }
+
+    private var showsContainedTabs: Bool {
+        model.isPrivateModeEnabled == false && (scope == .all || scope == .contained)
+    }
+
+    private var emptyTitle: String {
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "No matching items"
+        }
+
+        switch scope {
+        case .essentials:
+            return "No essentials yet"
+        case .contained:
+            return "No contained tabs"
+        default:
+            return "No tabs open"
+        }
+    }
+
+    private var filteredEssentials: [BrowserEssentialItem] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmedQuery.isEmpty == false else { return model.visibleEssentials }
+
+        return model.visibleEssentials.filter { item in
+            [
+                item.title,
+                item.urlString,
+                item.url?.host ?? ""
+            ]
+            .joined(separator: " ")
+            .lowercased()
+            .contains(trimmedQuery)
+        }
     }
 
     private func filtered(_ tabs: [BrowserTab]) -> [BrowserTab] {
@@ -4109,9 +4277,21 @@ private struct BrowserTabFinderView: View {
         guard trimmedQuery.isEmpty == false else { return tabs }
 
         return tabs.filter { tab in
-            tab.title.lowercased().contains(trimmedQuery) ||
-            (tab.url?.absoluteString.lowercased().contains(trimmedQuery) ?? false)
+            [
+                tab.title,
+                tab.url?.absoluteString ?? "",
+                tab.url?.host ?? "",
+                model.folderName(for: tab) ?? ""
+            ]
+            .joined(separator: " ")
+            .lowercased()
+            .contains(trimmedQuery)
         }
+    }
+
+    private func normalizeScope() {
+        guard availableScopes.contains(scope) == false else { return }
+        scope = .all
     }
 }
 
@@ -4285,6 +4465,66 @@ private struct FolderTabRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct EssentialFinderRow: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let item: BrowserEssentialItem
+    let selectAction: () -> Void
+    let openInNewTabAction: () -> Void
+    let removeAction: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: selectAction) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(theme.color(.createTab).opacity(0.28))
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(theme.color(.text))
+                    }
+                    .frame(width: 36, height: 36)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(theme.color(.text))
+                            .lineLimit(1)
+
+                        Text(item.url?.host ?? item.urlString)
+                            .font(.caption)
+                            .foregroundStyle(theme.color(.mutedText))
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: openInNewTabAction) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.color(.mutedText))
+            .accessibilityLabel("Open \(item.title) in a new tab")
+
+            Button(role: .destructive, action: removeAction) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.color(.mutedText))
+            .accessibilityLabel("Remove \(item.title) from Essentials")
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -5333,17 +5573,73 @@ private struct EssentialsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                BrowserIcon(slot: .essentials, systemName: "sparkle", size: 12, weight: .black)
+                BrowserIcon(slot: .essentials, systemName: "pin.fill", size: 12, weight: .black)
                     .frame(width: 16, height: 16)
                 Text("ESSENTIALS")
                     .font(.caption2.weight(.bold))
                 Spacer(minLength: 0)
+                Text("\(model.visibleEssentials.count)")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(theme.color(.canvas))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(ButtonGradientBackground(cornerRadius: 5, prominence: .primary))
+
+                if let currentTab = model.selectedTab, currentTab.isPrivate == false {
+                    Button {
+                        model.addEssential(from: currentTab)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .black))
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.color(.text))
+                    .background(ControlGlassBackground(cornerRadius: 6))
+                    .accessibilityLabel("Add current tab to Essentials")
+                }
             }
             .foregroundStyle(theme.color(.mutedText))
             .padding(.horizontal, 4)
 
-            ForEach(model.essentials) { item in
-                EssentialPill(item: item, layout: .vertical)
+            if model.visibleEssentials.isEmpty {
+                Button {
+                    if let currentTab = model.selectedTab {
+                        model.addEssential(from: currentTab)
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(theme.color(.accent))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Add current tab")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(theme.color(.text))
+                            Text("Pin it here for quick access")
+                                .font(.caption2)
+                                .foregroundStyle(theme.color(.mutedText))
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 48)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(model.selectedTab?.isPrivate != false)
+                .background(ControlGlassBackground(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(theme.color(.border).opacity(0.45), lineWidth: 1)
+                }
+            } else {
+                ForEach(model.visibleEssentials) { item in
+                    EssentialPill(item: item, layout: .vertical)
+                }
             }
         }
     }
@@ -5365,7 +5661,7 @@ private struct EssentialPill: View {
             model.openEssential(item)
         } label: {
             HStack(spacing: 10) {
-                BrowserIcon(slot: .essentials, systemName: "sparkle", size: 12, weight: .bold)
+                BrowserIcon(slot: .essentials, systemName: "pin.fill", size: 12, weight: .bold)
                     .frame(width: 28, height: 28)
                     .foregroundStyle(theme.color(.canvas))
                     .background(ButtonGradientBackground(cornerRadius: 7, prominence: .primary))
@@ -5399,6 +5695,12 @@ private struct EssentialPill: View {
                 .stroke(theme.color(.createTab).opacity(0.38), lineWidth: 1)
         }
         .contextMenu {
+            Button {
+                model.openEssentialInNewTab(item)
+            } label: {
+                Label("Open in New Tab", systemImage: "plus.square.on.square")
+            }
+
             Button(role: .destructive) {
                 model.removeEssential(item)
             } label: {
@@ -6861,7 +7163,7 @@ private struct AddOnsLibraryView: View {
             Form {
                 Section("Installed Add-ons") {
                     if model.installedWebExtensions.isEmpty {
-                        Text("No Firefox add-ons installed.")
+                        Text("No add-ons installed.")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(theme.color(.mutedText))
                     } else {
@@ -6894,7 +7196,7 @@ private struct AddOnsLibraryView: View {
                     Button {
                         isWebExtensionImporterPresented = true
                     } label: {
-                        Label("Install Firefox Add-on File", systemImage: "square.and.arrow.down")
+                        Label("Install Add-on File", systemImage: "square.and.arrow.down")
                     }
 
                     ForEach(BrowserAddOnLibrary.allCases) { library in
@@ -6936,7 +7238,7 @@ private struct AddOnsLibraryView: View {
                 }
 
                 Section("Compatibility") {
-                    Text("Glide installs Firefox .xpi and .zip packages that use WebExtension content scripts. Background pages and full Gecko-only APIs need a bundled Gecko engine through BrowserEngineKit.")
+                    Text("Glide imports Firefox .xpi, Chrome/Brave .crx, .zip, and manifest.json packages when they include WebExtension content scripts. Background pages, native messaging, and full desktop-only APIs are not available in the WKWebView build.")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.color(.mutedText))
                 }

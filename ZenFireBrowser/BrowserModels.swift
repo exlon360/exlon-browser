@@ -57,7 +57,7 @@ struct BrowserWebExtension: Codable, Identifiable, Equatable {
         }
         let versionText = version.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefix = versionText.isEmpty ? "Installed" : "Version \(versionText)"
-        return "\(prefix) - \(scriptCount) content file\(scriptCount == 1 ? "" : "s")"
+        return "\(prefix) - \(scriptCount) content file\(scriptCount == 1 ? "" : "s") - content-script mode"
     }
 
     var supportedScriptCount: Int {
@@ -116,7 +116,7 @@ enum BrowserWebExtensionInstallError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedFile:
-            return "Choose a Firefox .xpi, .zip, or manifest.json file."
+            return "Choose a Firefox .xpi, Chrome or Brave .crx, .zip, or manifest.json file."
         case .packageTooLarge:
             return "That add-on package is too large for Glide's WebExtension importer."
         case .invalidPackage:
@@ -149,11 +149,12 @@ enum BrowserWebExtensionPackageReader {
             return try installableExtensionFromManifest(data, sourceFilename: sourceFilename)
         }
 
-        guard lowercasedName.hasSuffix(".xpi") || lowercasedName.hasSuffix(".zip") else {
+        guard lowercasedName.hasSuffix(".xpi") || lowercasedName.hasSuffix(".zip") || lowercasedName.hasSuffix(".crx") else {
             throw BrowserWebExtensionInstallError.unsupportedFile
         }
 
-        let archive = try BrowserZipArchive(data: data)
+        let archiveData = lowercasedName.hasSuffix(".crx") ? try crxZipPayload(from: data) : data
+        let archive = try BrowserZipArchive(data: archiveData)
         guard let manifestData = try archive.data(for: "manifest.json") else {
             throw BrowserWebExtensionInstallError.missingManifest
         }
@@ -241,6 +242,39 @@ enum BrowserWebExtensionPackageReader {
                 allFrames: script.allFrames ?? false
             )
         }
+    }
+
+    private static func crxZipPayload(from data: Data) throws -> Data {
+        guard data.count >= 12,
+              data[0] == 0x43,
+              data[1] == 0x72,
+              data[2] == 0x32,
+              data[3] == 0x34 else {
+            throw BrowserWebExtensionInstallError.invalidPackage
+        }
+
+        let version = data.uint32LE(at: 4)
+        let zipStart: Int
+        switch version {
+        case 2:
+            guard data.count >= 16 else { throw BrowserWebExtensionInstallError.invalidPackage }
+            let publicKeyLength = Int(data.uint32LE(at: 8))
+            let signatureLength = Int(data.uint32LE(at: 12))
+            zipStart = 16 + publicKeyLength + signatureLength
+        case 3:
+            let headerLength = Int(data.uint32LE(at: 8))
+            zipStart = 12 + headerLength
+        default:
+            throw BrowserWebExtensionInstallError.invalidPackage
+        }
+
+        guard zipStart >= 0,
+              zipStart + 4 <= data.count,
+              data.uint32LE(at: zipStart) == 0x04034b50 else {
+            throw BrowserWebExtensionInstallError.invalidPackage
+        }
+
+        return Data(data[zipStart..<data.count])
     }
 }
 

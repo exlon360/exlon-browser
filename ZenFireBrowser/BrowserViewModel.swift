@@ -409,6 +409,8 @@ enum BrowserPrivateModeAuthAction: Equatable {
 
 enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
     case firefox
+    case chrome
+    case brave
 
     var id: String { rawValue }
 
@@ -416,6 +418,10 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return "Firefox Add-ons"
+        case .chrome:
+            return "Chrome Web Store"
+        case .brave:
+            return "Brave Extensions"
         }
     }
 
@@ -423,6 +429,10 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return "Browse Mozilla's extension and theme library."
+        case .chrome:
+            return "Browse Chromium WebExtension packages."
+        case .brave:
+            return "Brave uses Chrome Web Store extensions."
         }
     }
 
@@ -430,6 +440,10 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return "flame"
+        case .chrome:
+            return "circle.hexagongrid"
+        case .brave:
+            return "shield.lefthalf.filled"
         }
     }
 
@@ -437,6 +451,10 @@ enum BrowserAddOnLibrary: String, CaseIterable, Identifiable {
         switch self {
         case .firefox:
             return URL(string: "https://addons.mozilla.org/firefox/")!
+        case .chrome:
+            return URL(string: "https://chromewebstore.google.com/category/extensions")!
+        case .brave:
+            return URL(string: "https://chromewebstore.google.com/category/extensions")!
         }
     }
 }
@@ -2189,6 +2207,11 @@ final class BrowserViewModel: ObservableObject {
     func openEssential(_ item: BrowserEssentialItem) {
         guard let url = item.url else { return }
         selectedTab?.load(url)
+    }
+
+    func openEssentialInNewTab(_ item: BrowserEssentialItem) {
+        guard let url = item.url else { return }
+        openTab(startURL: url)
     }
 
     func removeEssential(_ item: BrowserEssentialItem) {

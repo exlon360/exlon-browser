@@ -80,6 +80,21 @@ final class SecureBrowserVault {
         return defaults.data(forKey: verifierKey) != nil && defaults.data(forKey: saltKey) != nil
     }
 
+    static func resetLocalVaultAndBrowserData() {
+        let defaults = UserDefaults.standard
+        let keysToRemove = defaults.dictionaryRepresentation().keys.filter { key in
+            key == verifierKey ||
+            key == saltKey ||
+            key.hasPrefix(storagePrefix) ||
+            key.hasPrefix("ZenFireBrowser.")
+        }
+
+        keysToRemove.forEach { defaults.removeObject(forKey: $0) }
+        SecItemDelete(keychainBaseQuery() as CFDictionary)
+        purgeAllWebKitWebsiteData()
+        removeUnencryptedCacheFiles()
+    }
+
     static func setup(pin: String, confirmation: String) throws -> SecureBrowserVault {
         let trimmedPIN = pin.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedPIN.count >= 4 else { throw SecureBrowserVaultError.pinTooShort }
@@ -339,6 +354,11 @@ final class SecureBrowserVault {
         store.removeData(ofTypes: cacheTypes, modifiedSince: .distantPast) {}
     }
 
+    private static func purgeAllWebKitWebsiteData() {
+        let store = WKWebsiteDataStore.default()
+        store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
+    }
+
     private static func removeUnencryptedCacheFiles() {
         let fileManager = FileManager.default
         let roots = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
@@ -430,6 +450,14 @@ final class AppSecurityModel: ObservableObject {
     func lock() {
         vault = nil
         message = "Locked."
+    }
+
+    func resetForgottenPIN() {
+        SecureBrowserVault.resetLocalVaultAndBrowserData()
+        vault = nil
+        message = "Vault reset. Create a new PIN."
+        refreshBiometricAvailability()
+        refreshCrashLogs()
     }
 
     var hasUnreadCrashLogs: Bool {
