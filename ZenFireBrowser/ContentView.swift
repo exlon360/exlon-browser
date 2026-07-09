@@ -424,31 +424,32 @@ private struct BrowserShell: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let virtualSize = proxy.size
+            let visibleSize = proxy.size
+            let layoutSize = browserLayoutSize(for: visibleSize)
 
             ZStack {
                 BrowserBackground()
 
                 ZStack {
                 let experience = GlideDeviceExperience.resolve(
-                    for: virtualSize,
+                    for: layoutSize,
                     override: model.effectiveDeviceExperienceOverride
                 )
                 PhoneExperienceSyncView(isPhoneExperience: experience == .phone)
 
                 if isDesktopZenModeActive {
                     DesktopZenBrowserLayout(
-                        sideWidth: sideWidth(for: virtualSize, experience: experience),
-                        containerWidth: virtualSize.width,
+                        sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience),
+                        containerWidth: layoutSize.width,
                         experience: experience,
                         isChromeHovered: $isDesktopZenChromeHovered
                     )
                 } else {
                     switch model.chromePlacement {
                     case .left:
-                        SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: virtualSize, experience: experience), containerWidth: virtualSize.width, experience: experience)
+                        SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience), containerWidth: layoutSize.width, experience: experience)
                     case .right:
-                        SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: virtualSize, experience: experience), containerWidth: virtualSize.width, experience: experience)
+                        SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience), containerWidth: layoutSize.width, experience: experience)
                     case .top:
                         ZStack(alignment: .top) {
                             BrowserContent()
@@ -475,8 +476,8 @@ private struct BrowserShell: View {
                 }
 
                 MovableBrowserPageControls(
-                    containerSize: virtualSize,
-                    defaultLeading: pageControlsLeadingPadding(for: virtualSize, experience: experience),
+                    containerSize: visibleSize,
+                    defaultLeading: pageControlsLeadingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience),
                     defaultTop: pageControlsTopPadding
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -490,7 +491,7 @@ private struct BrowserShell: View {
 
                 if model.isTopSearchBarEnabled {
                     MovableTopSearchBar(
-                        containerSize: virtualSize,
+                        containerSize: visibleSize,
                         topInset: topSearchBarTopPadding,
                         bottomInset: topSearchBarBottomPadding,
                         experience: experience
@@ -557,7 +558,6 @@ private struct BrowserShell: View {
 
                 BrowserKeyboardShortcutHost()
                 }
-                .frame(width: virtualSize.width, height: virtualSize.height)
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
                 .clipped()
@@ -572,7 +572,7 @@ private struct BrowserShell: View {
             .sheet(isPresented: $model.isSettingsPresented) {
                 BrowserSettingsView(
                     currentExperience: GlideDeviceExperience.resolve(
-                        for: virtualSize,
+                        for: layoutSize,
                         override: model.effectiveDeviceExperienceOverride
                     )
                 )
@@ -719,22 +719,33 @@ private struct BrowserShell: View {
         return model.areSideTabsCollapsed == false
     }
 
-    private func sideWidth(for size: CGSize, experience: GlideDeviceExperience) -> CGFloat {
-        if experience == .phone {
-            return max(1, size.width)
+    private func browserLayoutSize(for visibleSize: CGSize) -> CGSize {
+        guard model.browserResolutionPreset != .automatic else {
+            return visibleSize
         }
 
-        let width = size.width * CGFloat(model.sideChromeWidthFraction)
-        return min(max(width, 286), min(size.width - 120, 520))
+        let width = CGFloat(BrowserResolutionPreset.clampedSliderWidth(model.browserResolutionWidth))
+        let height = CGFloat(BrowserResolutionPreset.sliderHeight(forWidth: model.browserResolutionWidth))
+        return CGSize(width: max(width, 1), height: max(height, visibleSize.height))
     }
 
-    private func pageControlsLeadingPadding(for size: CGSize, experience: GlideDeviceExperience) -> CGFloat {
+    private func sideWidth(for visibleSize: CGSize, layoutSize: CGSize, experience: GlideDeviceExperience) -> CGFloat {
+        if experience == .phone {
+            return max(1, visibleSize.width)
+        }
+
+        let width = layoutSize.width * CGFloat(model.sideChromeWidthFraction)
+        let visibleLimit = max(240, visibleSize.width - 36)
+        return min(max(width, 286), min(visibleLimit, 520))
+    }
+
+    private func pageControlsLeadingPadding(for visibleSize: CGSize, layoutSize: CGSize, experience: GlideDeviceExperience) -> CGFloat {
         if experience == .phone {
             return 14
         }
 
         if chromeIsVisible(for: .left) {
-            return sideWidth(for: size, experience: experience) + 18
+            return sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience) + 18
         }
         return 14
     }
@@ -5854,7 +5865,11 @@ private struct WebsiteResolutionControl: View {
                 Slider(
                     value: Binding(
                         get: { displayedResolutionWidth },
-                        set: { draftResolutionWidth = BrowserResolutionPreset.clampedSliderWidth($0) }
+                        set: { value in
+                            let width = BrowserResolutionPreset.clampedSliderWidth(value)
+                            draftResolutionWidth = width
+                            model.previewBrowserResolutionWidth(width)
+                        }
                     ),
                     in: BrowserResolutionPreset.minimumSliderWidth...BrowserResolutionPreset.maximumSliderWidth,
                     step: BrowserResolutionPreset.sliderStep,

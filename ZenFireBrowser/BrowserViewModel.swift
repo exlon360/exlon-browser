@@ -2527,6 +2527,15 @@ final class BrowserViewModel: ObservableObject {
         )
     }
 
+    func previewBrowserResolutionWidth(_ width: Double) {
+        let clampedWidth = BrowserResolutionPreset.clampedSliderWidth(width)
+        browserResolutionWidth = clampedWidth
+        browserResolutionPreset = .custom
+        if Self.deviceExperienceOverride(forBrowserResolutionWidth: clampedWidth) == .iPad {
+            areSideTabsCollapsed = false
+        }
+    }
+
     private func applyBrowserResolution(
         preset: BrowserResolutionPreset,
         width: Double,
