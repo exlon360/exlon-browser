@@ -676,6 +676,106 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     }
 }
 
+struct BrowserBang: Codable, Identifiable, Equatable {
+    var id: UUID
+    var shortcut: String
+    var name: String
+    var urlTemplate: String
+
+    init(id: UUID = UUID(), shortcut: String, name: String, urlTemplate: String) {
+        self.id = id
+        self.shortcut = Self.sanitizedShortcut(shortcut)
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.urlTemplate = urlTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var displayShortcut: String {
+        "!\(shortcut)"
+    }
+
+    var isUsable: Bool {
+        shortcut.isEmpty == false && normalizedTemplate != nil
+    }
+
+    func searchURL(for query: String) -> URL? {
+        guard let template = normalizedTemplate else { return nil }
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: Self.queryAllowedCharacters) ?? query
+        let rawURL: String
+        if template.contains("{query}") {
+            rawURL = template.replacingOccurrences(of: "{query}", with: encodedQuery)
+        } else {
+            rawURL = "\(template)\(template.contains("?") ? "&" : "?")q=\(encodedQuery)"
+        }
+        return URL(string: rawURL)
+    }
+
+    static func resolvedDestination(for rawValue: String, bangs: [BrowserBang]) -> (bang: BrowserBang, query: String, url: URL)? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+        guard let command = parts.first,
+              command.hasPrefix("!"),
+              command.count > 1 else { return nil }
+
+        let shortcut = sanitizedShortcut(String(command.dropFirst()))
+        guard let bang = bangs.first(where: { $0.shortcut.caseInsensitiveCompare(shortcut) == .orderedSame }),
+              bang.isUsable else { return nil }
+        let query = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        guard let url = bang.searchURL(for: query) else { return nil }
+        return (bang, query, url)
+    }
+
+    static func normalized(_ values: [BrowserBang]) -> [BrowserBang] {
+        var seen = Set<String>()
+        return values.compactMap { rawBang in
+            let bang = BrowserBang(
+                id: rawBang.id,
+                shortcut: rawBang.shortcut,
+                name: rawBang.name,
+                urlTemplate: rawBang.urlTemplate
+            )
+            guard bang.shortcut.isEmpty == false,
+                  seen.insert(bang.shortcut).inserted else { return nil }
+            return bang
+        }
+        .prefix(32)
+        .map { $0 }
+    }
+
+    static func sanitizedShortcut(_ rawValue: String) -> String {
+        String(
+            rawValue
+                .lowercased()
+                .filter { $0.isLetter || $0.isNumber || $0 == "-" }
+                .prefix(16)
+        )
+    }
+
+    static let defaults: [BrowserBang] = [
+        BrowserBang(shortcut: "g", name: "Google", urlTemplate: "https://www.google.com/search?q={query}"),
+        BrowserBang(shortcut: "yt", name: "YouTube", urlTemplate: "https://www.youtube.com/results?search_query={query}"),
+        BrowserBang(shortcut: "w", name: "Wikipedia", urlTemplate: "https://en.wikipedia.org/w/index.php?search={query}"),
+        BrowserBang(shortcut: "gh", name: "GitHub", urlTemplate: "https://github.com/search?q={query}"),
+        BrowserBang(shortcut: "maps", name: "Maps", urlTemplate: "https://www.google.com/maps/search/{query}")
+    ]
+
+    private var normalizedTemplate: String? {
+        let trimmed = urlTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return nil }
+        let value = trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://")
+            ? trimmed
+            : "https://\(trimmed)"
+        let validationValue = value.replacingOccurrences(of: "{query}", with: "test")
+        guard let url = URL(string: validationValue), url.host != nil else { return nil }
+        return value
+    }
+
+    private static let queryAllowedCharacters: CharacterSet = {
+        var characters = CharacterSet.alphanumerics
+        characters.insert(charactersIn: "-._~")
+        return characters
+    }()
+}
+
 enum BrowserDarkReaderTheme: String, CaseIterable, Identifiable {
     case zenCopy
     case catppuccinMocha
@@ -1206,6 +1306,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var twoFingerDoubleTapCompactOnIPad: Bool?
     var searchEngine: String
     var customSearchTemplate: String
+    var bangs: [BrowserBang]?
     var newTabOpensSearch: Bool?
     var autoCompactAfterSearchOnPhone: Bool?
     var darkReaderTheme: String?

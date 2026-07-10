@@ -492,7 +492,7 @@ private struct BrowserShell: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                if model.isTopSearchBarEnabled {
+                if model.isTopSearchBarEnabled && usesIntegratedTopToolbar == false {
                     MovableBrowserToolbar(
                         containerSize: layoutSize,
                         topInset: topSearchBarTopPadding,
@@ -500,6 +500,14 @@ private struct BrowserShell: View {
                         experience: experience
                     )
                         .transition(topSearchBarTransition)
+                }
+
+                if showsDetachedCompactControl {
+                    BrandMark()
+                        .padding(.leading, 14)
+                        .padding(.top, 14)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .zIndex(20)
                 }
 
                 if model.isTopSearchBarMoveMode {
@@ -746,13 +754,29 @@ private struct BrowserShell: View {
 
     private func pageControlsLeadingPadding(for visibleSize: CGSize, layoutSize: CGSize, experience: GlideDeviceExperience) -> CGFloat {
         if experience == .phone {
-            return 14
+            return showsDetachedCompactControl ? 62 : 14
         }
 
         if chromeIsVisible(for: .left) {
             return sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience) + 18
         }
-        return 14
+        return showsDetachedCompactControl ? 62 : 14
+    }
+
+    private var usesIntegratedTopToolbar: Bool {
+        isDesktopZenModeActive == false
+            && model.chromePlacement == .top
+            && model.areSideTabsCollapsed == false
+    }
+
+    private var showsDetachedCompactControl: Bool {
+        if isDesktopZenModeActive {
+            return isDesktopZenChromeVisible == false
+        }
+        if model.areSideTabsCollapsed {
+            return true
+        }
+        return model.chromePlacement != .left && model.chromePlacement != .top
     }
 
     private var pageControlsTopPadding: CGFloat {
@@ -1770,9 +1794,9 @@ private struct TraditionalTopChrome: View {
                 TabBarStyleControl(compact: true)
             }
 
-            HStack(spacing: 10) {
-                SearchTrigger(style: .bar)
-                ChromeFooter()
+            if model.isTopSearchBarEnabled {
+                BrowserTopToolbar(autoCompactOnSubmit: false)
+                    .frame(maxWidth: .infinity)
             }
         }
     }
@@ -2163,19 +2187,29 @@ private struct ChromeGlassBackground: View {
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.ultraThinMaterial)
-            .opacity(materialOpacity)
+            .opacity(theme.chromeMaterialOpacity)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(theme.color(.chrome).opacity(chromeOpacity))
+                    .fill(theme.color(.chrome).opacity(theme.chromeGradientOpacity))
             }
             .overlay {
-                TokenGradientField(token: .chrome, opacity: 0.26, includesCustomColors: true)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(stops: theme.gradientStops(for: .chrome)),
+                            startPoint: theme.gradientStartPoint(for: .chrome),
+                            endPoint: theme.gradientEndPoint(for: .chrome)
+                        )
+                    )
+                    .opacity(theme.chromeGradientOpacity * 0.82)
+            }
+            .overlay {
+                TokenGradientField(token: .chrome, opacity: 0.58 * theme.chromeGradientOpacity, includesCustomColors: true)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .opacity(materialOpacity)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 * materialOpacity : 0))
+                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.22 * theme.chromeGradientOpacity : 0))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -2190,16 +2224,8 @@ private struct ChromeGlassBackground: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .opacity(materialOpacity)
+                    .opacity(theme.chromeGradientOpacity)
             }
-    }
-
-    private var chromeOpacity: Double {
-        theme.tabBarOpacity
-    }
-
-    private var materialOpacity: Double {
-        theme.isTabBarTransparencyEnabled ? max(0.0, 1.0 - theme.tabBarTransparency) : 1.0
     }
 }
 
@@ -2209,19 +2235,29 @@ private struct FloatingChromeBackground: View {
     var body: some View {
         Capsule()
             .fill(.ultraThinMaterial)
-            .opacity(materialOpacity)
+            .opacity(theme.chromeMaterialOpacity)
             .overlay {
                 Capsule()
-                    .fill(theme.color(.chrome).opacity(chromeOpacity))
+                    .fill(theme.color(.chrome).opacity(theme.chromeGradientOpacity))
             }
             .overlay {
-                TokenGradientField(token: .chrome, opacity: 0.26, includesCustomColors: true)
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(stops: theme.gradientStops(for: .chrome)),
+                            startPoint: theme.gradientStartPoint(for: .chrome),
+                            endPoint: theme.gradientEndPoint(for: .chrome)
+                        )
+                    )
+                    .opacity(theme.chromeGradientOpacity * 0.82)
+            }
+            .overlay {
+                TokenGradientField(token: .chrome, opacity: 0.58 * theme.chromeGradientOpacity, includesCustomColors: true)
                     .clipShape(Capsule())
-                    .opacity(materialOpacity)
             }
             .overlay {
                 Capsule()
-                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.34 * materialOpacity : 0))
+                    .fill(Color.black.opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.22 * theme.chromeGradientOpacity : 0))
             }
             .overlay {
                 Capsule()
@@ -2236,16 +2272,8 @@ private struct FloatingChromeBackground: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .opacity(materialOpacity)
+                    .opacity(theme.chromeGradientOpacity)
             }
-    }
-
-    private var chromeOpacity: Double {
-        theme.tabBarOpacity
-    }
-
-    private var materialOpacity: Double {
-        theme.isTabBarTransparencyEnabled ? max(0.0, 1.0 - theme.tabBarTransparency) : 1.0
     }
 }
 
@@ -2379,6 +2407,11 @@ private struct TabBarStyleControl: View {
                 Slider(value: $theme.tabBarTransparency, in: 0...1.0)
                     .disabled(theme.isTabBarTransparencyEnabled == false)
 
+                ColorPicker("Chrome color", selection: theme.binding(for: .chrome), supportsOpacity: false)
+                ColorPicker("Chrome glow", selection: theme.gradientBinding(for: .chrome), supportsOpacity: false)
+
+                ChromeAppearancePreview()
+
                 HStack(spacing: 8) {
                     Button("Solid") {
                         theme.isTabBarTransparencyEnabled = false
@@ -2454,6 +2487,31 @@ private struct TabBarStyleControl: View {
                 theme.setUserBackground(from: url)
             }
         }
+    }
+}
+
+private struct ChromeAppearancePreview: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "chevron.left")
+            Image(systemName: "chevron.right")
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(theme.color(.field).opacity(0.5))
+                .frame(height: 22)
+            Image(systemName: "ellipsis")
+        }
+        .font(.system(size: 11, weight: .bold))
+        .foregroundStyle(theme.chromeForegroundColor)
+        .padding(.horizontal, 10)
+        .frame(height: 42)
+        .background(ChromeGlassBackground(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.52), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -4834,12 +4892,12 @@ private struct GlideFeatureUpdateView: View {
                         .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
 
                     VStack(spacing: 8) {
-                        Text("Toolbar & Folders")
+                        Text("Search, Chrome & Tabs")
                             .font(.system(size: 38, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)
 
-                        Text("Navigation, extensions, and the three-dot menu now live together. Folders moved into the sidebar.")
+                        Text("Faster search shortcuts, a fully controllable chrome surface, and a customizable All Tabs workspace.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .multilineTextAlignment(.center)
@@ -4849,38 +4907,38 @@ private struct GlideFeatureUpdateView: View {
                 .padding(.horizontal, 22)
 
                 VStack(spacing: 12) {
-                    GlideFeatureUpdateSection(title: "Toolbar", symbol: "menubar.rectangle") {
+                    GlideFeatureUpdateSection(title: "Search", symbol: "magnifyingglass") {
                         TutorialFeatureRow(
-                            symbol: "hand.draw",
-                            title: "Movable Toolbar",
-                            detail: "Drag the whole toolbar, then drag tools left or right to reorder them.",
+                            symbol: "bolt.fill",
+                            title: "Custom !Bangs",
+                            detail: "Create shortcuts such as !yt and use them from every address bar.",
                             tint: .accent
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "puzzlepiece",
-                            title: "Extensions Access",
-                            detail: "Installed extensions and the add-ons library are one tap from the toolbar.",
+                            symbol: "magnifyingglass.circle.fill",
+                            title: "Searchable Settings",
+                            detail: "Jump directly to appearance, privacy, tabs, Gliders, tools, and extensions.",
                             tint: .accent
                         )
                     }
 
-                    GlideFeatureUpdateSection(title: "Sidebar", symbol: "sidebar.left") {
+                    GlideFeatureUpdateSection(title: "Chrome & Tabs", symbol: "menubar.rectangle") {
                         TutorialFeatureRow(
-                            symbol: "folder.fill",
-                            title: "Zen-Style Folders",
-                            detail: "Folders expand inline, and tabs can be dropped directly onto them.",
+                            symbol: "paintpalette.fill",
+                            title: "Live Chrome Color",
+                            detail: "Chrome color, per-surface gradients, and transparency now update together.",
                             tint: .createTab
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "slider.horizontal.3",
-                            title: "Tool Placement",
-                            detail: "Put each action in the Toolbar, 3-Dot menu, or hide it.",
+                            symbol: "square.grid.2x2.fill",
+                            title: "Custom All Tabs",
+                            detail: "Choose grid or list, density, sort order, and which tab groups appear.",
                             tint: .createTab
                         )
                     }
@@ -4897,7 +4955,7 @@ private struct GlideFeatureUpdateView: View {
                             model.isSettingsPresented = true
                         }
                     } label: {
-                        Label("Customize Toolbar", systemImage: "slider.horizontal.3")
+                        Label("Explore Settings", systemImage: "slider.horizontal.3")
                             .frame(maxWidth: 560)
                     }
                     .buttonStyle(GlideGradientButtonStyle(prominence: .primary, minHeight: 52, cornerRadius: 14))
@@ -4958,14 +5016,16 @@ private struct BrowserAllTabsWorkspace: View {
                                 isContained: false
                             )
 
-                            tabSection(
-                                title: "Contained Tabs",
-                                symbol: "rectangle.on.rectangle",
-                                tabs: filtered(model.containedTabs),
-                                isContained: true
-                            )
+                            if model.allTabsShowsContainedTabs {
+                                tabSection(
+                                    title: "Contained Tabs",
+                                    symbol: "rectangle.on.rectangle",
+                                    tabs: filtered(model.containedTabs),
+                                    isContained: true
+                                )
+                            }
 
-                            if model.privateTabs.isEmpty == false && trimmedQuery.isEmpty {
+                            if model.allTabsShowsPrivateSummary && model.privateTabs.isEmpty == false && trimmedQuery.isEmpty {
                                 lockedPrivateSection
                             }
                         }
@@ -5005,6 +5065,8 @@ private struct BrowserAllTabsWorkspace: View {
 
             Spacer(minLength: 0)
 
+            AllTabsCustomizationButton()
+
             Button {
                 model.isTabFinderPresented = false
                 model.openNewTabAndSearch(private: model.isPrivateModeEnabled)
@@ -5035,6 +5097,24 @@ private struct BrowserAllTabsWorkspace: View {
     }
 
     private var searchField: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                tabSearchBox
+                allTabsDisplayControls
+            }
+
+            VStack(spacing: 8) {
+                tabSearchBox
+                allTabsDisplayControls
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .padding(.horizontal, workspacePadding)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var tabSearchBox: some View {
         HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .semibold))
@@ -5064,9 +5144,46 @@ private struct BrowserAllTabsWorkspace: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(theme.color(.border).opacity(0.58), lineWidth: 1)
         }
-        .padding(.horizontal, workspacePadding)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity)
+    }
+
+    private var allTabsDisplayControls: some View {
+        HStack(spacing: 5) {
+            ForEach(BrowserAllTabsLayout.allCases) { layout in
+                Button {
+                    model.allTabsLayout = layout
+                } label: {
+                    Image(systemName: layout.symbolName)
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(model.allTabsLayout == layout ? theme.color(.canvas) : theme.color(.text))
+                .background(
+                    model.allTabsLayout == layout ? theme.color(.createTab) : theme.color(.field).opacity(0.72),
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                )
+                .accessibilityLabel(layout.title)
+                .help(layout.title)
+            }
+
+            Menu {
+                Picker("Sort", selection: $model.allTabsSortOrder) {
+                    ForEach(BrowserAllTabsSortOrder.allCases) { order in
+                        Text(order.title).tag(order)
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 13, weight: .bold))
+                    .frame(width: 34, height: 34)
+                    .foregroundStyle(theme.color(.text))
+                    .background(theme.color(.field).opacity(0.72), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .accessibilityLabel("Sort tabs")
+            .help("Sort tabs")
+        }
+        .padding(4)
+        .background(ControlGlassBackground(cornerRadius: 8))
     }
 
     @ViewBuilder
@@ -5082,9 +5199,17 @@ private struct BrowserAllTabsWorkspace: View {
                 .font(.caption.weight(.black))
                 .foregroundStyle(theme.color(.mutedText))
 
-                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 10) {
-                    ForEach(tabs) { tab in
-                        AllTabsCard(tab: tab, isContained: isContained)
+                if model.allTabsLayout == .grid {
+                    LazyVGrid(columns: gridColumns, alignment: .leading, spacing: cardSpacing) {
+                        ForEach(tabs) { tab in
+                            AllTabsCard(tab: tab, isContained: isContained, density: model.allTabsDensity)
+                        }
+                    }
+                } else {
+                    LazyVStack(spacing: cardSpacing) {
+                        ForEach(tabs) { tab in
+                            AllTabsCard(tab: tab, isContained: isContained, density: model.allTabsDensity)
+                        }
                     }
                 }
             }
@@ -5148,7 +5273,10 @@ private struct BrowserAllTabsWorkspace: View {
     }
 
     private var allVisibleTabs: [BrowserTab] {
-        model.isPrivateModeEnabled ? model.visiblePrivateTabs : model.normalTabs + model.containedTabs
+        if model.isPrivateModeEnabled {
+            return model.visiblePrivateTabs
+        }
+        return model.normalTabs + (model.allTabsShowsContainedTabs ? model.containedTabs : [])
     }
 
     private var filteredTabCount: Int {
@@ -5164,7 +5292,10 @@ private struct BrowserAllTabsWorkspace: View {
     }
 
     private var showsLockedPrivateSection: Bool {
-        model.isPrivateModeEnabled == false && model.privateTabs.isEmpty == false && trimmedQuery.isEmpty
+        model.isPrivateModeEnabled == false
+            && model.allTabsShowsPrivateSummary
+            && model.privateTabs.isEmpty == false
+            && trimmedQuery.isEmpty
     }
 
     private var trimmedQuery: String {
@@ -5172,26 +5303,120 @@ private struct BrowserAllTabsWorkspace: View {
     }
 
     private func filtered(_ tabs: [BrowserTab]) -> [BrowserTab] {
-        guard trimmedQuery.isEmpty == false else { return tabs }
-        return tabs.filter { tab in
-            [
-                tab.title,
-                tab.url?.absoluteString ?? "",
-                tab.url?.host ?? "",
-                model.folderName(for: tab) ?? ""
-            ]
-            .joined(separator: " ")
-            .lowercased()
-            .contains(trimmedQuery)
+        let matchingTabs: [BrowserTab]
+        if trimmedQuery.isEmpty {
+            matchingTabs = tabs
+        } else {
+            matchingTabs = tabs.filter { tab in
+                [
+                    tab.title,
+                    tab.url?.absoluteString ?? "",
+                    tab.url?.host ?? "",
+                    model.folderName(for: tab) ?? ""
+                ]
+                .joined(separator: " ")
+                .lowercased()
+                .contains(trimmedQuery)
+            }
+        }
+
+        switch model.allTabsSortOrder {
+        case .browserOrder:
+            return matchingTabs
+        case .title:
+            return matchingTabs.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .website:
+            return matchingTabs.sorted {
+                ($0.url?.host ?? $0.title).localizedCaseInsensitiveCompare($1.url?.host ?? $1.title) == .orderedAscending
+            }
         }
     }
 
     private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: experience == .phone ? 168 : 238, maximum: 380), spacing: 10)]
+        let minimum: CGFloat
+        if experience == .phone {
+            minimum = model.allTabsDensity == .compact ? 148 : 168
+        } else {
+            minimum = model.allTabsDensity == .compact ? 210 : 238
+        }
+        return [GridItem(.adaptive(minimum: minimum, maximum: 420), spacing: cardSpacing)]
+    }
+
+    private var cardSpacing: CGFloat {
+        model.allTabsDensity == .compact ? 7 : 10
     }
 
     private var workspacePadding: CGFloat {
         experience == .phone ? 14 : 20
+    }
+}
+
+private struct AllTabsCustomizationButton: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 13, weight: .black))
+                .frame(width: 38, height: 38)
+        }
+        .buttonStyle(.plain)
+        .background(ControlGlassBackground(cornerRadius: 8))
+        .accessibilityLabel("Customize All Tabs")
+        .help("Customize All Tabs")
+        .popover(isPresented: $isPresented) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("All Tabs", systemImage: "square.grid.2x2.fill")
+                    .font(.headline.weight(.bold))
+                AllTabsCustomizationPanel()
+            }
+            .padding(16)
+            .frame(width: 320)
+            .background(theme.color(.surface))
+            .foregroundStyle(theme.color(.text))
+        }
+    }
+}
+
+private struct AllTabsCustomizationPanel: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Layout", selection: $model.allTabsLayout) {
+                ForEach(BrowserAllTabsLayout.allCases) { layout in
+                    Label(layout.title, systemImage: layout.symbolName).tag(layout)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Density", selection: $model.allTabsDensity) {
+                ForEach(BrowserAllTabsDensity.allCases) { density in
+                    Text(density.title).tag(density)
+                }
+            }
+
+            Picker("Sort tabs", selection: $model.allTabsSortOrder) {
+                ForEach(BrowserAllTabsSortOrder.allCases) { order in
+                    Text(order.title).tag(order)
+                }
+            }
+
+            Toggle("Show contained tabs", isOn: $model.allTabsShowsContainedTabs)
+            Toggle("Show private tab summary", isOn: $model.allTabsShowsPrivateSummary)
+
+            HStack(spacing: 8) {
+                Image(systemName: model.allTabsLayout.symbolName)
+                    .foregroundStyle(theme.color(.createTab))
+                Text("\(model.allTabsDensity.title) \(model.allTabsLayout.title.lowercased())")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+        }
     }
 }
 
@@ -5373,13 +5598,14 @@ private struct AllTabsCard: View {
     @EnvironmentObject private var theme: BrowserTheme
     @ObservedObject var tab: BrowserTab
     let isContained: Bool
+    let density: BrowserAllTabsDensity
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Button {
                 model.selectFromFinder(tab)
             } label: {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: density == .compact ? 6 : 10) {
                     HStack(spacing: 10) {
                         tabIcon
 
@@ -5436,8 +5662,8 @@ private struct AllTabsCard: View {
                             .frame(height: 2)
                     }
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
+                .padding(density == .compact ? 9 : 12)
+                .frame(maxWidth: .infinity, minHeight: density == .compact ? 86 : 106, alignment: .topLeading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -5455,7 +5681,20 @@ private struct AllTabsCard: View {
             .help("Close tab")
             .padding(5)
         }
-        .background(theme.color(.surface).opacity(isSelected ? 0.88 : 0.66), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(theme.color(.surface).opacity(isSelected ? 0.9 : 0.72))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [websiteTint.opacity(isSelected ? 0.30 : 0.18), Color.clear],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(isSelected ? theme.color(.createTab).opacity(0.9) : theme.color(.border).opacity(0.52), lineWidth: isSelected ? 2 : 1)
@@ -5505,6 +5744,12 @@ private struct AllTabsCard: View {
     private var faviconURL: URL? {
         tab.pageIconURLString.flatMap(URL.init(string:))
             ?? BrowserWebsitePrivacyPolicy.defaultFaviconURL(for: tab.url)
+    }
+
+    private var websiteTint: Color {
+        if tab.isPrivate { return theme.color(.privateAccent) }
+        if isContained { return theme.color(.accent) }
+        return tab.pageThemeColorHex.map(Color.init(hex:)) ?? theme.color(.createTab)
     }
 
     private var isSelected: Bool {
@@ -6168,6 +6413,7 @@ private struct QuickColorStudio: View {
             theme.setColor(Color(hex: create), for: .createTab)
             theme.setGradientColor(Color(hex: accent), for: .createTab)
             theme.setColor(Color(hex: canvas), for: .canvas)
+            theme.setColor(Color(hex: canvas), for: .chrome)
             theme.setGradientColor(Color(hex: glow), for: .chrome)
             let position = BrowserGradientPosition(
                 startX: start.0,
@@ -8240,7 +8486,10 @@ private struct ChromeButton: View {
 }
 
 private struct BrandMark: View {
+    @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    @EnvironmentObject private var profiles: BrowserProfileManager
+    @State private var isGliderPickerPresented = false
 
     var body: some View {
         ZStack {
@@ -8254,11 +8503,100 @@ private struct BrandMark: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(theme.color(.accent).opacity(0.8), lineWidth: 1)
                 }
-            BrowserIcon(slot: .brand, systemName: "globe", size: 15, weight: .black)
+            BrowserIcon(
+                slot: .brand,
+                systemName: model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : "rectangle.compress.vertical",
+                size: 15,
+                weight: .black
+            )
                 .frame(width: 22, height: 22)
-                .foregroundStyle(theme.isUserBackgroundEnabled && theme.hasUserBackground ? Color.white : theme.color(.accent))
+                .foregroundStyle(profiles.activeProfile.tintColor)
         }
         .frame(width: 36, height: 36)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .gesture(
+            ExclusiveGesture(
+                LongPressGesture(minimumDuration: 0.45),
+                TapGesture()
+            )
+            .onEnded { result in
+                switch result {
+                case .first(true):
+                    isGliderPickerPresented = true
+                case .second:
+                    model.toggleCompactMode()
+                default:
+                    break
+                }
+            }
+        )
+        .accessibilityElement()
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Compact mode and Gliders")
+        .accessibilityHint("Tap for compact mode. Hold to switch Gliders.")
+        .accessibilityAction {
+            model.toggleCompactMode()
+        }
+        .help("Tap: Compact mode. Hold: Switch Glider")
+        .popover(isPresented: $isGliderPickerPresented) {
+            GliderQuickSwitcher()
+        }
+    }
+}
+
+private struct GliderQuickSwitcher: View {
+    @EnvironmentObject private var profiles: BrowserProfileManager
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                Image(systemName: "person.2.crop.square.stack.fill")
+                    .foregroundStyle(profiles.activeProfile.tintColor)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Switch Glider")
+                        .font(.headline.weight(.bold))
+                    Text("Separate tabs, cookies, history, and themes")
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+            }
+            .padding(.bottom, 4)
+
+            ForEach(profiles.profiles) { profile in
+                Button {
+                    profiles.switchTo(profile)
+                    dismiss()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: profile.symbolName)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(profile.tintColor)
+                            .frame(width: 32, height: 32)
+                            .background(profile.tintColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                        Text(profile.name)
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1)
+
+                        Spacer(minLength: 12)
+
+                        if profiles.isActive(profile) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(profile.tintColor)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(profiles.isSwitchingProfiles)
+            }
+        }
+        .padding(14)
+        .frame(width: 310)
+        .background(theme.color(.surface))
+        .foregroundStyle(theme.color(.text))
     }
 }
 
@@ -8430,6 +8768,219 @@ private final class BackgroundVideoResourceLoader: NSObject, AVAssetResourceLoad
     }
 }
 
+private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiable, Hashable {
+    case chromeAppearance
+    case bangs
+    case websiteWhitelist
+    case allTabs
+    case browserLayout
+    case profiles
+    case toolbarMenu
+    case extensions
+    case colors
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chromeAppearance: return "Chrome Appearance"
+        case .bangs: return "!Bangs"
+        case .websiteWhitelist: return "Website Whitelist"
+        case .allTabs: return "All Tabs"
+        case .browserLayout: return "Browser Layout"
+        case .profiles: return "Gliders"
+        case .toolbarMenu: return "Toolbar & 3-Dot Menu"
+        case .extensions: return "Extensions"
+        case .colors: return "Colors & Gradients"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .chromeAppearance: return "Bar color, glow, and transparency"
+        case .bangs: return "Create shortcuts such as !yt"
+        case .websiteWhitelist: return "Per-site protection exceptions"
+        case .allTabs: return "Layout, density, sorting, and sections"
+        case .browserLayout: return "Chrome position and compact mode"
+        case .profiles: return "Separate browser identities"
+        case .toolbarMenu: return "Choose and reorder browser tools"
+        case .extensions: return "Manage installed add-ons"
+        case .colors: return "Theme colors and movable gradients"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .chromeAppearance: return "menubar.rectangle"
+        case .bangs: return "bolt.fill"
+        case .websiteWhitelist: return "checkmark.shield.fill"
+        case .allTabs: return "square.grid.2x2.fill"
+        case .browserLayout: return "rectangle.split.2x1"
+        case .profiles: return "person.2.crop.square.stack"
+        case .toolbarMenu: return "slider.horizontal.3"
+        case .extensions: return "puzzlepiece.extension.fill"
+        case .colors: return "paintpalette.fill"
+        }
+    }
+
+    var searchText: String {
+        "\(title) \(subtitle) \(keywords)".lowercased()
+    }
+
+    private var keywords: String {
+        switch self {
+        case .chromeAppearance: return "tab bar opacity transparent transparency surface top sidebar"
+        case .bangs: return "search shortcut youtube yt google query command"
+        case .websiteWhitelist: return "privacy shields protection allow exception site domain"
+        case .allTabs: return "tab finder grid list sort compact density contained private"
+        case .browserLayout: return "top bottom left right floating traditional compact fullscreen"
+        case .profiles: return "profile glider cookies history login identity"
+        case .toolbarMenu: return "three dot more menu tools address bar"
+        case .extensions: return "addon add-on chrome firefox brave import"
+        case .colors: return "gradient circle intensity theme accent custom"
+        }
+    }
+}
+
+private struct BrowserSettingsSearchDetail: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    let destination: BrowserSettingsSearchDestination
+
+    var body: some View {
+        Form {
+            Section {
+                destinationContent
+            } header: {
+                Label(destination.subtitle, systemImage: destination.symbolName)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(theme.color(.canvas))
+        .foregroundStyle(theme.color(.text))
+        .navigationTitle(destination.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var destinationContent: some View {
+        switch destination {
+        case .chromeAppearance:
+            ChromeAppearanceSettingsPanel()
+        case .bangs:
+            BangSettingsEditor()
+        case .websiteWhitelist:
+            WebsiteProtectionSummary()
+            WebsiteProtectionWhitelistEditor(startsExpanded: true)
+        case .allTabs:
+            AllTabsCustomizationPanel()
+            Button {
+                model.isSettingsPresented = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    model.showAllTabs()
+                }
+            } label: {
+                Label("Open All Tabs", systemImage: "square.grid.2x2.fill")
+            }
+        case .browserLayout:
+            BrowserLayoutSettingsPanel()
+        case .profiles:
+            ProfileCustomizationPanel()
+        case .toolbarMenu:
+            ThreeDotMenuCustomizationPanel()
+        case .extensions:
+            LabeledContent("Installed") {
+                Text("\(model.installedWebExtensions.count)")
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+            Button {
+                model.isSettingsPresented = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    model.isAddOnsPresented = true
+                }
+            } label: {
+                Label("Open Extensions", systemImage: "puzzlepiece.extension.fill")
+            }
+        case .colors:
+            QuickColorStudio()
+        }
+    }
+}
+
+private struct ChromeAppearanceSettingsPanel: View {
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ChromeAppearancePreview()
+
+            ColorPicker("Chrome color", selection: theme.binding(for: .chrome), supportsOpacity: false)
+            ColorPicker("Primary glow", selection: theme.gradientBinding(for: .chrome), supportsOpacity: false)
+            Toggle("Transparent chrome", isOn: $theme.isTabBarTransparencyEnabled)
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("Transparency")
+                    Spacer()
+                    Text("\(Int(theme.tabBarTransparency * 100))%")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.color(.mutedText))
+                        .monospacedDigit()
+                }
+                Slider(value: $theme.tabBarTransparency, in: 0...1)
+                    .disabled(theme.isTabBarTransparencyEnabled == false)
+            }
+
+            ThemeColorGradientMenu(token: .chrome)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct BrowserLayoutSettingsPanel: View {
+    @EnvironmentObject private var model: BrowserViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Chrome placement", selection: $model.chromePlacement) {
+                ForEach(BrowserChromePlacement.allCases) { placement in
+                    Label(placement.title, systemImage: placement.symbolName).tag(placement)
+                }
+            }
+
+            Toggle("Show toolbar", isOn: $model.isTopSearchBarEnabled)
+
+            if model.chromePlacement != .top {
+                Picker("Toolbar position", selection: toolbarPlacementBinding) {
+                    ForEach(BrowserToolbarPlacement.allCases) { placement in
+                        Label(placement.title, systemImage: placement.symbolName).tag(placement)
+                    }
+                }
+                .disabled(model.isTopSearchBarEnabled == false)
+            }
+
+            Toggle("Hide quick buttons in compact", isOn: $model.compactModeHidesQuickControls)
+            Toggle("Hide toolbar in compact", isOn: $model.compactModeHidesTopSearchBar)
+
+            Button {
+                model.toggleCompactMode()
+            } label: {
+                Label(
+                    model.isCompactModeActive ? "Reveal Browser Chrome" : "Enter Compact Mode",
+                    systemImage: model.isCompactModeActive ? "arrow.up.left.and.arrow.down.right" : "rectangle.compress.vertical"
+                )
+            }
+        }
+    }
+
+    private var toolbarPlacementBinding: Binding<BrowserToolbarPlacement> {
+        Binding(
+            get: { model.topSearchBarPlacement },
+            set: { model.setTopSearchBarPlacement($0) }
+        )
+    }
+}
+
 private struct BrowserSettingsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -8443,10 +8994,37 @@ private struct BrowserSettingsView: View {
     @State private var themeExportItem: ThemeExportItem?
     @State private var themeImportMessage = ""
     @State private var savedThemeName = ""
+    @State private var settingsQuery = ""
 
     var body: some View {
         NavigationStack {
             Form {
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    Section("Search Results") {
+                        if filteredSettingsDestinations.isEmpty {
+                            Label("No matching settings", systemImage: "magnifyingglass")
+                                .foregroundStyle(theme.color(.mutedText))
+                        } else {
+                            ForEach(filteredSettingsDestinations) { destination in
+                                NavigationLink(value: destination) {
+                                    Label {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(destination.title)
+                                                .fontWeight(.semibold)
+                                            Text(destination.subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(theme.color(.mutedText))
+                                        }
+                                    } icon: {
+                                        Image(systemName: destination.symbolName)
+                                            .foregroundStyle(theme.color(.accent))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Section("Privacy") {
                     DisclosureGroup {
                         Toggle("Shields", isOn: adBlockerBinding)
@@ -8493,8 +9071,6 @@ private struct BrowserSettingsView: View {
                             Label("Password Manager", systemImage: "key.fill")
                         }
 
-                        WebsiteProtectionSummary()
-                        WebsiteProtectionWhitelistEditor()
                         WebsiteBlacklistEditor()
 
                         Button {
@@ -8512,6 +9088,23 @@ private struct BrowserSettingsView: View {
                     } label: {
                         Label("Privacy", systemImage: "hand.raised.fill")
                     }
+                }
+
+                Section("Website Whitelist") {
+                    WebsiteProtectionSummary()
+                    WebsiteProtectionWhitelistEditor(startsExpanded: true)
+                }
+
+                Section("!Bangs") {
+                    BangSettingsEditor()
+                }
+
+                Section("Chrome Appearance") {
+                    ChromeAppearanceSettingsPanel()
+                }
+
+                Section("All Tabs") {
+                    AllTabsCustomizationPanel()
                 }
 
                 Section("Customization Hub") {
@@ -9207,6 +9800,10 @@ private struct BrowserSettingsView: View {
             .background(theme.color(.canvas))
             .foregroundStyle(theme.color(.text))
             .navigationTitle("Settings")
+            .searchable(text: $settingsQuery, prompt: "Search settings")
+            .navigationDestination(for: BrowserSettingsSearchDestination.self) { destination in
+                BrowserSettingsSearchDetail(destination: destination)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
@@ -9260,6 +9857,14 @@ private struct BrowserSettingsView: View {
             return .phone
         case .iPad:
             return .iPad
+        }
+    }
+
+    private var filteredSettingsDestinations: [BrowserSettingsSearchDestination] {
+        let query = settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard query.isEmpty == false else { return [] }
+        return BrowserSettingsSearchDestination.allCases.filter { destination in
+            destination.searchText.contains(query)
         }
     }
 
@@ -9403,6 +10008,124 @@ private struct BrowserSettingsView: View {
     }
 }
 
+private struct BangSettingsEditor: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Search shortcuts")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("Type !yt exlon in any address bar")
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    model.resetBangs()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Restore default bangs")
+                .help("Restore defaults")
+
+                Button {
+                    model.addBang()
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("Add bang")
+                .help("Add bang")
+            }
+
+            ForEach(model.bangs) { bang in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        HStack(spacing: 3) {
+                            Text("!")
+                                .font(.body.monospaced().weight(.black))
+                                .foregroundStyle(theme.color(.accent))
+                            TextField("yt", text: shortcutBinding(for: bang))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.body.monospaced().weight(.semibold))
+                        }
+                        .padding(.horizontal, 9)
+                        .frame(width: 92, height: 36)
+                        .background(theme.color(.field).opacity(0.72), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                        TextField("Name", text: nameBinding(for: bang))
+                            .fontWeight(.semibold)
+
+                        Button(role: .destructive) {
+                            model.removeBang(id: bang.id)
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(bang.displayShortcut)")
+                        .help("Remove bang")
+                    }
+
+                    TextField("https://site.com/search?q={query}", text: templateBinding(for: bang))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .font(.caption.monospaced())
+
+                    if bang.isUsable == false {
+                        Label("Use a valid http or https URL. Add {query} where the search should go.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .padding(.vertical, 6)
+
+                if bang.id != model.bangs.last?.id {
+                    Divider()
+                }
+            }
+
+            if model.bangStatusMessage.isEmpty == false {
+                Text(model.bangStatusMessage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.color(.mutedText))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func shortcutBinding(for bang: BrowserBang) -> Binding<String> {
+        Binding(
+            get: { model.bangs.first(where: { $0.id == bang.id })?.shortcut ?? bang.shortcut },
+            set: { model.updateBang(id: bang.id, shortcut: $0) }
+        )
+    }
+
+    private func nameBinding(for bang: BrowserBang) -> Binding<String> {
+        Binding(
+            get: { model.bangs.first(where: { $0.id == bang.id })?.name ?? bang.name },
+            set: { model.updateBang(id: bang.id, name: $0) }
+        )
+    }
+
+    private func templateBinding(for bang: BrowserBang) -> Binding<String> {
+        Binding(
+            get: { model.bangs.first(where: { $0.id == bang.id })?.urlTemplate ?? bang.urlTemplate },
+            set: { model.updateBang(id: bang.id, urlTemplate: $0) }
+        )
+    }
+}
+
 private struct WebsiteProtectionSummary: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -9454,9 +10177,14 @@ private struct WebsiteProtectionWhitelistEditor: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @State private var draftDomain = ""
+    @State private var isExpanded: Bool
+
+    init(startsExpanded: Bool = false) {
+        _isExpanded = State(initialValue: startsExpanded)
+    }
 
     var body: some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: $isExpanded) {
             HStack(spacing: 8) {
                 TextField("example.com", text: $draftDomain)
                     .textInputAutocapitalization(.never)

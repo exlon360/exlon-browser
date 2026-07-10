@@ -219,11 +219,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         webView.load(Self.websiteRequest(for: destination, regionProfile: activeRegionTrickProfile))
     }
 
-    func submitAddress(searchEngine: BrowserSearchEngine, customSearchTemplate: String) {
+    func submitAddress(
+        searchEngine: BrowserSearchEngine,
+        customSearchTemplate: String,
+        bangs: [BrowserBang] = []
+    ) {
         let destination = Self.destinationURL(
             from: addressText,
             searchEngine: searchEngine,
-            customSearchTemplate: customSearchTemplate
+            customSearchTemplate: customSearchTemplate,
+            bangs: bangs
         )
         addressText = destination.absoluteString
         load(destination)
@@ -3380,11 +3385,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     static func destinationURL(
         from rawValue: String,
         searchEngine: BrowserSearchEngine,
-        customSearchTemplate: String
+        customSearchTemplate: String,
+        bangs: [BrowserBang] = []
     ) -> URL {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false else {
             return homeURL
+        }
+
+        if let destination = BrowserBang.resolvedDestination(for: trimmed, bangs: bangs) {
+            return destination.url
         }
 
         if let url = URL(string: trimmed),

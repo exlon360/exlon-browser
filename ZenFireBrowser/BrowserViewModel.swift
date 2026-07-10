@@ -1365,6 +1365,39 @@ final class BrowserMusicPlayer {
     }
 }
 
+enum BrowserAllTabsLayout: String, CaseIterable, Identifiable {
+    case grid
+    case list
+
+    var id: String { rawValue }
+    var title: String { self == .grid ? "Grid" : "List" }
+    var symbolName: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
+}
+
+enum BrowserAllTabsDensity: String, CaseIterable, Identifiable {
+    case compact
+    case comfortable
+
+    var id: String { rawValue }
+    var title: String { self == .compact ? "Compact" : "Comfortable" }
+}
+
+enum BrowserAllTabsSortOrder: String, CaseIterable, Identifiable {
+    case browserOrder
+    case title
+    case website
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .browserOrder: return "Browser order"
+        case .title: return "Tab title"
+        case .website: return "Website"
+        }
+    }
+}
+
 @MainActor
 final class BrowserViewModel: ObservableObject {
     static let minimumForcedFPS = 15.0
@@ -1372,7 +1405,7 @@ final class BrowserViewModel: ObservableObject {
     static let infiniteForcedFPSValue = 241.0
     static let minimumWebsiteResolutionScale = 0.86
     static let maximumWebsiteResolutionScale = 1.14
-    static let currentFeatureUpdateVersion = 5
+    static let currentFeatureUpdateVersion = 6
     static let defaultToolbarActionIDs = [
         BrowserToolbarAction.back.rawValue,
         BrowserToolbarAction.forward.rawValue,
@@ -1419,6 +1452,21 @@ final class BrowserViewModel: ObservableObject {
     @Published var shouldSelectFloatingSearchText = false
     @Published private(set) var isPhoneExperienceActive = UIDevice.current.userInterfaceIdiom == .phone
     @Published var isTabFinderPresented = false
+    @Published var allTabsLayout: BrowserAllTabsLayout {
+        didSet { vault.save(allTabsLayout.rawValue, forKey: Self.StorageKey.allTabsLayout) }
+    }
+    @Published var allTabsDensity: BrowserAllTabsDensity {
+        didSet { vault.save(allTabsDensity.rawValue, forKey: Self.StorageKey.allTabsDensity) }
+    }
+    @Published var allTabsSortOrder: BrowserAllTabsSortOrder {
+        didSet { vault.save(allTabsSortOrder.rawValue, forKey: Self.StorageKey.allTabsSortOrder) }
+    }
+    @Published var allTabsShowsContainedTabs: Bool {
+        didSet { vault.save(allTabsShowsContainedTabs, forKey: Self.StorageKey.allTabsShowsContainedTabs) }
+    }
+    @Published var allTabsShowsPrivateSummary: Bool {
+        didSet { vault.save(allTabsShowsPrivateSummary, forKey: Self.StorageKey.allTabsShowsPrivateSummary) }
+    }
     @Published var isSettingsPresented = false
     @Published var isHistoryPresented = false
     @Published var isDownloadsPresented = false
@@ -1841,6 +1889,8 @@ final class BrowserViewModel: ObservableObject {
             vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
         }
     }
+    @Published private(set) var bangs: [BrowserBang]
+    @Published var bangStatusMessage = ""
     @Published var moreMenuActionIDs: Set<String> {
         didSet {
             vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
@@ -1974,6 +2024,18 @@ final class BrowserViewModel: ObservableObject {
             : (BrowserChromePlacement(rawValue: vault.load(String.self, forKey: Self.StorageKey.chromePlacement, default: "")) ?? .left)
         let selectedSearchEngine = BrowserSearchEngine(rawValue: vault.load(String.self, forKey: Self.StorageKey.searchEngine, default: "")) ?? .duckDuckGo
         let savedCustomSearch = vault.load(String.self, forKey: Self.StorageKey.customSearchTemplate, default: BrowserSearchEngine.defaultCustomTemplate)
+        let savedBangs = BrowserBang.normalized(
+            vault.load([BrowserBang].self, forKey: Self.StorageKey.bangs, default: BrowserBang.defaults)
+        )
+        let savedAllTabsLayout = BrowserAllTabsLayout(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.allTabsLayout, default: "")
+        ) ?? .grid
+        let savedAllTabsDensity = BrowserAllTabsDensity(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.allTabsDensity, default: "")
+        ) ?? .comfortable
+        let savedAllTabsSortOrder = BrowserAllTabsSortOrder(
+            rawValue: vault.load(String.self, forKey: Self.StorageKey.allTabsSortOrder, default: "")
+        ) ?? .browserOrder
         let savedToolbarUpgradeVersion = vault.load(Int.self, forKey: Self.StorageKey.toolbarUpgradeVersion, default: 0)
         let shouldApplyToolbarUpgrade = savedToolbarUpgradeVersion < 1
         let storedToolbarActionIDs = vault.load(
@@ -2117,6 +2179,12 @@ final class BrowserViewModel: ObservableObject {
         self.pageControlsOffsetY = Self.clampedUnit(vault.load(Double.self, forKey: Self.StorageKey.pageControlsOffsetY, default: 0.0))
         self.searchEngine = selectedSearchEngine
         self.customSearchTemplate = savedCustomSearch
+        self.bangs = savedBangs.isEmpty ? BrowserBang.defaults : savedBangs
+        self.allTabsLayout = savedAllTabsLayout
+        self.allTabsDensity = savedAllTabsDensity
+        self.allTabsSortOrder = savedAllTabsSortOrder
+        self.allTabsShowsContainedTabs = vault.load(Bool.self, forKey: Self.StorageKey.allTabsShowsContainedTabs, default: true)
+        self.allTabsShowsPrivateSummary = vault.load(Bool.self, forKey: Self.StorageKey.allTabsShowsPrivateSummary, default: true)
         self.moreMenuActionIDs = savedMoreMenuActionIDs
         self.toolbarActionIDs = savedToolbarActionIDs
         self.isDeveloperModeEnabled = developerModeEnabled
@@ -2565,7 +2633,11 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func submitContainedAddress() {
-        selectedContainedTab?.submitAddress(searchEngine: searchEngine, customSearchTemplate: customSearchTemplate)
+        selectedContainedTab?.submitAddress(
+            searchEngine: searchEngine,
+            customSearchTemplate: customSearchTemplate,
+            bangs: bangs
+        )
     }
 
     func close(_ tab: BrowserTab) {
@@ -2661,7 +2733,11 @@ final class BrowserViewModel: ObservableObject {
     func submitAddress(autoCompactChrome: Bool = false) {
         let submittedText = isFloatingSearchPresented ? floatingSearchText : selectedTab?.addressText ?? ""
         selectedTab?.addressText = submittedText
-        selectedTab?.submitAddress(searchEngine: searchEngine, customSearchTemplate: customSearchTemplate)
+        selectedTab?.submitAddress(
+            searchEngine: searchEngine,
+            customSearchTemplate: customSearchTemplate,
+            bangs: bangs
+        )
         floatingSearchText = selectedTab?.addressText ?? submittedText
         shouldSelectFloatingSearchText = false
         isFloatingSearchPresented = false
@@ -3647,6 +3723,7 @@ final class BrowserViewModel: ObservableObject {
             twoFingerDoubleTapCompactOnIPad: isTwoFingerDoubleTapCompactEnabledOnIPad,
             searchEngine: searchEngine.rawValue,
             customSearchTemplate: customSearchTemplate,
+            bangs: bangs,
             newTabOpensSearch: newTabOpensSearch,
             autoCompactAfterSearchOnPhone: autoCompactAfterSearchOnPhone,
             darkReaderTheme: darkReaderTheme.rawValue,
@@ -3737,6 +3814,13 @@ final class BrowserViewModel: ObservableObject {
         compactModeRevealsTopSearchBar = config.compactModeRevealsTopSearchBar ?? false
         isTwoFingerDoubleTapCompactEnabledOnIPad = config.twoFingerDoubleTapCompactOnIPad ?? false
         customSearchTemplate = config.customSearchTemplate
+        if let importedBangs = config.bangs {
+            bangs = BrowserBang.normalized(importedBangs)
+            if bangs.isEmpty {
+                bangs = BrowserBang.defaults
+            }
+            persistBangs()
+        }
         newTabOpensSearch = config.newTabOpensSearch ?? true
         autoCompactAfterSearchOnPhone = config.autoCompactAfterSearchOnPhone ?? true
         if let darkReaderThemeValue = config.darkReaderTheme,
@@ -3871,10 +3955,37 @@ final class BrowserViewModel: ObservableObject {
             }
         }
 
+        if let resolvedBang = BrowserBang.resolvedDestination(for: query, bangs: bangs) {
+            appendUnique(
+                BrowserSearchResult(
+                    title: resolvedBang.query.isEmpty
+                        ? "Open \(resolvedBang.bang.name)"
+                        : "Search \(resolvedBang.bang.name) for \(resolvedBang.query)",
+                    subtitle: "\(resolvedBang.bang.displayShortcut)  \(resolvedBang.url.absoluteString)",
+                    symbolName: "bolt.fill",
+                    url: resolvedBang.url
+                )
+            )
+        } else if query.hasPrefix("!") {
+            let command = BrowserBang.sanitizedShortcut(String(query.dropFirst().split(whereSeparator: { $0.isWhitespace }).first ?? ""))
+            for bang in bangs where command.isEmpty || bang.shortcut.hasPrefix(command) {
+                guard let url = bang.searchURL(for: "") else { continue }
+                appendUnique(
+                    BrowserSearchResult(
+                        title: "\(bang.displayShortcut)  \(bang.name)",
+                        subtitle: "Type a search after \(bang.displayShortcut)",
+                        symbolName: "bolt",
+                        url: url
+                    )
+                )
+            }
+        }
+
         let destination = BrowserTab.destinationURL(
             from: query,
             searchEngine: searchEngine,
-            customSearchTemplate: customSearchTemplate
+            customSearchTemplate: customSearchTemplate,
+            bangs: bangs
         )
         let searchURL = searchEngine.searchURL(for: query, customTemplate: customSearchTemplate)
 
@@ -4322,17 +4433,70 @@ final class BrowserViewModel: ObservableObject {
         isTopSearchBarMoveMode = false
         moreMenuActionIDs = Self.defaultMoreMenuActionIDs
         toolbarActionIDs = Self.defaultToolbarActionIDs
+        allTabsLayout = .grid
+        allTabsDensity = .comfortable
+        allTabsSortOrder = .browserOrder
+        allTabsShowsContainedTabs = true
+        allTabsShowsPrivateSummary = true
     }
 
     func resetBrowsingSettings() {
         searchEngine = .duckDuckGo
         customSearchTemplate = BrowserSearchEngine.defaultCustomTemplate
+        resetBangs()
         newTabOpensSearch = true
         autoCompactAfterSearchOnPhone = true
         setBrowserResolutionPreset(.automatic)
         websiteResolutionScale = 1.0
         localAIName = "Local AI"
         localAIURLText = ""
+    }
+
+    func addBang() {
+        var suffix = bangs.count + 1
+        var shortcut = "new"
+        while bangs.contains(where: { $0.shortcut == shortcut }) {
+            shortcut = "new\(suffix)"
+            suffix += 1
+        }
+        bangs.append(
+            BrowserBang(
+                shortcut: shortcut,
+                name: "New bang",
+                urlTemplate: "https://example.com/search?q={query}"
+            )
+        )
+        bangStatusMessage = "Added !\(shortcut)."
+        persistBangs()
+    }
+
+    func updateBang(id: UUID, shortcut: String? = nil, name: String? = nil, urlTemplate: String? = nil) {
+        guard let index = bangs.firstIndex(where: { $0.id == id }) else { return }
+        let current = bangs[index]
+        let updated = BrowserBang(
+            id: current.id,
+            shortcut: shortcut ?? current.shortcut,
+            name: name ?? current.name,
+            urlTemplate: urlTemplate ?? current.urlTemplate
+        )
+        bangs[index] = updated
+        let duplicates = bangs.filter { $0.shortcut == updated.shortcut }.count
+        bangStatusMessage = duplicates > 1
+            ? "!\(updated.shortcut) is duplicated. The first match will be used."
+            : "Saved \(updated.displayShortcut)."
+        persistBangs()
+    }
+
+    func removeBang(id: UUID) {
+        bangs.removeAll { $0.id == id }
+        bangStatusMessage = "Bang removed."
+        persistBangs()
+    }
+
+    func resetBangs() {
+        bangs = BrowserBang.defaults
+        bangStatusMessage = "Default bangs restored."
+        persistBangs()
     }
 
     func resetGlideMods() {
@@ -4830,6 +4994,12 @@ final class BrowserViewModel: ObservableObject {
         vault.save(topSearchBarPositionY, forKey: Self.StorageKey.topSearchBarPositionY)
         vault.save(searchEngine.rawValue, forKey: Self.StorageKey.searchEngine)
         vault.save(customSearchTemplate, forKey: Self.StorageKey.customSearchTemplate)
+        vault.save(bangs, forKey: Self.StorageKey.bangs)
+        vault.save(allTabsLayout.rawValue, forKey: Self.StorageKey.allTabsLayout)
+        vault.save(allTabsDensity.rawValue, forKey: Self.StorageKey.allTabsDensity)
+        vault.save(allTabsSortOrder.rawValue, forKey: Self.StorageKey.allTabsSortOrder)
+        vault.save(allTabsShowsContainedTabs, forKey: Self.StorageKey.allTabsShowsContainedTabs)
+        vault.save(allTabsShowsPrivateSummary, forKey: Self.StorageKey.allTabsShowsPrivateSummary)
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
         vault.save(toolbarActionIDs, forKey: Self.StorageKey.toolbarActionIDs)
         vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
@@ -5154,6 +5324,10 @@ final class BrowserViewModel: ObservableObject {
         return .center
     }
 
+    private func persistBangs() {
+        vault.save(bangs, forKey: Self.StorageKey.bangs)
+    }
+
     private enum StorageKey {
         static let darkReaderEnabled = "ZenFireBrowser.darkReaderEnabled"
         static let chromePlacement = "ZenFireBrowser.chromePlacement"
@@ -5173,6 +5347,12 @@ final class BrowserViewModel: ObservableObject {
         static let topSearchBarPositionY = "ZenFireBrowser.topSearchBarPositionY"
         static let searchEngine = "ZenFireBrowser.searchEngine"
         static let customSearchTemplate = "ZenFireBrowser.customSearchTemplate"
+        static let bangs = "ZenFireBrowser.bangs"
+        static let allTabsLayout = "ZenFireBrowser.allTabsLayout"
+        static let allTabsDensity = "ZenFireBrowser.allTabsDensity"
+        static let allTabsSortOrder = "ZenFireBrowser.allTabsSortOrder"
+        static let allTabsShowsContainedTabs = "ZenFireBrowser.allTabsShowsContainedTabs"
+        static let allTabsShowsPrivateSummary = "ZenFireBrowser.allTabsShowsPrivateSummary"
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
         static let toolbarActionIDs = "ZenFireBrowser.toolbarActionIDs"
         static let toolbarUpgradeVersion = "ZenFireBrowser.toolbarUpgradeVersion"

@@ -491,6 +491,14 @@ final class BrowserTheme: ObservableObject {
         isTabBarTransparencyEnabled ? max(0.0, 1.0 - tabBarTransparency) : 1.0
     }
 
+    var chromeMaterialOpacity: Double {
+        isTabBarTransparencyEnabled ? tabBarOpacity * 0.72 : 0.72
+    }
+
+    var chromeGradientOpacity: Double {
+        isTabBarTransparencyEnabled ? tabBarOpacity : 1.0
+    }
+
     var controlOpacity: Double {
         isTabBarTransparencyEnabled ? max(0.18, 1.0 - (tabBarTransparency * 0.65)) : 1.0
     }
@@ -661,13 +669,17 @@ final class BrowserTheme: ObservableObject {
 
     func setColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultHex
-        colorHexByToken[token] = hex
+        var values = colorHexByToken
+        values[token] = hex
+        colorHexByToken = values
         vault.save(hex, forKey: Self.storageKey(for: token))
     }
 
     func setGradientColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultGradientHex
-        gradientColorHexByToken[token] = hex
+        var values = gradientColorHexByToken
+        values[token] = hex
+        gradientColorHexByToken = values
         setGradientCircles([BrowserThemeGradientCircle(colorHex: hex, intensity: 0.72)], for: token)
         vault.save(hex, forKey: Self.gradientStorageKey(for: token))
     }
