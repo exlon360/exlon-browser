@@ -810,6 +810,8 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case passwordManager
     case placement
     case settings
+    case extensions
+    case privacy
 
     var id: String { rawValue }
 
@@ -867,6 +869,10 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "Placement"
         case .settings:
             return "Settings"
+        case .extensions:
+            return "Extensions"
+        case .privacy:
+            return "Privacy Shield"
         }
     }
 
@@ -924,6 +930,10 @@ enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
             return "rectangle.split.2x1"
         case .settings:
             return "gearshape"
+        case .extensions:
+            return "puzzlepiece"
+        case .privacy:
+            return "shield.checkered"
         }
     }
 }
@@ -1906,6 +1916,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
         }
     }
+    @Published private(set) var customIconColorHexBySlot: [String: String] {
+        didSet {
+            vault.save(customIconColorHexBySlot, forKey: Self.StorageKey.customIconColorHexBySlot)
+        }
+    }
     @Published var history: [BrowserHistoryItem]
     @Published var essentials: [BrowserEssentialItem]
     @Published private(set) var websiteBlacklist: [String]
@@ -2058,6 +2073,11 @@ final class BrowserViewModel: ObservableObject {
             .filter { BrowserToolbarAction(rawValue: $0)?.isLeanBuildUtility == false }
             .subtracting(savedToolbarActionIDs)
         let savedCustomIconNames = vault.load([String: String].self, forKey: Self.StorageKey.customIconNames, default: [:])
+        let savedCustomIconColors = vault.load(
+            [String: String].self,
+            forKey: Self.StorageKey.customIconColorHexBySlot,
+            default: [:]
+        )
         let savedCustomIconImageData = vault.load([String: Data].self, forKey: Self.StorageKey.customIconImageDataBySlot, default: [:])
         let savedWebsiteBlacklist = BrowserWebsitePrivacyPolicy.normalizedDomains(
             vault.load([String].self, forKey: BrowserWebsitePrivacyPolicy.storageKey, default: [])
@@ -2203,6 +2223,7 @@ final class BrowserViewModel: ObservableObject {
         self.topSearchBarDraftX = savedTopSearchBarPositionX
         self.topSearchBarDraftY = savedTopSearchBarPositionY
         self.customIconNames = Self.sanitizedIconNames(savedCustomIconNames)
+        self.customIconColorHexBySlot = Self.sanitizedIconColors(savedCustomIconColors)
         self.customIconImageDataBySlot = Self.sanitizedIconImageData(savedCustomIconImageData)
         self.history = savedHistory
         self.essentials = savedEssentials
@@ -3672,6 +3693,21 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
+    func customIconColor(for slot: BrowserCustomIconSlot?) -> Color? {
+        guard let slot,
+              let hex = customIconColorHexBySlot[slot.rawValue],
+              Color.isValidHex(hex) else { return nil }
+        return Color(hex: hex)
+    }
+
+    func setCustomIconColor(_ color: Color?, for slot: BrowserCustomIconSlot) {
+        guard let color, let hex = color.hexString else {
+            customIconColorHexBySlot.removeValue(forKey: slot.rawValue)
+            return
+        }
+        customIconColorHexBySlot[slot.rawValue] = hex
+    }
+
     func customIconImage(for slot: BrowserCustomIconSlot?) -> UIImage? {
         guard let slot,
               let data = customIconImageDataBySlot[slot.rawValue] else { return nil }
@@ -3705,6 +3741,7 @@ final class BrowserViewModel: ObservableObject {
 
     func resetCustomIcons() {
         customIconNames = [:]
+        customIconColorHexBySlot = [:]
         customIconImageDataBySlot = [:]
     }
 
@@ -3755,6 +3792,7 @@ final class BrowserViewModel: ObservableObject {
                 .filter { moreMenuActionIDs.contains($0) },
             toolbarActions: toolbarActionIDs,
             customIcons: customIconNames,
+            customIconColors: customIconColorHexBySlot,
             tabBarTransparencyEnabled: theme.isTabBarTransparencyEnabled,
             tabBarTransparency: theme.tabBarTransparency,
             userBackgroundEnabled: theme.isUserBackgroundEnabled,
@@ -3872,6 +3910,9 @@ final class BrowserViewModel: ObservableObject {
             return action.isLeanBuildUtility == false
         }).subtracting(toolbarActionIDs)
         customIconNames = Self.sanitizedIconNames(config.customIcons)
+        if let customIconColors = config.customIconColors {
+            customIconColorHexBySlot = Self.sanitizedIconColors(customIconColors)
+        }
         setDarkReaderEnabled(config.darkReaderEnabled)
         setAdBlockerEnabled(config.adBlockerEnabled)
         theme.applyAdvancedConfig(
@@ -4933,6 +4974,19 @@ final class BrowserViewModel: ObservableObject {
         return values
     }
 
+    private static func sanitizedIconColors(_ colors: [String: String]) -> [String: String] {
+        var values: [String: String] = [:]
+
+        for slot in BrowserCustomIconSlot.allCases {
+            guard let hex = colors[slot.rawValue],
+                  Color.isValidHex(hex),
+                  let normalizedHex = Color(hex: hex).hexString else { continue }
+            values[slot.rawValue] = normalizedHex
+        }
+
+        return values
+    }
+
     private static func sanitizedIconImageData(_ imageData: [String: Data]) -> [String: Data] {
         var values: [String: Data] = [:]
 
@@ -5008,6 +5062,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(devCustomEngineIdentifier, forKey: Self.StorageKey.devCustomEngineIdentifier)
         vault.save(deviceExperienceOverride.rawValue, forKey: Self.StorageKey.deviceExperienceOverride)
         vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
+        vault.save(customIconColorHexBySlot, forKey: Self.StorageKey.customIconColorHexBySlot)
         vault.save(customIconImageDataBySlot, forKey: Self.StorageKey.customIconImageDataBySlot)
         vault.save(installedWebExtensions, forKey: Self.StorageKey.webExtensions)
         vault.save(history, forKey: Self.StorageKey.history)
@@ -5362,6 +5417,7 @@ final class BrowserViewModel: ObservableObject {
         static let devCustomEngineIdentifier = "ZenFireBrowser.devCustomEngineIdentifier"
         static let deviceExperienceOverride = "ZenFireBrowser.deviceExperienceOverride"
         static let customIconNames = "ZenFireBrowser.customIconNames"
+        static let customIconColorHexBySlot = "ZenFireBrowser.customIconColorHexBySlot"
         static let customIconImageDataBySlot = "ZenFireBrowser.customIconImageDataBySlot"
         static let webExtensions = "ZenFireBrowser.webExtensions"
         static let history = "ZenFireBrowser.history"

@@ -1335,6 +1335,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var moreMenuActions: [String]
     var toolbarActions: [String]?
     var customIcons: [String: String]
+    var customIconColors: [String: String]?
     var tabBarTransparencyEnabled: Bool
     var tabBarTransparency: Double
     var userBackgroundEnabled: Bool

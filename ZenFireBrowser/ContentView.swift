@@ -2327,7 +2327,13 @@ private struct BrowserIcon: View {
             if let image = model.customIconImage(for: slot) {
                 Image(uiImage: image)
                     .resizable()
+                    .interpolation(.none)
+                    .renderingMode(.original)
                     .scaledToFit()
+            } else if let color = model.customIconColor(for: slot) {
+                Image(systemName: model.customIconName(for: slot, fallback: systemName))
+                    .font(.system(size: size, weight: weight))
+                    .foregroundStyle(color)
             } else {
                 Image(systemName: model.customIconName(for: slot, fallback: systemName))
                     .font(.system(size: size, weight: weight))
@@ -3138,8 +3144,7 @@ private struct BrowserTopToolbar: View {
                 model.isAddOnsPresented = true
             } label: {
                 ZStack(alignment: .topTrailing) {
-                    Image(systemName: "puzzlepiece")
-                        .font(.system(size: 15, weight: .bold))
+                    BrowserIcon(slot: .extensions, systemName: "puzzlepiece", size: 15, weight: .bold)
                         .frame(width: 38, height: 38)
 
                     if enabledExtensionCount > 0 {
@@ -3522,7 +3527,7 @@ private struct ShieldQuickButton: View {
             }
         } label: {
             BrowserIcon(
-                slot: nil,
+                slot: .privacy,
                 systemName: model.isAdBlockerEnabled ? "shield.checkered" : "shield.slash",
                 size: 15,
                 weight: .bold
@@ -10642,72 +10647,52 @@ private struct CustomIconsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
     @Environment(\.dismiss) private var dismiss
-    @State private var importingSlot: BrowserCustomIconSlot?
-    @State private var isIconImporterPresented = false
-    @State private var importStatusMessage = ""
+    @State private var editingSlot: BrowserCustomIconSlot?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Icon Slots") {
+                Section("Browser Icons") {
                     ForEach(BrowserCustomIconSlot.allCases) { slot in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 10) {
-                                BrowserIcon(slot: slot, systemName: slot.defaultSymbol, size: 17, weight: .semibold)
-                                    .frame(width: 34, height: 34)
-                                    .foregroundStyle(theme.color(.accent))
-                                    .background(ControlGlassBackground(cornerRadius: 8))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .stroke(theme.color(.border).opacity(0.52), lineWidth: 1)
-                                    }
+                        HStack(spacing: 12) {
+                            BrowserIcon(slot: slot, systemName: slot.defaultSymbol, size: 18, weight: .bold)
+                                .frame(width: 38, height: 38)
+                                .foregroundStyle(theme.color(.accent))
+                                .background(ControlGlassBackground(cornerRadius: 8))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(theme.color(.border).opacity(0.58), lineWidth: 1)
+                                }
 
+                            VStack(alignment: .leading, spacing: 3) {
                                 Text(slot.title)
                                     .font(.body.weight(.semibold))
-
-                                Spacer(minLength: 0)
-
-                                if model.hasCustomIconImage(for: slot) {
-                                    Label("Image", systemImage: "checkmark.circle.fill")
-                                        .font(.caption.weight(.bold))
-                                        .foregroundStyle(theme.color(.accent))
-                                }
+                                Text(iconStatus(for: slot))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(theme.color(.mutedText))
+                                    .lineLimit(1)
                             }
 
-                            TextField(slot.defaultSymbol, text: iconNameBinding(for: slot))
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .font(.system(.footnote, design: .monospaced))
+                            Spacer(minLength: 8)
 
-                            HStack(spacing: 8) {
-                                Button("Import") {
-                                    importingSlot = slot
-                                    isIconImporterPresented = true
-                                }
-                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
-
-                                Button("Clear Image") {
-                                    model.clearCustomIconImage(for: slot)
-                                }
-                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
-                                .disabled(model.hasCustomIconImage(for: slot) == false)
-
-                                Button("Default") {
-                                    model.setCustomIconName("", for: slot)
-                                    model.clearCustomIconImage(for: slot)
-                                }
-                                .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+                            if let color = model.customIconColor(for: slot) {
+                                Circle()
+                                    .fill(color)
+                                    .frame(width: 18, height: 18)
+                                    .overlay {
+                                        Circle().stroke(theme.color(.border), lineWidth: 1)
+                                    }
+                                    .accessibilityLabel("Custom icon color")
                             }
+
+                            Button {
+                                editingSlot = slot
+                            } label: {
+                                Label("Edit", systemImage: "paintbrush.pointed.fill")
+                            }
+                            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
                         }
-                        .padding(.vertical, 4)
-                    }
-                }
-
-                if importStatusMessage.isEmpty == false {
-                    Section {
-                        Label(importStatusMessage, systemImage: "info.circle")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(theme.color(.mutedText))
+                        .padding(.vertical, 3)
                     }
                 }
 
@@ -10730,32 +10715,710 @@ private struct CustomIconsView: View {
                     }
                 }
             }
-            .fileImporter(
-                isPresented: $isIconImporterPresented,
-                allowedContentTypes: [.image],
-                allowsMultipleSelection: false
-            ) { result in
-                guard let slot = importingSlot else { return }
-                importingSlot = nil
-
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first {
-                        model.setCustomIconImage(from: url, for: slot)
-                        importStatusMessage = "Imported \(slot.title)."
-                    }
-                case .failure(let error):
-                    importStatusMessage = error.localizedDescription
-                }
+            .sheet(item: $editingSlot) { slot in
+                IconPixelEditorView(slot: slot)
+                    .environmentObject(model)
+                    .environmentObject(theme)
+                    .preferredColorScheme(.dark)
+                    .presentationDetents([.large])
             }
         }
     }
 
-    private func iconNameBinding(for slot: BrowserCustomIconSlot) -> Binding<String> {
-        Binding(
-            get: { model.customIconNames[slot.rawValue] ?? "" },
-            set: { model.setCustomIconName($0, for: slot) }
+    private func iconStatus(for slot: BrowserCustomIconSlot) -> String {
+        if model.hasCustomIconImage(for: slot) {
+            return "16 x 16 pixel art"
+        }
+        return model.customIconName(for: slot)
+    }
+}
+
+private enum IconPixelTool: String, CaseIterable, Identifiable {
+    case brush
+    case eraser
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .brush: return "Brush"
+        case .eraser: return "Eraser"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .brush: return "paintbrush.pointed.fill"
+        case .eraser: return "eraser.fill"
+        }
+    }
+}
+
+private struct IconPixelGrid: Equatable {
+    static let dimension = 16
+    private(set) var pixels: [String?]
+
+    init() {
+        pixels = Array(repeating: nil, count: Self.dimension * Self.dimension)
+    }
+
+    init(image: UIImage?) {
+        self.init()
+        guard let image else { return }
+
+        let dimension = Self.dimension
+        let canvasSize = CGSize(width: dimension, height: dimension)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: canvasSize, format: format)
+        let sampledImage = renderer.image { context in
+            context.cgContext.interpolationQuality = .none
+            image.draw(in: Self.aspectFitRect(for: image.size, inside: CGRect(origin: .zero, size: canvasSize)))
+        }
+
+        guard let cgImage = sampledImage.cgImage else { return }
+        var rgba = [UInt8](repeating: 0, count: dimension * dimension * 4)
+        let didDraw = rgba.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(
+                data: bytes.baseAddress,
+                width: dimension,
+                height: dimension,
+                bitsPerComponent: 8,
+                bytesPerRow: dimension * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            ) else { return false }
+            context.interpolationQuality = .none
+            context.translateBy(x: 0, y: CGFloat(dimension))
+            context.scaleBy(x: 1, y: -1)
+            context.draw(cgImage, in: CGRect(origin: .zero, size: canvasSize))
+            return true
+        }
+        guard didDraw else { return }
+
+        for index in 0..<(dimension * dimension) {
+            let byteIndex = index * 4
+            let alpha = Int(rgba[byteIndex + 3])
+            guard alpha > 20 else { continue }
+            let multiplier = 255.0 / Double(alpha)
+            let red = min(255, Int((Double(rgba[byteIndex]) * multiplier).rounded()))
+            let green = min(255, Int((Double(rgba[byteIndex + 1]) * multiplier).rounded()))
+            let blue = min(255, Int((Double(rgba[byteIndex + 2]) * multiplier).rounded()))
+            pixels[index] = String(format: "#%02X%02X%02X", red, green, blue)
+        }
+    }
+
+    var isEmpty: Bool {
+        pixels.allSatisfy { $0 == nil }
+    }
+
+    subscript(column: Int, row: Int) -> String? {
+        guard (0..<Self.dimension).contains(column),
+              (0..<Self.dimension).contains(row) else { return nil }
+        return pixels[(row * Self.dimension) + column]
+    }
+
+    mutating func paint(column: Int, row: Int, radius: Int, colorHex: String?) {
+        for y in (row - radius)...(row + radius) {
+            for x in (column - radius)...(column + radius) {
+                guard (0..<Self.dimension).contains(x),
+                      (0..<Self.dimension).contains(y) else { continue }
+                pixels[(y * Self.dimension) + x] = colorHex
+            }
+        }
+    }
+
+    mutating func clear() {
+        pixels = Array(repeating: nil, count: Self.dimension * Self.dimension)
+    }
+
+    func pngData() -> Data? {
+        guard isEmpty == false else { return nil }
+        let outputDimension: CGFloat = 256
+        let cellSize = outputDimension / CGFloat(Self.dimension)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: outputDimension, height: outputDimension),
+            format: format
         )
+        let image = renderer.image { context in
+            context.cgContext.setShouldAntialias(false)
+            for row in 0..<Self.dimension {
+                for column in 0..<Self.dimension {
+                    guard let hex = self[column, row] else { continue }
+                    context.cgContext.setFillColor(UIColor(Color(hex: hex)).cgColor)
+                    context.cgContext.fill(
+                        CGRect(
+                            x: CGFloat(column) * cellSize,
+                            y: CGFloat(row) * cellSize,
+                            width: cellSize,
+                            height: cellSize
+                        )
+                    )
+                }
+            }
+        }
+        return image.pngData()
+    }
+
+    static func symbolImage(named name: String, colorHex: String) -> UIImage? {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)
+        guard let symbol = UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(UIColor(Color(hex: colorHex)), renderingMode: .alwaysOriginal) else { return nil }
+        let size = CGSize(width: Self.dimension, height: Self.dimension)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            context.cgContext.interpolationQuality = .none
+            symbol.draw(in: Self.aspectFitRect(for: symbol.size, inside: CGRect(x: 1, y: 1, width: 14, height: 14)))
+        }
+    }
+
+    private static func aspectFitRect(for size: CGSize, inside bounds: CGRect) -> CGRect {
+        guard size.width > 0, size.height > 0 else { return bounds }
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        let fittedSize = CGSize(width: size.width * scale, height: size.height * scale)
+        return CGRect(
+            x: bounds.midX - (fittedSize.width / 2),
+            y: bounds.midY - (fittedSize.height / 2),
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+    }
+}
+
+private struct IconPixelCanvas: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    @Binding var grid: IconPixelGrid
+    let tool: IconPixelTool
+    let colorHex: String
+    let brushRadius: Int
+    let onStrokeBegan: () -> Void
+    @State private var lastPoint: (column: Int, row: Int)?
+    @State private var isDrawing = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            Canvas { context, size in
+                let dimension = IconPixelGrid.dimension
+                let cellWidth = size.width / CGFloat(dimension)
+                let cellHeight = size.height / CGFloat(dimension)
+
+                for row in 0..<dimension {
+                    for column in 0..<dimension {
+                        let rect = CGRect(
+                            x: CGFloat(column) * cellWidth,
+                            y: CGFloat(row) * cellHeight,
+                            width: cellWidth,
+                            height: cellHeight
+                        )
+                        var path = Path()
+                        path.addRect(rect)
+                        let checkerColor = (row + column).isMultiple(of: 2)
+                            ? theme.color(.surface).opacity(0.96)
+                            : theme.color(.field).opacity(0.82)
+                        context.fill(path, with: .color(checkerColor))
+                        if let hex = grid[column, row] {
+                            context.fill(path, with: .color(Color(hex: hex)))
+                        }
+                    }
+                }
+
+                var gridPath = Path()
+                for index in 0...dimension {
+                    let x = CGFloat(index) * cellWidth
+                    gridPath.move(to: CGPoint(x: x, y: 0))
+                    gridPath.addLine(to: CGPoint(x: x, y: size.height))
+                    let y = CGFloat(index) * cellHeight
+                    gridPath.move(to: CGPoint(x: 0, y: y))
+                    gridPath.addLine(to: CGPoint(x: size.width, y: y))
+                }
+                context.stroke(gridPath, with: .color(theme.color(.border).opacity(0.42)), lineWidth: 0.7)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if isDrawing == false {
+                            onStrokeBegan()
+                            isDrawing = true
+                        }
+                        paint(at: value.location, in: proxy.size)
+                    }
+                    .onEnded { _ in
+                        isDrawing = false
+                        lastPoint = nil
+                    }
+            )
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.9), lineWidth: 1)
+        }
+    }
+
+    private func paint(at location: CGPoint, in size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        let dimension = IconPixelGrid.dimension
+        let column = min(dimension - 1, max(0, Int(location.x / (size.width / CGFloat(dimension)))))
+        let row = min(dimension - 1, max(0, Int(location.y / (size.height / CGFloat(dimension)))))
+        let point = (column: column, row: row)
+
+        if let lastPoint {
+            let steps = max(abs(point.column - lastPoint.column), abs(point.row - lastPoint.row))
+            if steps > 0 {
+                for step in 1...steps {
+                    let progress = Double(step) / Double(steps)
+                    let x = Int((Double(lastPoint.column) + (Double(point.column - lastPoint.column) * progress)).rounded())
+                    let y = Int((Double(lastPoint.row) + (Double(point.row - lastPoint.row) * progress)).rounded())
+                    applyTool(column: x, row: y)
+                }
+            }
+        } else {
+            applyTool(column: point.column, row: point.row)
+        }
+        self.lastPoint = point
+    }
+
+    private func applyTool(column: Int, row: Int) {
+        grid.paint(
+            column: column,
+            row: row,
+            radius: brushRadius,
+            colorHex: tool == .eraser ? nil : colorHex
+        )
+    }
+}
+
+private struct IconPixelPreview: View {
+    let grid: IconPixelGrid
+
+    var body: some View {
+        Canvas { context, size in
+            let dimension = IconPixelGrid.dimension
+            let cellWidth = size.width / CGFloat(dimension)
+            let cellHeight = size.height / CGFloat(dimension)
+            for row in 0..<dimension {
+                for column in 0..<dimension {
+                    guard let hex = grid[column, row] else { continue }
+                    var path = Path()
+                    path.addRect(
+                        CGRect(
+                            x: CGFloat(column) * cellWidth,
+                            y: CGFloat(row) * cellHeight,
+                            width: cellWidth,
+                            height: cellHeight
+                        )
+                    )
+                    context.fill(path, with: .color(Color(hex: hex)))
+                }
+            }
+        }
+    }
+}
+
+private struct IconPixelEditorView: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @Environment(\.dismiss) private var dismiss
+    let slot: BrowserCustomIconSlot
+    @State private var grid = IconPixelGrid()
+    @State private var tool = IconPixelTool.brush
+    @State private var brushRadius = 0
+    @State private var brushHex = "#FFFFFF"
+    @State private var symbolName = ""
+    @State private var usesCustomTint = false
+    @State private var tintColor = Color.white
+    @State private var undoStack: [IconPixelGrid] = []
+    @State private var redoStack: [IconPixelGrid] = []
+    @State private var isImporterPresented = false
+    @State private var importError = ""
+    @State private var didLoad = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    editorHeader
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Pixel Art")
+                                .font(.headline)
+                            Spacer(minLength: 8)
+                            canvasHistoryControls
+                        }
+
+                        IconPixelCanvas(
+                            grid: $grid,
+                            tool: tool,
+                            colorHex: brushHex,
+                            brushRadius: brushRadius,
+                            onStrokeBegan: recordUndo
+                        )
+                        .frame(maxWidth: 430)
+                        .frame(maxWidth: .infinity)
+
+                        Picker("Tool", selection: $tool) {
+                            ForEach(IconPixelTool.allCases) { tool in
+                                Label(tool.title, systemImage: tool.symbolName)
+                                    .tag(tool)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Picker("Brush Size", selection: $brushRadius) {
+                            Text("1 px").tag(0)
+                            Text("3 px").tag(1)
+                            Text("5 px").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+
+                        colorPalette(selection: $brushHex)
+
+                        ColorPicker("Brush Color", selection: colorBinding(for: $brushHex), supportsOpacity: false)
+                    }
+
+                    Divider().overlay(theme.color(.border))
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Icon Color")
+                            .font(.headline)
+
+                        Toggle("Custom icon color", isOn: $usesCustomTint)
+
+                        if usesCustomTint {
+                            colorPalette(selection: tintHexBinding)
+                            ColorPicker("Icon Color", selection: $tintColor, supportsOpacity: false)
+                        }
+                    }
+
+                    Divider().overlay(theme.color(.border))
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("SF Symbol")
+                            .font(.headline)
+
+                        TextField(slot.defaultSymbol, text: $symbolName)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(.body, design: .monospaced))
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 42)
+                            .background(ControlGlassBackground(cornerRadius: 8))
+
+                        if isSymbolValid == false {
+                            Label("Unknown SF Symbol", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.orange)
+                        }
+
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 120), spacing: 9)],
+                            alignment: .leading,
+                            spacing: 9
+                        ) {
+                            Button {
+                                pixelateSymbol()
+                            } label: {
+                                Label("Pixelate", systemImage: "square.grid.3x3.fill")
+                            }
+                            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+                            .disabled(isSymbolValid == false)
+
+                            Button {
+                                isImporterPresented = true
+                            } label: {
+                                Label("Import", systemImage: "photo.badge.plus")
+                            }
+                            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+
+                            Button {
+                                clearPixelArt()
+                            } label: {
+                                Label("Use Symbol", systemImage: "character.cursor.ibeam")
+                            }
+                            .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+                            .disabled(grid.isEmpty)
+                        }
+                    }
+
+                    if importError.isEmpty == false {
+                        Label(importError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.orange)
+                    }
+
+                    Button(role: .destructive) {
+                        resetDraft()
+                    } label: {
+                        Label("Restore Default", systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(GlideGradientButtonStyle(prominence: .standard))
+                }
+                .padding(18)
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity)
+            }
+            .background(theme.color(.canvas))
+            .foregroundStyle(theme.color(.text))
+            .navigationTitle(slot.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        save()
+                    }
+                    .fontWeight(.bold)
+                    .disabled(grid.isEmpty && isSymbolValid == false)
+                }
+            }
+            .fileImporter(
+                isPresented: $isImporterPresented,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: false,
+                onCompletion: importImage
+            )
+            .onAppear(perform: loadDraft)
+        }
+    }
+
+    private var editorHeader: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(theme.color(.surface))
+                if grid.isEmpty {
+                    Image(systemName: effectiveSymbolName)
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(usesCustomTint ? tintColor : theme.color(.accent))
+                } else {
+                    IconPixelPreview(grid: grid)
+                        .padding(10)
+                }
+            }
+            .frame(width: 64, height: 64)
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.color(.border).opacity(0.75), lineWidth: 1)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(slot.title)
+                    .font(.title3.weight(.bold))
+                Text(grid.isEmpty ? effectiveSymbolName : "16 x 16 pixel art")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(theme.color(.mutedText))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var canvasHistoryControls: some View {
+        HStack(spacing: 6) {
+            Button(action: undo) {
+                Image(systemName: "arrow.uturn.backward")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .disabled(undoStack.isEmpty)
+            .accessibilityLabel("Undo")
+            .help("Undo")
+
+            Button(action: redo) {
+                Image(systemName: "arrow.uturn.forward")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .disabled(redoStack.isEmpty)
+            .accessibilityLabel("Redo")
+            .help("Redo")
+
+            Button(action: clearPixelArt) {
+                Image(systemName: "trash")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .disabled(grid.isEmpty)
+            .accessibilityLabel("Clear pixel art")
+            .help("Clear pixel art")
+        }
+        .foregroundStyle(theme.color(.mutedText))
+    }
+
+    private var effectiveSymbolName: String {
+        let trimmed = symbolName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? slot.defaultSymbol : trimmed
+    }
+
+    private var isSymbolValid: Bool {
+        UIImage(systemName: effectiveSymbolName) != nil
+    }
+
+    private var tintHexBinding: Binding<String> {
+        Binding(
+            get: { tintColor.hexString ?? "#FFFFFF" },
+            set: { tintColor = Color(hex: $0) }
+        )
+    }
+
+    private var paletteHexes: [String] {
+        let themeHexes = [
+            theme.color(.accent).hexString,
+            theme.color(.createTab).hexString,
+            theme.color(.text).hexString,
+            theme.color(.privateAccent).hexString
+        ].compactMap { $0 }
+        let presets = [
+            "#FFFFFF", "#111318", "#FF375F", "#FF9F0A", "#FFD60A",
+            "#30D158", "#64D2FF", "#0A84FF", "#BF5AF2", "#FF2D55"
+        ]
+        return (themeHexes + presets).reduce(into: [String]()) { values, hex in
+            if values.contains(hex) == false {
+                values.append(hex)
+            }
+        }
+    }
+
+    private func colorPalette(selection: Binding<String>) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(paletteHexes, id: \.self) { hex in
+                    Button {
+                        selection.wrappedValue = hex
+                    } label: {
+                        Circle()
+                            .fill(Color(hex: hex))
+                            .frame(width: 30, height: 30)
+                            .overlay {
+                                Circle()
+                                    .stroke(
+                                        selection.wrappedValue == hex ? theme.color(.text) : theme.color(.border),
+                                        lineWidth: selection.wrappedValue == hex ? 3 : 1
+                                    )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Color \(hex)")
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func colorBinding(for hex: Binding<String>) -> Binding<Color> {
+        Binding(
+            get: { Color(hex: hex.wrappedValue) },
+            set: { color in
+                if let value = color.hexString {
+                    hex.wrappedValue = value
+                }
+            }
+        )
+    }
+
+    private func loadDraft() {
+        guard didLoad == false else { return }
+        didLoad = true
+        symbolName = model.customIconNames[slot.rawValue] ?? slot.defaultSymbol
+        grid = IconPixelGrid(image: model.customIconImage(for: slot))
+        if let color = model.customIconColor(for: slot) {
+            usesCustomTint = true
+            tintColor = color
+            brushHex = color.hexString ?? "#FFFFFF"
+        } else {
+            tintColor = theme.color(.accent)
+            brushHex = theme.color(.accent).hexString ?? "#FFFFFF"
+        }
+    }
+
+    private func save() {
+        model.setCustomIconName(symbolName, for: slot)
+        model.setCustomIconColor(usesCustomTint ? tintColor : nil, for: slot)
+        if let data = grid.pngData() {
+            model.setCustomIconImage(fromImageData: data, for: slot)
+        } else {
+            model.clearCustomIconImage(for: slot)
+        }
+        dismiss()
+    }
+
+    private func recordUndo() {
+        guard undoStack.last != grid else { return }
+        undoStack.append(grid)
+        if undoStack.count > 40 {
+            undoStack.removeFirst()
+        }
+        redoStack = []
+    }
+
+    private func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        redoStack.append(grid)
+        grid = previous
+    }
+
+    private func redo() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(grid)
+        grid = next
+    }
+
+    private func clearPixelArt() {
+        guard grid.isEmpty == false else { return }
+        recordUndo()
+        grid.clear()
+    }
+
+    private func pixelateSymbol() {
+        guard let image = IconPixelGrid.symbolImage(named: effectiveSymbolName, colorHex: brushHex) else { return }
+        recordUndo()
+        grid = IconPixelGrid(image: image)
+    }
+
+    private func resetDraft() {
+        recordUndo()
+        grid.clear()
+        symbolName = slot.defaultSymbol
+        usesCustomTint = false
+        tintColor = theme.color(.accent)
+        brushHex = theme.color(.accent).hexString ?? "#FFFFFF"
+    }
+
+    private func importImage(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if didAccess {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            let data = try Data(contentsOf: url)
+            guard let image = UIImage(data: data) else {
+                throw NSError(
+                    domain: "GlideIconEditor",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "The selected file is not a supported image."]
+                )
+            }
+            recordUndo()
+            grid = IconPixelGrid(image: image)
+            importError = ""
+        } catch {
+            importError = error.localizedDescription
+        }
     }
 }
 
