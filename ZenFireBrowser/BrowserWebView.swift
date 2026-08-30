@@ -14,14 +14,14 @@ struct BrowserWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         configure(tab.webView)
-        context.coordinator.install(on: tab.webView.scrollView)
+        context.coordinator.install(on: tab.webView)
         return tab.webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         context.coordinator.parent = self
         configure(uiView)
-        context.coordinator.install(on: uiView.scrollView)
+        context.coordinator.install(on: uiView)
         context.coordinator.cancelPullIfDisabled()
     }
 
@@ -46,20 +46,19 @@ struct BrowserWebView: UIViewRepresentable {
         private weak var installedScrollView: UIScrollView?
         private var isEligible = false
         private var isTrackingPull = false
-        private var originalBounces = true
         private var lastPullDistance: CGFloat = 0
         private var lastHorizontalPosition: CGFloat = 0.5
 
-        private let directionTolerance: CGFloat = 0.62
-        private let activationDistance: CGFloat = 10
-        private let pullResistance: CGFloat = 0.68
-        private let maximumPullDistance: CGFloat = 124
+        private let directionDominance: CGFloat = 0.78
+        private let activationDistance: CGFloat = 4
+        private let maximumPullDistance: CGFloat = 142
 
         init(parent: BrowserWebView) {
             self.parent = parent
         }
 
-        func install(on scrollView: UIScrollView) {
+        func install(on webView: WKWebView) {
+            let scrollView = webView.scrollView
             guard installedScrollView !== scrollView else { return }
             uninstall()
             scrollView.panGestureRecognizer.addTarget(self, action: #selector(handleWebpagePan(_:)))
@@ -68,7 +67,10 @@ struct BrowserWebView: UIViewRepresentable {
 
         func uninstall() {
             finishPull(cancelled: true, notify: false)
-            installedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(handleWebpagePan(_:)))
+            installedScrollView?.panGestureRecognizer.removeTarget(
+                self,
+                action: #selector(handleWebpagePan(_:))
+            )
             installedScrollView = nil
         }
 
@@ -85,7 +87,7 @@ struct BrowserWebView: UIViewRepresentable {
             case .began:
                 let topBoundary = -scrollView.adjustedContentInset.top
                 isEligible = parent.isPullDownNavigationEnabled
-                    && scrollView.contentOffset.y <= topBoundary + 1
+                    && scrollView.contentOffset.y <= topBoundary + 1.5
                 isTrackingPull = false
                 lastPullDistance = 0
                 lastHorizontalPosition = normalizedHorizontalPosition(of: recognizer, in: scrollView)
@@ -96,20 +98,14 @@ struct BrowserWebView: UIViewRepresentable {
 
                 if isTrackingPull == false {
                     guard translation.y >= activationDistance,
-                          translation.y >= abs(translation.x) * directionTolerance else { return }
+                          translation.y >= abs(translation.x) * directionDominance else { return }
                     isTrackingPull = true
-                    originalBounces = scrollView.bounces
-                    scrollView.bounces = false
                 }
 
                 let topBoundary = -scrollView.adjustedContentInset.top
-                if scrollView.contentOffset.y != topBoundary {
-                    scrollView.contentOffset = CGPoint(x: scrollView.contentOffset.x, y: topBoundary)
-                }
-
                 lastPullDistance = min(
                     maximumPullDistance,
-                    max(0, translation.y - activationDistance) * pullResistance
+                    max(0, topBoundary - scrollView.contentOffset.y)
                 )
                 lastHorizontalPosition = normalizedHorizontalPosition(of: recognizer, in: scrollView)
                 parent.onPullDownNavigationChanged?(lastPullDistance, lastHorizontalPosition)
@@ -136,22 +132,22 @@ struct BrowserWebView: UIViewRepresentable {
         private func finishPull(cancelled: Bool, notify: Bool = true) {
             guard isTrackingPull || isEligible else { return }
 
+            let distance = lastPullDistance
+            let horizontalPosition = lastHorizontalPosition
             let wasTrackingPull = isTrackingPull
-            if wasTrackingPull {
-                installedScrollView?.bounces = originalBounces
-            }
-            if notify {
-                parent.onPullDownNavigationEnded?(
-                    lastPullDistance,
-                    lastHorizontalPosition,
-                    cancelled || wasTrackingPull == false
-                )
-            }
 
             isEligible = false
             isTrackingPull = false
             lastPullDistance = 0
             lastHorizontalPosition = 0.5
+
+            if notify {
+                parent.onPullDownNavigationEnded?(
+                    distance,
+                    horizontalPosition,
+                    cancelled || wasTrackingPull == false
+                )
+            }
         }
     }
 }

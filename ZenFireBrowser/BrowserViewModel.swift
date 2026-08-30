@@ -1461,7 +1461,7 @@ final class BrowserViewModel: ObservableObject {
     static let infiniteForcedFPSValue = 241.0
     static let minimumWebsiteResolutionScale = 0.86
     static let maximumWebsiteResolutionScale = 1.14
-    static let currentFeatureUpdateVersion = 9
+    static let currentFeatureUpdateVersion = 10
     static let defaultToolbarActionIDs = [
         BrowserToolbarAction.back.rawValue,
         BrowserToolbarAction.forward.rawValue,
@@ -1469,8 +1469,8 @@ final class BrowserViewModel: ObservableObject {
     ]
     static let maximumQuickNavigationActions = 6
     static let defaultQuickNavigationActionIDs = [
-        BrowserQuickNavigationAction.reload.rawValue,
         BrowserQuickNavigationAction.newTab.rawValue,
+        BrowserQuickNavigationAction.reload.rawValue,
         BrowserQuickNavigationAction.closeTab.rawValue
     ]
     static let defaultMoreMenuActionIDs = Set([

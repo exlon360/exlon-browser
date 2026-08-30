@@ -1461,9 +1461,15 @@ private struct BrowserContent: View {
     let pullDownPaneTopInset: CGFloat
     @State private var pullDistance: CGFloat = 0
     @State private var selectedPullAction: BrowserQuickNavigationAction?
+    @State private var isPullArmed = false
 
-    private let pullActions: [BrowserQuickNavigationAction] = [.newTab, .reload, .closeTab]
-    private let actionTriggerDistance: CGFloat = 70
+    private let actionTriggerDistance: CGFloat = 72
+    private let actionDisarmDistance: CGFloat = 56
+    private let selectionHysteresis: CGFloat = 0.035
+
+    private var pullActions: [BrowserQuickNavigationAction] {
+        model.quickNavigationActions
+    }
 
     init(pullDownPaneTopInset: CGFloat = 0) {
         self.pullDownPaneTopInset = pullDownPaneTopInset
@@ -1484,7 +1490,8 @@ private struct BrowserContent: View {
                         actions: pullActions,
                         pullDistance: pullDistance,
                         selectedAction: selectedPullAction,
-                        isArmed: pullDistance >= actionTriggerDistance,
+                        isArmed: isPullArmed,
+                        activationProgress: min(max(pullDistance / actionTriggerDistance, 0), 1),
                         topInset: pullDownPaneTopInset
                     )
                     .zIndex(2)
@@ -1505,12 +1512,6 @@ private struct BrowserContent: View {
                     )
                     .id(tab.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(y: pullDistance)
-                    .shadow(
-                        color: Color.black.opacity(pullDistance > 0 ? 0.28 : 0),
-                        radius: 14,
-                        y: -5
-                    )
                     .ignoresSafeArea()
                     .overlay(alignment: .top) {
                         LoadingProgress(tab: tab)
@@ -1530,6 +1531,9 @@ private struct BrowserContent: View {
                 resetPull(animated: true)
             }
         }
+        .onChange(of: model.quickNavigationActionIDs) { _, _ in
+            resetPull(animated: true)
+        }
     }
 
     private func shouldShowPageBackdrop(for tab: BrowserTab) -> Bool {
@@ -1542,12 +1546,24 @@ private struct BrowserContent: View {
 
     private func updatePull(distance: CGFloat, horizontalPosition: CGFloat) {
         pullDistance = distance
-        let action = distance >= actionTriggerDistance
-            ? action(at: horizontalPosition)
+
+        let wasArmed = isPullArmed
+        if isPullArmed {
+            if distance < actionDisarmDistance {
+                isPullArmed = false
+            }
+        } else if distance >= actionTriggerDistance {
+            isPullArmed = true
+        }
+
+        let action = distance > 6
+            ? action(at: horizontalPosition, preserving: selectedPullAction)
             : nil
-        guard action != selectedPullAction else { return }
-        selectedPullAction = action
-        if action != nil {
+        let actionChanged = action != selectedPullAction
+        if actionChanged {
+            selectedPullAction = action
+        }
+        if action != nil && isPullArmed && (actionChanged || wasArmed == false) {
             selectionFeedback()
         }
     }
@@ -1557,8 +1573,8 @@ private struct BrowserContent: View {
         horizontalPosition: CGFloat,
         cancelled: Bool
     ) {
-        let action = cancelled == false && distance >= actionTriggerDistance
-            ? action(at: horizontalPosition)
+        let action = cancelled == false && (isPullArmed || distance >= actionTriggerDistance)
+            ? action(at: horizontalPosition, preserving: selectedPullAction)
             : nil
         resetPull(animated: true)
 
@@ -1570,10 +1586,26 @@ private struct BrowserContent: View {
         }
     }
 
-    private func action(at horizontalPosition: CGFloat) -> BrowserQuickNavigationAction? {
+    private func action(
+        at horizontalPosition: CGFloat,
+        preserving currentAction: BrowserQuickNavigationAction? = nil
+    ) -> BrowserQuickNavigationAction? {
         guard pullActions.isEmpty == false else { return nil }
+
+        let clampedPosition = min(max(horizontalPosition, 0), 0.999)
+        let actionWidth = 1 / CGFloat(pullActions.count)
+        if let currentAction,
+           let currentIndex = pullActions.firstIndex(of: currentAction),
+           model.isQuickNavigationActionAvailable(currentAction) {
+            let lowerBoundary = CGFloat(currentIndex) * actionWidth - selectionHysteresis
+            let upperBoundary = CGFloat(currentIndex + 1) * actionWidth + selectionHysteresis
+            if clampedPosition >= lowerBoundary && clampedPosition <= upperBoundary {
+                return currentAction
+            }
+        }
+
         let index = min(
-            Int(min(max(horizontalPosition, 0), 0.999) * CGFloat(pullActions.count)),
+            Int(clampedPosition * CGFloat(pullActions.count)),
             pullActions.count - 1
         )
         let action = pullActions[index]
@@ -1584,6 +1616,7 @@ private struct BrowserContent: View {
         let changes = {
             pullDistance = 0
             selectedPullAction = nil
+            isPullArmed = false
         }
         if animated {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.82), changes)
@@ -1613,9 +1646,10 @@ private struct WebpagePullDownActionPane: View {
     let pullDistance: CGFloat
     let selectedAction: BrowserQuickNavigationAction?
     let isArmed: Bool
+    let activationProgress: CGFloat
     let topInset: CGFloat
 
-    private let paneHeight: CGFloat = 108
+    private let paneHeight: CGFloat = 112
 
     var body: some View {
         ZStack {
@@ -1623,54 +1657,100 @@ private struct WebpagePullDownActionPane: View {
                 .fill(.ultraThinMaterial)
 
             Rectangle()
-                .fill(theme.color(.quickNavigation).opacity(0.9))
+                .fill(theme.color(.quickNavigation).opacity(0.82))
 
-            TokenGradientField(token: .quickNavigation, opacity: 0.88)
+            TokenGradientField(token: .quickNavigation, opacity: 0.82)
 
-            HStack(spacing: 6) {
-                ForEach(actions) { action in
-                    actionView(action)
+            LinearGradient(
+                colors: [Color.white.opacity(0.18), Color.clear, Color.black.opacity(0.14)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            VStack(spacing: 5) {
+                HStack(spacing: 4) {
+                    ForEach(actions) { action in
+                        actionView(action)
+                    }
                 }
+                .frame(maxWidth: actionAreaMaxWidth)
+                .frame(height: 82)
+                .padding(.horizontal, 12)
+
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.black.opacity(0.16))
+
+                        Capsule()
+                            .fill(Color.white.opacity(isArmed ? 0.96 : 0.6))
+                            .frame(width: proxy.size.width * activationProgress)
+                            .shadow(color: Color.white.opacity(isArmed ? 0.5 : 0), radius: 5)
+                    }
+                }
+                .frame(maxWidth: actionAreaMaxWidth - 28)
+                .frame(height: 3)
+                .padding(.horizontal, 20)
             }
-            .frame(maxWidth: 430)
-            .padding(.horizontal, 22)
-            .padding(.top, 8)
+            .padding(.top, 7)
+            .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity)
         .frame(height: paneHeight)
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .top) {
             Rectangle()
-                .fill(Color.white.opacity(0.22))
+                .fill(Color.white.opacity(0.14))
                 .frame(height: 1)
         }
-        .shadow(color: theme.color(.quickNavigation).opacity(0.28), radius: 18, y: 8)
-        .offset(y: topInset + min(0, pullDistance - paneHeight))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.28))
+                .frame(height: 1)
+        }
+        .shadow(color: theme.color(.quickNavigation).opacity(0.34), radius: 20, y: 9)
+        .offset(y: topInset + min(0, pullDistance * 1.35 - paneHeight))
         .opacity(revealProgress)
         .allowsHitTesting(false)
         .accessibilityHidden(pullDistance < 1)
     }
 
     private func actionView(_ action: BrowserQuickNavigationAction) -> some View {
-        let isSelected = isArmed && selectedAction == action
+        let isFocused = selectedAction == action
+        let isSelected = isArmed && isFocused
         let isAvailable = model.isQuickNavigationActionAvailable(action)
 
-        return VStack(spacing: 6) {
+        return VStack(spacing: 5) {
             ZStack {
                 Circle()
                     .fill(
                         isSelected
-                            ? Color.white.opacity(0.28)
-                            : Color.black.opacity(0.16)
+                            ? Color.white.opacity(0.32)
+                            : Color.black.opacity(isFocused ? 0.1 : 0.17)
                     )
+
+                if isFocused {
+                    TokenGradientField(token: .quickNavigation, opacity: isSelected ? 0.76 : 0.34)
+                        .clipShape(Circle())
+                }
 
                 Circle()
                     .stroke(
-                        isSelected ? Color.white.opacity(0.92) : Color.white.opacity(0.2),
+                        isSelected
+                            ? Color.white.opacity(0.96)
+                            : Color.white.opacity(isFocused ? 0.48 : 0.2),
                         lineWidth: isSelected ? 2 : 1
                     )
 
+                Circle()
+                    .trim(from: 0, to: isFocused ? activationProgress : 0)
+                    .stroke(
+                        Color.white.opacity(isArmed ? 1 : 0.78),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+
                 Image(systemName: action.symbolName)
-                    .font(.system(size: 19, weight: .black))
+                    .font(.system(size: compactActions ? 16 : 19, weight: .black))
                     .foregroundStyle(
                         action.isDestructive
                             ? Color(red: 1, green: 0.38, blue: 0.42)
@@ -1678,22 +1758,47 @@ private struct WebpagePullDownActionPane: View {
                     )
                     .shadow(color: Color.black.opacity(0.34), radius: 2, y: 1)
             }
-            .frame(width: 48, height: 48)
-            .scaleEffect(isSelected ? 1.14 : 1)
+            .frame(width: iconSide, height: iconSide)
+            .scaleEffect(isSelected ? 1.08 : (isFocused ? 1.03 : 1))
 
             Text(action.title)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: compactActions ? 9 : 10, weight: .bold))
                 .foregroundStyle(Color.white)
                 .lineLimit(1)
-                .minimumScaleFactor(0.78)
+                .minimumScaleFactor(0.66)
         }
         .frame(maxWidth: .infinity)
+        .frame(height: 76)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(isFocused ? (isSelected ? 0.16 : 0.07) : 0))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(
+                    Color.white.opacity(isFocused ? (isSelected ? 0.4 : 0.16) : 0),
+                    lineWidth: 1
+                )
+        }
         .opacity(isAvailable ? max(0.4, revealProgress) : 0.28)
-        .animation(.spring(response: 0.16, dampingFraction: 0.72), value: isSelected)
+        .animation(.spring(response: 0.18, dampingFraction: 0.78), value: isFocused)
+        .animation(.spring(response: 0.2, dampingFraction: 0.76), value: isSelected)
+    }
+
+    private var compactActions: Bool {
+        actions.count >= 5
+    }
+
+    private var iconSide: CGFloat {
+        compactActions ? 40 : 48
+    }
+
+    private var actionAreaMaxWidth: CGFloat {
+        compactActions ? 620 : 440
     }
 
     private var revealProgress: Double {
-        Double(min(max(pullDistance / 44, 0), 1))
+        Double(min(max(pullDistance / 34, 0), 1))
     }
 }
 
@@ -5446,7 +5551,7 @@ private struct GlideFeatureUpdateView: View {
                 Spacer(minLength: 20)
 
                 VStack(spacing: 16) {
-                    Image(systemName: "hand.point.down.fill")
+                    Image(systemName: "hand.draw.fill")
                         .font(.system(size: 30, weight: .black))
                         .frame(width: 72, height: 72)
                         .foregroundStyle(theme.color(.canvas))
@@ -5454,12 +5559,12 @@ private struct GlideFeatureUpdateView: View {
                         .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
 
                     VStack(spacing: 8) {
-                        Text("Pull-Down Navigation")
+                        Text("Smooth Pull-Down")
                             .font(.system(size: 38, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)
 
-                        Text("Pull the webpage down, move across the three actions, and release. The page itself now becomes the control.")
+                        Text("Native page motion, steadier selection, and your choice of up to six browser actions.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .multilineTextAlignment(.center)
@@ -5469,11 +5574,11 @@ private struct GlideFeatureUpdateView: View {
                 .padding(.horizontal, 22)
 
                 VStack(spacing: 12) {
-                    GlideFeatureUpdateSection(title: "Webpage Gesture", symbol: "hand.draw.fill") {
+                    GlideFeatureUpdateSection(title: "Native Motion", symbol: "hand.draw.fill") {
                         TutorialFeatureRow(
                             symbol: "hand.point.down.fill",
-                            title: "Page Pull-Down",
-                            detail: "Pull down from the top of a webpage to reveal New Tab, Reload, and Close Tab behind the page.",
+                            title: "WebKit Pull",
+                            detail: "The webpage now follows its own elastic scrolling, keeping movement attached to your finger without a second competing animation.",
                             tint: .quickNavigation
                         )
 
@@ -5481,17 +5586,17 @@ private struct GlideFeatureUpdateView: View {
 
                         TutorialFeatureRow(
                             symbol: "hand.point.up.left.fill",
-                            title: "Slide and Release",
-                            detail: "Keep holding, move left or right to highlight the nearest icon, then release to run it.",
+                            title: "Steady Selection",
+                            detail: "Action zones hold their selection near boundaries, so small sideways movements no longer make icons flicker.",
                             tint: .quickNavigation
                         )
                     }
 
-                    GlideFeatureUpdateSection(title: "Mobile Flow", symbol: "iphone") {
+                    GlideFeatureUpdateSection(title: "Your Actions", symbol: "slider.horizontal.3") {
                         TutorialFeatureRow(
-                            symbol: "rectangle.stack.badge.plus",
-                            title: "Three Essential Actions",
-                            detail: "Create a tab, refresh the current page, or close it in one continuous thumb gesture.",
+                            symbol: "plus.square.on.square",
+                            title: "Up to Six",
+                            detail: "Add, remove, and reorder page actions including tabs, navigation, search, all tabs, and settings.",
                             tint: .createTab
                         )
 
@@ -5499,8 +5604,8 @@ private struct GlideFeatureUpdateView: View {
 
                         TutorialFeatureRow(
                             symbol: "paintbrush.fill",
-                            title: "Your Pane Color",
-                            detail: "The revealed pane uses your Quick Navigation color, gradient circles, and intensity.",
+                            title: "Shared Style",
+                            detail: "The pull-down pane and floating button share the same action order, color, gradient, and availability state.",
                             tint: .quickNavigation
                         )
                     }
@@ -9606,12 +9711,6 @@ private struct QuickNavigationSettingsPanel: View {
             Toggle("Pull-Down Page Actions", isOn: $model.isSwipeUpQuickNavigationEnabled)
             Toggle("Floating Action Button", isOn: $model.isQuickNavigationEnabled)
 
-            LabeledContent("Page actions") {
-                Text("New Tab, Reload, Close Tab")
-                    .foregroundStyle(theme.color(.mutedText))
-                    .multilineTextAlignment(.trailing)
-            }
-
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
@@ -9649,19 +9748,46 @@ private struct QuickNavigationSettingsPanel: View {
 
             Divider()
 
-            LabeledContent("FAB actions") {
+            LabeledContent("Pull-down & FAB actions") {
                 Text("\(model.quickNavigationActions.count) of \(BrowserViewModel.maximumQuickNavigationActions)")
                     .foregroundStyle(theme.color(.mutedText))
                     .monospacedDigit()
             }
 
+            HStack(spacing: 7) {
+                ForEach(model.quickNavigationActions) { action in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(theme.color(.quickNavigation))
+
+                        TokenGradientField(token: .quickNavigation, opacity: 0.78)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.white.opacity(0.34), lineWidth: 1)
+
+                        Image(systemName: action.symbolName)
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(action.isDestructive ? Color(red: 1, green: 0.42, blue: 0.46) : Color.white)
+                    }
+                    .frame(width: 38, height: 38)
+                    .accessibilityLabel(action.title)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             ForEach(Array(model.quickNavigationActions.enumerated()), id: \.element.id) { index, action in
                 HStack(spacing: 10) {
-                    Image(systemName: action.symbolName)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(action.isDestructive ? Color.red : theme.color(.quickNavigation))
-                        .frame(width: 30, height: 30)
-                        .background(theme.color(.field).opacity(0.82), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(theme.color(.quickNavigation).opacity(0.9))
+                        TokenGradientField(token: .quickNavigation, opacity: 0.66)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        Image(systemName: action.symbolName)
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(action.isDestructive ? Color(red: 1, green: 0.42, blue: 0.46) : Color.white)
+                    }
+                    .frame(width: 30, height: 30)
 
                     Text(action.title)
                         .font(.system(size: 14, weight: .semibold))
