@@ -476,6 +476,15 @@ private struct BrowserShell: View {
                     }
                 }
 
+                if shouldShowQuickNavigation {
+                    QuickNavigationFAB()
+                        .padding(.trailing, quickNavigationTrailingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience))
+                        .padding(.bottom, quickNavigationBottomPadding)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .transition(.scale(scale: 0.86, anchor: .bottomTrailing).combined(with: .opacity))
+                        .zIndex(18)
+                }
+
                 if model.isTopSearchBarEnabled == false {
                     MovableBrowserPageControls(
                         containerSize: layoutSize,
@@ -717,6 +726,46 @@ private struct BrowserShell: View {
 
     private var isDesktopZenChromeVisible: Bool {
         isDesktopZenModeActive && (isDesktopZenChromeHovered || model.isChromeWidthResizeMode)
+    }
+
+    private var shouldShowQuickNavigation: Bool {
+        model.isQuickNavigationEnabled
+            && model.selectedTab != nil
+            && model.isContainedBrowserPresented == false
+            && model.isFloatingSearchPresented == false
+            && model.isTabFinderPresented == false
+            && model.isTopSearchBarMoveMode == false
+            && model.isChromeWidthResizeMode == false
+            && model.isPageControlsMoveMode == false
+    }
+
+    private var quickNavigationBottomPadding: CGFloat {
+        var padding: CGFloat = 18
+        if model.areSideTabsCollapsed == false {
+            switch model.chromePlacement {
+            case .bottom:
+                padding = 142
+            case .floating:
+                padding = 92
+            case .left, .right, .top:
+                break
+            }
+        }
+        if model.isTopSearchBarEnabled,
+           usesIntegratedTopToolbar == false,
+           model.topSearchBarPlacement == .bottom {
+            padding = max(padding, 82)
+        }
+        return padding
+    }
+
+    private func quickNavigationTrailingPadding(
+        for visibleSize: CGSize,
+        layoutSize: CGSize,
+        experience: GlideDeviceExperience
+    ) -> CGFloat {
+        guard chromeIsVisible(for: .right) else { return 18 }
+        return sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience) + 18
     }
 
     private func chromeIsVisible(for placement: BrowserChromePlacement) -> Bool {
@@ -1373,6 +1422,220 @@ private struct BrowserContent: View {
 
     private func shouldUseNeutralStartBackdrop(for tab: BrowserTab) -> Bool {
         BrowserTab.isStartPageURL(tab.url) && (theme.isUserBackgroundEnabled && theme.hasUserBackground) == false
+    }
+}
+
+private struct QuickNavigationFAB: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var isExpanded = false
+    @State private var selectedAction: BrowserQuickNavigationAction?
+
+    private let containerSide: CGFloat = 240
+    private let mainButtonSize: CGFloat = 58
+    private let actionButtonSize: CGFloat = 46
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            if isExpanded {
+                if let selectedAction {
+                    Text(selectedAction.title)
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(theme.color(.text))
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 28)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay {
+                            Capsule()
+                                .stroke(theme.color(.border).opacity(0.72), lineWidth: 1)
+                        }
+                        .frame(width: containerSide - 8, height: containerSide - 8, alignment: .topTrailing)
+                        .transition(.opacity)
+                }
+
+                ForEach(Array(model.quickNavigationActions.enumerated()), id: \.element.id) { index, action in
+                    actionButton(action)
+                        .offset(actionOffset(for: index, count: model.quickNavigationActions.count))
+                        .transition(.scale(scale: 0.72, anchor: .bottomTrailing).combined(with: .opacity))
+                }
+            }
+
+            mainControl
+        }
+        .frame(width: containerSide, height: containerSide, alignment: .bottomTrailing)
+        .animation(.spring(response: 0.24, dampingFraction: 0.78), value: isExpanded)
+        .animation(.spring(response: 0.18, dampingFraction: 0.8), value: selectedAction)
+        .onChange(of: model.selectedTabID) { _, _ in
+            collapse()
+        }
+        .onChange(of: model.quickNavigationActionIDs) { _, _ in
+            collapse()
+        }
+    }
+
+    private var mainControl: some View {
+        ZStack {
+            Circle()
+                .fill(theme.color(.quickNavigation))
+
+            TokenGradientField(token: .quickNavigation, opacity: 0.94)
+                .clipShape(Circle())
+
+            Circle()
+                .stroke(Color.white.opacity(0.46), lineWidth: 1)
+
+            Image(systemName: isExpanded ? "xmark" : "hand.draw.fill")
+                .font(.system(size: 20, weight: .black))
+                .foregroundStyle(Color.white)
+                .shadow(color: Color.black.opacity(0.42), radius: 2, y: 1)
+        }
+        .frame(width: mainButtonSize, height: mainButtonSize)
+        .contentShape(Circle())
+        .shadow(color: theme.color(.quickNavigation).opacity(0.38), radius: 16, y: 8)
+        .gesture(navigationGesture)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Quick Navigation")
+        .accessibilityHint("Opens your quick browser actions")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            withAnimation {
+                isExpanded.toggle()
+                selectedAction = nil
+            }
+        }
+        .help("Quick Navigation")
+    }
+
+    private func actionButton(_ action: BrowserQuickNavigationAction) -> some View {
+        let isSelected = selectedAction == action
+        let isAvailable = model.isQuickNavigationActionAvailable(action)
+
+        return Button {
+            trigger(action)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+
+                Circle()
+                    .fill(
+                        isSelected
+                            ? theme.color(.quickNavigation).opacity(0.92)
+                            : theme.color(.surface).opacity(0.9)
+                    )
+
+                if isSelected {
+                    TokenGradientField(token: .quickNavigation, opacity: 0.84)
+                        .clipShape(Circle())
+                }
+
+                Image(systemName: action.symbolName)
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(action.isDestructive && isSelected == false ? Color.red : theme.color(.text))
+            }
+            .frame(width: actionButtonSize, height: actionButtonSize)
+            .overlay {
+                Circle()
+                    .stroke(
+                        isSelected ? Color.white.opacity(0.62) : theme.color(.border).opacity(0.74),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            }
+            .scaleEffect(isSelected ? 1.12 : 1)
+            .shadow(color: Color.black.opacity(0.28), radius: 10, y: 5)
+        }
+        .buttonStyle(.plain)
+        .disabled(isAvailable == false)
+        .opacity(isAvailable ? 1 : 0.38)
+        .accessibilityLabel(action.title)
+        .help(action.title)
+    }
+
+    private var navigationGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let distance = hypot(value.translation.width, value.translation.height)
+                guard distance >= 18 else { return }
+
+                if isExpanded == false {
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.78)) {
+                        isExpanded = true
+                    }
+                }
+
+                let action = action(for: value.translation)
+                guard action != selectedAction else { return }
+                selectedAction = action
+                selectionFeedback()
+            }
+            .onEnded { value in
+                let distance = hypot(value.translation.width, value.translation.height)
+                if distance < 18 {
+                    withAnimation {
+                        isExpanded.toggle()
+                        selectedAction = nil
+                    }
+                    return
+                }
+
+                if let action = action(for: value.translation) {
+                    trigger(action)
+                } else {
+                    collapse()
+                }
+            }
+    }
+
+    private func action(for translation: CGSize) -> BrowserQuickNavigationAction? {
+        let actions = model.quickNavigationActions
+        guard actions.isEmpty == false,
+              translation.height < 12,
+              translation.width < 12,
+              hypot(translation.width, translation.height) >= 28 else { return nil }
+
+        let dragAngle = atan2(translation.height, translation.width)
+        let candidates = actions.enumerated().map { index, action in
+            (action, angularDistance(dragAngle, angle(for: index, count: actions.count)))
+        }
+        guard let nearest = candidates.min(by: { $0.1 < $1.1 }),
+              nearest.1 <= 0.56,
+              model.isQuickNavigationActionAvailable(nearest.0) else { return nil }
+        return nearest.0
+    }
+
+    private func actionOffset(for index: Int, count: Int) -> CGSize {
+        let angle = angle(for: index, count: count)
+        let radius = 116 + CGFloat(max(0, count - 3) * 10)
+        return CGSize(width: cos(angle) * radius, height: sin(angle) * radius)
+    }
+
+    private func angle(for index: Int, count: Int) -> CGFloat {
+        guard count > 1 else { return -.pi / 2 }
+        let progress = CGFloat(index) / CGFloat(count - 1)
+        return (-.pi / 2) - (progress * .pi / 2)
+    }
+
+    private func angularDistance(_ first: CGFloat, _ second: CGFloat) -> CGFloat {
+        abs(atan2(sin(first - second), cos(first - second)))
+    }
+
+    private func trigger(_ action: BrowserQuickNavigationAction) {
+        guard model.isQuickNavigationActionAvailable(action) else { return }
+        collapse()
+        model.performQuickNavigationAction(action)
+    }
+
+    private func collapse() {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.84)) {
+            isExpanded = false
+            selectedAction = nil
+        }
+    }
+
+    private func selectionFeedback() {
+        #if !targetEnvironment(macCatalyst)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
 }
 
@@ -4889,7 +5152,7 @@ private struct GlideFeatureUpdateView: View {
                 Spacer(minLength: 20)
 
                 VStack(spacing: 16) {
-                    Image(systemName: "menubar.rectangle")
+                    Image(systemName: "hand.draw.fill")
                         .font(.system(size: 30, weight: .black))
                         .frame(width: 72, height: 72)
                         .foregroundStyle(theme.color(.canvas))
@@ -4897,12 +5160,12 @@ private struct GlideFeatureUpdateView: View {
                         .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
 
                     VStack(spacing: 8) {
-                        Text("Search, Chrome & Tabs")
+                        Text("Quick Navigation")
                             .font(.system(size: 38, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)
 
-                        Text("Faster search shortcuts, a fully controllable chrome surface, and a customizable All Tabs workspace.")
+                        Text("Pull upward, hold, move to an action, and release. Your most useful browser controls now stay within reach.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .multilineTextAlignment(.center)
@@ -4912,39 +5175,39 @@ private struct GlideFeatureUpdateView: View {
                 .padding(.horizontal, 22)
 
                 VStack(spacing: 12) {
-                    GlideFeatureUpdateSection(title: "Search", symbol: "magnifyingglass") {
+                    GlideFeatureUpdateSection(title: "Navigation", symbol: "hand.draw.fill") {
                         TutorialFeatureRow(
-                            symbol: "bolt.fill",
-                            title: "Custom !Bangs",
-                            detail: "Create shortcuts such as !yt and use them from every address bar.",
-                            tint: .accent
+                            symbol: "arrow.up.and.down.and.arrow.left.and.right",
+                            title: "Gesture FAB",
+                            detail: "Swipe up from the floating button and release over Reload, New Tab, Close Tab, or your own actions.",
+                            tint: .quickNavigation
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "magnifyingglass.circle.fill",
-                            title: "Searchable Settings",
-                            detail: "Jump directly to appearance, privacy, tabs, Gliders, tools, and extensions.",
-                            tint: .accent
+                            symbol: "slider.horizontal.3",
+                            title: "Your Actions",
+                            detail: "Add Private Tab, Back, Forward, Search, All Tabs, or Settings and arrange the fan your way.",
+                            tint: .quickNavigation
                         )
                     }
 
-                    GlideFeatureUpdateSection(title: "Chrome & Tabs", symbol: "menubar.rectangle") {
+                    GlideFeatureUpdateSection(title: "Tabs & Style", symbol: "rectangle.stack.fill") {
                         TutorialFeatureRow(
-                            symbol: "paintpalette.fill",
-                            title: "Live Chrome Color",
-                            detail: "Chrome color, per-surface gradients, and transparency now update together.",
+                            symbol: "hand.draw",
+                            title: "Swipe to Close",
+                            detail: "Swipe a sidebar tab or an All Tabs item to the left to close it immediately.",
                             tint: .createTab
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "square.grid.2x2.fill",
-                            title: "Custom All Tabs",
-                            detail: "Choose grid or list, density, sort order, and which tab groups appear.",
-                            tint: .createTab
+                            symbol: "paintbrush.fill",
+                            title: "Custom FAB Color",
+                            detail: "Give Quick Navigation its own color, gradient circles, positions, and intensity in Customize.",
+                            tint: .quickNavigation
                         )
                     }
                 }
@@ -5704,6 +5967,9 @@ private struct AllTabsCard: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(isSelected ? theme.color(.createTab).opacity(0.9) : theme.color(.border).opacity(0.52), lineWidth: isSelected ? 2 : 1)
         }
+        .modifier(SwipeToCloseTabModifier(isEnabled: true) {
+            model.closeFromFinder(tab)
+        })
         .draggable(tab.id.uuidString)
         .contextMenu {
             if isContained == false && tab.isPrivate == false {
@@ -8253,6 +8519,83 @@ private enum TabPillLayout {
     case horizontal
 }
 
+private enum SwipeToCloseDirectionLock {
+    case undecided
+    case horizontal
+    case vertical
+}
+
+private struct SwipeToCloseTabModifier: ViewModifier {
+    let isEnabled: Bool
+    let onClose: () -> Void
+    @State private var offset: CGFloat = 0
+    @State private var directionLock: SwipeToCloseDirectionLock = .undecided
+
+    func body(content: Content) -> some View {
+        ZStack(alignment: .trailing) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.red.opacity(0.84))
+                .frame(width: max(0, -offset))
+
+            Image(systemName: "trash.fill")
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(Color.white)
+                .frame(width: 52)
+                .opacity(offset < -16 ? 1 : 0)
+
+            content
+                .offset(x: offset)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .simultaneousGesture(swipeGesture)
+        .accessibilityHint(isEnabled ? "Swipe left to close tab" : "")
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                guard isEnabled else { return }
+
+                if directionLock == .undecided {
+                    directionLock = abs(value.translation.width) > abs(value.translation.height)
+                        ? .horizontal
+                        : .vertical
+                }
+
+                guard directionLock == .horizontal else { return }
+                offset = min(0, max(-96, value.translation.width))
+            }
+            .onEnded { value in
+                guard isEnabled else { return }
+                let shouldClose = directionLock == .horizontal
+                    && min(offset, value.predictedEndTranslation.width) <= -68
+
+                directionLock = .undecided
+                if shouldClose {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        offset = -96
+                    }
+                    closeFeedback()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        onClose()
+                        offset = 0
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                        offset = 0
+                    }
+                }
+            }
+    }
+
+    private func closeFeedback() {
+        #if !targetEnvironment(macCatalyst)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+}
+
 private struct TabPill: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -8334,6 +8677,9 @@ private struct TabPill: View {
                 .stroke(isSelected ? theme.color(.accent).opacity(0.72) : theme.color(.border).opacity(0.35), lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .modifier(SwipeToCloseTabModifier(isEnabled: layout == .vertical) {
+            model.close(tab)
+        })
         .draggable(tab.id.uuidString)
         .contextMenu {
             if tab.isPrivate == false {
@@ -8783,6 +9129,7 @@ private final class BackgroundVideoResourceLoader: NSObject, AVAssetResourceLoad
 
 private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiable, Hashable {
     case chromeAppearance
+    case quickNavigation
     case bangs
     case websiteWhitelist
     case allTabs
@@ -8797,6 +9144,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     var title: String {
         switch self {
         case .chromeAppearance: return "Chrome Appearance"
+        case .quickNavigation: return "Quick Navigation"
         case .bangs: return "!Bangs"
         case .websiteWhitelist: return "Website Whitelist"
         case .allTabs: return "All Tabs"
@@ -8811,6 +9159,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     var subtitle: String {
         switch self {
         case .chromeAppearance: return "Bar color, glow, and transparency"
+        case .quickNavigation: return "Gesture actions and FAB color"
         case .bangs: return "Create shortcuts such as !yt"
         case .websiteWhitelist: return "Per-site protection exceptions"
         case .allTabs: return "Layout, density, sorting, and sections"
@@ -8825,6 +9174,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     var symbolName: String {
         switch self {
         case .chromeAppearance: return "menubar.rectangle"
+        case .quickNavigation: return "hand.draw.fill"
         case .bangs: return "bolt.fill"
         case .websiteWhitelist: return "checkmark.shield.fill"
         case .allTabs: return "square.grid.2x2.fill"
@@ -8843,6 +9193,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     private var keywords: String {
         switch self {
         case .chromeAppearance: return "tab bar opacity transparent transparency surface top sidebar"
+        case .quickNavigation: return "fab swipe gesture reload new close private action shortcut"
         case .bangs: return "search shortcut youtube yt google query command"
         case .websiteWhitelist: return "privacy shields protection allow exception site domain"
         case .allTabs: return "tab finder grid list sort compact density contained private"
@@ -8880,6 +9231,8 @@ private struct BrowserSettingsSearchDetail: View {
         switch destination {
         case .chromeAppearance:
             ChromeAppearanceSettingsPanel()
+        case .quickNavigation:
+            QuickNavigationSettingsPanel()
         case .bangs:
             BangSettingsEditor()
         case .websiteWhitelist:
@@ -8947,6 +9300,141 @@ private struct ChromeAppearanceSettingsPanel: View {
             ThemeColorGradientMenu(token: .chrome)
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct QuickNavigationSettingsPanel: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Show Quick Navigation", isOn: $model.isQuickNavigationEnabled)
+
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(theme.color(.quickNavigation))
+                    TokenGradientField(token: .quickNavigation, opacity: 0.94)
+                        .clipShape(Circle())
+                    Circle()
+                        .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                    Image(systemName: "hand.draw.fill")
+                        .font(.system(size: 18, weight: .black))
+                        .foregroundStyle(Color.white)
+                        .shadow(color: Color.black.opacity(0.4), radius: 2, y: 1)
+                }
+                .frame(width: 50, height: 50)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("FAB Background")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("Quick Navigation")
+                        .font(.caption)
+                        .foregroundStyle(theme.color(.mutedText))
+                }
+
+                Spacer(minLength: 8)
+
+                ColorPicker(
+                    "FAB background",
+                    selection: theme.binding(for: .quickNavigation),
+                    supportsOpacity: false
+                )
+                .labelsHidden()
+            }
+
+            ThemeColorGradientMenu(token: .quickNavigation)
+
+            Divider()
+
+            LabeledContent("Actions") {
+                Text("\(model.quickNavigationActions.count) of \(BrowserViewModel.maximumQuickNavigationActions)")
+                    .foregroundStyle(theme.color(.mutedText))
+                    .monospacedDigit()
+            }
+
+            ForEach(Array(model.quickNavigationActions.enumerated()), id: \.element.id) { index, action in
+                HStack(spacing: 10) {
+                    Image(systemName: action.symbolName)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(action.isDestructive ? Color.red : theme.color(.quickNavigation))
+                        .frame(width: 30, height: 30)
+                        .background(theme.color(.field).opacity(0.82), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                    Text(action.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        model.moveQuickNavigationAction(action, offset: -1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(index == 0)
+                    .opacity(index == 0 ? 0.34 : 1)
+                    .accessibilityLabel("Move \(action.title) earlier")
+                    .help("Move earlier")
+
+                    Button {
+                        model.moveQuickNavigationAction(action, offset: 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(index == model.quickNavigationActions.count - 1)
+                    .opacity(index == model.quickNavigationActions.count - 1 ? 0.34 : 1)
+                    .accessibilityLabel("Move \(action.title) later")
+                    .help("Move later")
+
+                    Button {
+                        model.setQuickNavigationAction(action, enabled: false)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(Color.red)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.quickNavigationActions.count == 1)
+                    .opacity(model.quickNavigationActions.count == 1 ? 0.34 : 1)
+                    .accessibilityLabel("Remove \(action.title)")
+                    .help("Remove action")
+                }
+            }
+
+            HStack(spacing: 10) {
+                Menu {
+                    ForEach(availableActions) { action in
+                        Button {
+                            model.setQuickNavigationAction(action, enabled: true)
+                        } label: {
+                            Label(action.title, systemImage: action.symbolName)
+                        }
+                    }
+                } label: {
+                    Label("Add Action", systemImage: "plus.circle.fill")
+                }
+                .disabled(availableActions.isEmpty || model.quickNavigationActions.count >= BrowserViewModel.maximumQuickNavigationActions)
+
+                Button {
+                    model.resetQuickNavigationActions()
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var availableActions: [BrowserQuickNavigationAction] {
+        BrowserQuickNavigationAction.allCases.filter {
+            model.isQuickNavigationActionEnabled($0) == false
+        }
     }
 }
 
@@ -9018,7 +9506,7 @@ private enum BrowserSettingsCategory: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .privacy: return "Shields, site rules, lock"
-        case .customize: return "Colors, gradients, themes"
+        case .customize: return "Colors, navigation, themes"
         case .browsing: return "Tabs, layout, search"
         case .extensions: return "Firefox, Chrome, scripts"
         case .system: return "Toolbar, advanced, dev"
@@ -9240,6 +9728,10 @@ private struct BrowserSettingsView: View {
                    selectedSettingsCategory == .customize {
                 Section("Chrome Appearance") {
                     ChromeAppearanceSettingsPanel()
+                }
+
+                Section("Quick Navigation") {
+                    QuickNavigationSettingsPanel()
                 }
                 }
 

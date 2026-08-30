@@ -1443,6 +1443,8 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var regionTrickProfile: String?
     var moreMenuActions: [String]
     var toolbarActions: [String]?
+    var quickNavigationEnabled: Bool?
+    var quickNavigationActions: [String]?
     var customIcons: [String: String]
     var customIconColors: [String: String]?
     var tabBarTransparencyEnabled: Bool

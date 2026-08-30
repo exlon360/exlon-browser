@@ -11,6 +11,7 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
     case border
     case accent
     case createTab
+    case quickNavigation
     case privateAccent
     case text
     case mutedText
@@ -33,6 +34,8 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
             return "Accent"
         case .createTab:
             return "New Tab Button"
+        case .quickNavigation:
+            return "Quick Navigation"
         case .privateAccent:
             return "Private Accent"
         case .text:
@@ -58,6 +61,8 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
             return "#A9B4C8"
         case .createTab:
             return "#D6E2FF"
+        case .quickNavigation:
+            return "#28B8A9"
         case .privateAccent:
             return "#8B7CF6"
         case .text:
@@ -83,6 +88,8 @@ enum BrowserThemeToken: String, CaseIterable, Identifiable {
             return "#D6E2FF"
         case .createTab:
             return "#A9B4C8"
+        case .quickNavigation:
+            return "#7DD3FC"
         case .privateAccent:
             return "#C4B5FD"
         case .text:

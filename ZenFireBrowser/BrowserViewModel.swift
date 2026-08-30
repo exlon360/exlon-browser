@@ -783,6 +783,52 @@ enum BrowserToolbarAction: String, CaseIterable, Identifiable {
     }
 }
 
+enum BrowserQuickNavigationAction: String, CaseIterable, Identifiable {
+    case reload
+    case newTab
+    case closeTab
+    case privateTab
+    case back
+    case forward
+    case search
+    case allTabs
+    case settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .reload: return "Reload"
+        case .newTab: return "New Tab"
+        case .closeTab: return "Close Tab"
+        case .privateTab: return "Private Tab"
+        case .back: return "Back"
+        case .forward: return "Forward"
+        case .search: return "Search"
+        case .allTabs: return "All Tabs"
+        case .settings: return "Settings"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .reload: return "arrow.clockwise"
+        case .newTab: return "plus"
+        case .closeTab: return "xmark"
+        case .privateTab: return "theatermasks.fill"
+        case .back: return "chevron.left"
+        case .forward: return "chevron.right"
+        case .search: return "magnifyingglass"
+        case .allTabs: return "square.grid.2x2.fill"
+        case .settings: return "gearshape.fill"
+        }
+    }
+
+    var isDestructive: Bool {
+        self == .closeTab
+    }
+}
+
 enum BrowserCustomIconSlot: String, CaseIterable, Identifiable {
     case brand
     case search
@@ -1415,11 +1461,17 @@ final class BrowserViewModel: ObservableObject {
     static let infiniteForcedFPSValue = 241.0
     static let minimumWebsiteResolutionScale = 0.86
     static let maximumWebsiteResolutionScale = 1.14
-    static let currentFeatureUpdateVersion = 6
+    static let currentFeatureUpdateVersion = 7
     static let defaultToolbarActionIDs = [
         BrowserToolbarAction.back.rawValue,
         BrowserToolbarAction.forward.rawValue,
         BrowserToolbarAction.reload.rawValue
+    ]
+    static let maximumQuickNavigationActions = 6
+    static let defaultQuickNavigationActionIDs = [
+        BrowserQuickNavigationAction.reload.rawValue,
+        BrowserQuickNavigationAction.newTab.rawValue,
+        BrowserQuickNavigationAction.closeTab.rawValue
     ]
     static let defaultMoreMenuActionIDs = Set([
         BrowserToolbarAction.compact.rawValue,
@@ -1911,6 +1963,16 @@ final class BrowserViewModel: ObservableObject {
             vault.save(toolbarActionIDs, forKey: Self.StorageKey.toolbarActionIDs)
         }
     }
+    @Published var isQuickNavigationEnabled: Bool {
+        didSet {
+            vault.save(isQuickNavigationEnabled, forKey: Self.StorageKey.quickNavigationEnabled)
+        }
+    }
+    @Published var quickNavigationActionIDs: [String] {
+        didSet {
+            vault.save(quickNavigationActionIDs, forKey: Self.StorageKey.quickNavigationActionIDs)
+        }
+    }
     @Published var customIconNames: [String: String] {
         didSet {
             vault.save(customIconNames, forKey: Self.StorageKey.customIconNames)
@@ -2061,6 +2123,13 @@ final class BrowserViewModel: ObservableObject {
         let savedToolbarActionIDs = shouldApplyToolbarUpgrade
             ? Self.defaultToolbarActionIDs
             : Self.normalizedToolbarActionIDs(storedToolbarActionIDs)
+        let savedQuickNavigationActionIDs = Self.normalizedQuickNavigationActionIDs(
+            vault.load(
+                [String].self,
+                forKey: Self.StorageKey.quickNavigationActionIDs,
+                default: Self.defaultQuickNavigationActionIDs
+            )
+        )
         let storedMoreMenuActionIDs = vault.load(Set<String>.self, forKey: Self.StorageKey.moreMenuActionIDs, default: [])
         let upgradedMoreMenuActionIDs = shouldApplyToolbarUpgrade
             ? storedMoreMenuActionIDs.union(Self.defaultMoreMenuActionIDs)
@@ -2207,6 +2276,12 @@ final class BrowserViewModel: ObservableObject {
         self.allTabsShowsPrivateSummary = vault.load(Bool.self, forKey: Self.StorageKey.allTabsShowsPrivateSummary, default: true)
         self.moreMenuActionIDs = savedMoreMenuActionIDs
         self.toolbarActionIDs = savedToolbarActionIDs
+        self.isQuickNavigationEnabled = vault.load(
+            Bool.self,
+            forKey: Self.StorageKey.quickNavigationEnabled,
+            default: true
+        )
+        self.quickNavigationActionIDs = savedQuickNavigationActionIDs
         self.isDeveloperModeEnabled = developerModeEnabled
         self.isWebInspectorEnabled = webInspectorEnabled
         self.isDevWebKitEnabled = devWebKitEnabled
@@ -3621,6 +3696,75 @@ final class BrowserViewModel: ObservableObject {
         toolbarActionIDs.compactMap(BrowserToolbarAction.init(rawValue:))
     }
 
+    var quickNavigationActions: [BrowserQuickNavigationAction] {
+        quickNavigationActionIDs.compactMap(BrowserQuickNavigationAction.init(rawValue:))
+    }
+
+    func isQuickNavigationActionEnabled(_ action: BrowserQuickNavigationAction) -> Bool {
+        quickNavigationActionIDs.contains(action.rawValue)
+    }
+
+    func setQuickNavigationAction(_ action: BrowserQuickNavigationAction, enabled: Bool) {
+        if enabled {
+            guard quickNavigationActionIDs.count < Self.maximumQuickNavigationActions,
+                  isQuickNavigationActionEnabled(action) == false else { return }
+            quickNavigationActionIDs.append(action.rawValue)
+        } else {
+            guard quickNavigationActionIDs.count > 1 else { return }
+            quickNavigationActionIDs.removeAll { $0 == action.rawValue }
+        }
+    }
+
+    func moveQuickNavigationAction(_ action: BrowserQuickNavigationAction, offset: Int) {
+        guard let currentIndex = quickNavigationActionIDs.firstIndex(of: action.rawValue) else { return }
+        let destination = min(max(currentIndex + offset, 0), quickNavigationActionIDs.count - 1)
+        guard destination != currentIndex else { return }
+        let movedID = quickNavigationActionIDs.remove(at: currentIndex)
+        quickNavigationActionIDs.insert(movedID, at: destination)
+    }
+
+    func resetQuickNavigationActions() {
+        isQuickNavigationEnabled = true
+        quickNavigationActionIDs = Self.defaultQuickNavigationActionIDs
+    }
+
+    func isQuickNavigationActionAvailable(_ action: BrowserQuickNavigationAction) -> Bool {
+        switch action {
+        case .back:
+            return selectedTab?.canGoBack == true
+        case .forward:
+            return selectedTab?.canGoForward == true
+        case .reload, .closeTab, .search:
+            return selectedTab != nil
+        case .newTab, .privateTab, .allTabs, .settings:
+            return true
+        }
+    }
+
+    func performQuickNavigationAction(_ action: BrowserQuickNavigationAction) {
+        guard isQuickNavigationActionAvailable(action) else { return }
+        switch action {
+        case .reload:
+            reloadOrStop()
+        case .newTab:
+            openNewTabAndSearch()
+        case .closeTab:
+            closeSelectedTab()
+        case .privateTab:
+            openPrivateTab()
+        case .back:
+            goBack()
+        case .forward:
+            goForward()
+        case .search:
+            openFloatingSearch()
+        case .allTabs:
+            showAllTabs()
+        case .settings:
+            isSettingsPresented = true
+        }
+    }
+
     func toolLocation(for action: BrowserToolbarAction) -> BrowserToolLocation {
         if isInToolbar(action) { return .toolbar }
         if isInMoreMenu(action) { return .menu }
@@ -3793,6 +3937,8 @@ final class BrowserViewModel: ObservableObject {
                 .map(\.rawValue)
                 .filter { moreMenuActionIDs.contains($0) },
             toolbarActions: toolbarActionIDs,
+            quickNavigationEnabled: isQuickNavigationEnabled,
+            quickNavigationActions: quickNavigationActionIDs,
             customIcons: customIconNames,
             customIconColors: customIconColorHexBySlot,
             tabBarTransparencyEnabled: theme.isTabBarTransparencyEnabled,
@@ -3911,6 +4057,10 @@ final class BrowserViewModel: ObservableObject {
             guard let action = BrowserToolbarAction(rawValue: actionID) else { return false }
             return action.isLeanBuildUtility == false
         }).subtracting(toolbarActionIDs)
+        isQuickNavigationEnabled = config.quickNavigationEnabled ?? true
+        quickNavigationActionIDs = Self.normalizedQuickNavigationActionIDs(
+            config.quickNavigationActions ?? Self.defaultQuickNavigationActionIDs
+        )
         customIconNames = Self.sanitizedIconNames(config.customIcons)
         if let customIconColors = config.customIconColors {
             customIconColorHexBySlot = Self.sanitizedIconColors(customIconColors)
@@ -4476,6 +4626,7 @@ final class BrowserViewModel: ObservableObject {
         isTopSearchBarMoveMode = false
         moreMenuActionIDs = Self.defaultMoreMenuActionIDs
         toolbarActionIDs = Self.defaultToolbarActionIDs
+        resetQuickNavigationActions()
         allTabsLayout = .grid
         allTabsDensity = .comfortable
         allTabsSortOrder = .browserOrder
@@ -5058,6 +5209,8 @@ final class BrowserViewModel: ObservableObject {
         vault.save(allTabsShowsPrivateSummary, forKey: Self.StorageKey.allTabsShowsPrivateSummary)
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
         vault.save(toolbarActionIDs, forKey: Self.StorageKey.toolbarActionIDs)
+        vault.save(isQuickNavigationEnabled, forKey: Self.StorageKey.quickNavigationEnabled)
+        vault.save(quickNavigationActionIDs, forKey: Self.StorageKey.quickNavigationActionIDs)
         vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
         vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
         vault.save(isDevWebKitEnabled, forKey: Self.StorageKey.devWebKitEnabled)
@@ -5311,6 +5464,19 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
+    private static func normalizedQuickNavigationActionIDs(_ rawIDs: [String]) -> [String] {
+        var seen = Set<String>()
+        let normalized = rawIDs.compactMap { rawID -> String? in
+            guard BrowserQuickNavigationAction(rawValue: rawID) != nil,
+                  seen.insert(rawID).inserted else { return nil }
+            return rawID
+        }
+        .prefix(maximumQuickNavigationActions)
+
+        let result = Array(normalized)
+        return result.isEmpty ? defaultQuickNavigationActionIDs : result
+    }
+
     private static func clampedUnit(_ value: Double) -> Double {
         min(max(value, 0.0), 1.0)
     }
@@ -5415,6 +5581,8 @@ final class BrowserViewModel: ObservableObject {
         static let allTabsShowsPrivateSummary = "ZenFireBrowser.allTabsShowsPrivateSummary"
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
         static let toolbarActionIDs = "ZenFireBrowser.toolbarActionIDs"
+        static let quickNavigationEnabled = "ZenFireBrowser.quickNavigationEnabled"
+        static let quickNavigationActionIDs = "ZenFireBrowser.quickNavigationActionIDs"
         static let toolbarUpgradeVersion = "ZenFireBrowser.toolbarUpgradeVersion"
         static let developerModeEnabled = "ZenFireBrowser.developerModeEnabled"
         static let webInspectorEnabled = "ZenFireBrowser.webInspectorEnabled"
