@@ -20,7 +20,6 @@ struct BrowserWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         context.coordinator.parent = self
-        configure(uiView)
         context.coordinator.install(on: uiView)
         context.coordinator.cancelPullIfDisabled()
     }
@@ -33,6 +32,7 @@ struct BrowserWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
+        webView.scrollView.alwaysBounceVertical = true
         webView.scrollView.contentInset = .zero
         webView.scrollView.scrollIndicatorInsets = .zero
         if #available(iOS 11.0, *) {
@@ -48,9 +48,12 @@ struct BrowserWebView: UIViewRepresentable {
         private var isTrackingPull = false
         private var lastPullDistance: CGFloat = 0
         private var lastHorizontalPosition: CGFloat = 0.5
+        private var initialContentOffsetY: CGFloat = 0
+        private var pullTranslationOriginY: CGFloat = 0
 
-        private let directionDominance: CGFloat = 0.78
+        private let directionDominance: CGFloat = 0.55
         private let activationDistance: CGFloat = 4
+        private let topActivationSlop: CGFloat = 10
         private let maximumPullDistance: CGFloat = 142
 
         init(parent: BrowserWebView) {
@@ -85,29 +88,46 @@ struct BrowserWebView: UIViewRepresentable {
 
             switch recognizer.state {
             case .began:
-                let topBoundary = -scrollView.adjustedContentInset.top
                 isEligible = parent.isPullDownNavigationEnabled
-                    && scrollView.contentOffset.y <= topBoundary + 1.5
                 isTrackingPull = false
                 lastPullDistance = 0
                 lastHorizontalPosition = normalizedHorizontalPosition(of: recognizer, in: scrollView)
+                initialContentOffsetY = scrollView.contentOffset.y
+                pullTranslationOriginY = 0
 
             case .changed:
-                guard isEligible else { return }
+                guard isEligible, parent.isPullDownNavigationEnabled else { return }
                 let translation = recognizer.translation(in: scrollView.window ?? scrollView)
 
                 if isTrackingPull == false {
-                    guard translation.y >= activationDistance,
-                          translation.y >= abs(translation.x) * directionDominance else { return }
+                    let topBoundary = -scrollView.adjustedContentInset.top
+                    let beganAtTop = initialContentOffsetY <= topBoundary + topActivationSlop
+                    let velocity = recognizer.velocity(in: scrollView.window ?? scrollView)
+
+                    guard scrollView.contentOffset.y <= topBoundary + topActivationSlop,
+                          velocity.y > 0,
+                          velocity.y >= abs(velocity.x) * directionDominance else { return }
+
+                    if beganAtTop {
+                        guard translation.y >= activationDistance,
+                              translation.y >= abs(translation.x) * directionDominance else { return }
+                        pullTranslationOriginY = 0
+                    } else {
+                        pullTranslationOriginY = translation.y
+                    }
                     isTrackingPull = true
                 }
 
-                let topBoundary = -scrollView.adjustedContentInset.top
-                lastPullDistance = min(
+                let distance = min(
                     maximumPullDistance,
-                    max(0, topBoundary - scrollView.contentOffset.y)
+                    max(0, translation.y - pullTranslationOriginY)
                 )
-                lastHorizontalPosition = normalizedHorizontalPosition(of: recognizer, in: scrollView)
+                let horizontalPosition = normalizedHorizontalPosition(of: recognizer, in: scrollView)
+                guard abs(distance - lastPullDistance) >= 0.5
+                        || abs(horizontalPosition - lastHorizontalPosition) >= 0.002 else { return }
+
+                lastPullDistance = distance
+                lastHorizontalPosition = horizontalPosition
                 parent.onPullDownNavigationChanged?(lastPullDistance, lastHorizontalPosition)
 
             case .ended:
@@ -140,6 +160,8 @@ struct BrowserWebView: UIViewRepresentable {
             isTrackingPull = false
             lastPullDistance = 0
             lastHorizontalPosition = 0.5
+            initialContentOffsetY = 0
+            pullTranslationOriginY = 0
 
             if notify {
                 parent.onPullDownNavigationEnded?(
