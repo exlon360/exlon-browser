@@ -1461,7 +1461,7 @@ final class BrowserViewModel: ObservableObject {
     static let infiniteForcedFPSValue = 241.0
     static let minimumWebsiteResolutionScale = 0.86
     static let maximumWebsiteResolutionScale = 1.14
-    static let currentFeatureUpdateVersion = 8
+    static let currentFeatureUpdateVersion = 9
     static let defaultToolbarActionIDs = [
         BrowserToolbarAction.back.rawValue,
         BrowserToolbarAction.forward.rawValue,

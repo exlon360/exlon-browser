@@ -421,6 +421,7 @@ private struct BrowserShell: View {
     @EnvironmentObject private var security: AppSecurityModel
     @EnvironmentObject private var profiles: BrowserProfileManager
     @State private var isDesktopZenChromeHovered = false
+    @State private var measuredTopChromeHeight: CGFloat = 0
 
     var body: some View {
         GeometryReader { proxy in
@@ -436,6 +437,11 @@ private struct BrowserShell: View {
                     for: layoutSize,
                     override: model.effectiveDeviceExperienceOverride
                 )
+                let layoutSafeAreaTop = proxy.safeAreaInsets.top / max(screenScale, 0.01)
+                let detachedToolbarInset = pullDownPaneTopInset(
+                    for: layoutSize,
+                    safeAreaTop: layoutSafeAreaTop
+                )
                 PhoneExperienceSyncView(isPhoneExperience: experience == .phone)
 
                 if isDesktopZenModeActive {
@@ -443,47 +449,66 @@ private struct BrowserShell: View {
                         sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience),
                         containerWidth: layoutSize.width,
                         experience: experience,
+                        basePullDownPaneTopInset: detachedToolbarInset,
+                        safeAreaTopInset: layoutSafeAreaTop,
                         isChromeHovered: $isDesktopZenChromeHovered
                     )
                 } else {
                     switch model.chromePlacement {
                     case .left:
-                        SideBrowserLayout(edge: .left, sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience), containerWidth: layoutSize.width, experience: experience)
+                        SideBrowserLayout(
+                            edge: .left,
+                            sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience),
+                            containerWidth: layoutSize.width,
+                            experience: experience,
+                            pullDownPaneTopInset: detachedToolbarInset
+                        )
                     case .right:
-                        SideBrowserLayout(edge: .right, sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience), containerWidth: layoutSize.width, experience: experience)
+                        SideBrowserLayout(
+                            edge: .right,
+                            sideWidth: sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience),
+                            containerWidth: layoutSize.width,
+                            experience: experience,
+                            pullDownPaneTopInset: detachedToolbarInset
+                        )
                     case .top:
                         ZStack(alignment: .top) {
-                            BrowserContent()
+                            BrowserContent(
+                                pullDownPaneTopInset: max(
+                                    detachedToolbarInset,
+                                    model.areSideTabsCollapsed
+                                        ? layoutSafeAreaTop
+                                        : layoutSafeAreaTop + measuredTopChromeHeight
+                                )
+                            )
                             if model.areSideTabsCollapsed == false {
                                 HorizontalChrome(edge: .top)
+                                    .background {
+                                        GeometryReader { chromeProxy in
+                                            Color.clear.preference(
+                                                key: PullDownTopChromeHeightPreferenceKey.self,
+                                                value: chromeProxy.size.height
+                                            )
+                                        }
+                                    }
                                     .transition(.move(edge: .top).combined(with: .opacity))
                             }
                         }
                     case .bottom:
                         ZStack(alignment: .bottom) {
-                            BrowserContent()
+                            BrowserContent(pullDownPaneTopInset: detachedToolbarInset)
                             if model.areSideTabsCollapsed == false {
                                 HorizontalChrome(edge: .bottom)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                         }
                     case .floating:
-                        BrowserContent()
+                        BrowserContent(pullDownPaneTopInset: detachedToolbarInset)
                         if model.areSideTabsCollapsed == false {
                             FloatingChrome()
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
                     }
-                }
-
-                if shouldShowSwipeUpQuickNavigation {
-                    WebpageQuickNavigationTray()
-                        .padding(.leading, quickNavigationLeadingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience))
-                        .padding(.trailing, quickNavigationTrailingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience))
-                        .padding(.bottom, webpageQuickNavigationBottomPadding)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .zIndex(19)
                 }
 
                 if shouldShowQuickNavigationFAB {
@@ -593,6 +618,9 @@ private struct BrowserShell: View {
                 .allowsHitTesting(false)
 
                 BrowserKeyboardShortcutHost()
+                }
+                .onPreferenceChange(PullDownTopChromeHeightPreferenceKey.self) { height in
+                    measuredTopChromeHeight = height
                 }
                 .coordinateSpace(name: "browserShell")
                 .frame(width: layoutSize.width, height: layoutSize.height)
@@ -752,10 +780,6 @@ private struct BrowserShell: View {
         model.isQuickNavigationEnabled && canShowQuickNavigation
     }
 
-    private var shouldShowSwipeUpQuickNavigation: Bool {
-        model.isSwipeUpQuickNavigationEnabled && canShowQuickNavigation
-    }
-
     private var quickNavigationBottomPadding: CGFloat {
         var padding: CGFloat = 18
         if model.areSideTabsCollapsed == false {
@@ -774,19 +798,6 @@ private struct BrowserShell: View {
             padding = max(padding, 82)
         }
         return padding
-    }
-
-    private var webpageQuickNavigationBottomPadding: CGFloat {
-        max(8, quickNavigationBottomPadding - 12)
-    }
-
-    private func quickNavigationLeadingPadding(
-        for visibleSize: CGSize,
-        layoutSize: CGSize,
-        experience: GlideDeviceExperience
-    ) -> CGFloat {
-        guard chromeIsVisible(for: .left) else { return 10 }
-        return sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience) + 10
     }
 
     private func quickNavigationTrailingPadding(
@@ -890,6 +901,22 @@ private struct BrowserShell: View {
         return 16
     }
 
+    private func pullDownPaneTopInset(for layoutSize: CGSize, safeAreaTop: CGFloat) -> CGFloat {
+        guard model.isTopSearchBarEnabled,
+              usesIntegratedTopToolbar == false,
+              model.topSearchBarPlacement == .top else { return safeAreaTop }
+
+        let toolbarHeight: CGFloat = 50
+        let minimumCenterY = topSearchBarTopPadding + (toolbarHeight / 2)
+        let maximumCenterY = max(
+            minimumCenterY,
+            layoutSize.height - topSearchBarBottomPadding - (toolbarHeight / 2)
+        )
+        let normalizedY = CGFloat(min(max(model.displayedTopSearchBarY, 0), 1))
+        let centerY = minimumCenterY + normalizedY * (maximumCenterY - minimumCenterY)
+        return min(layoutSize.height, safeAreaTop + centerY + (toolbarHeight / 2))
+    }
+
     private var topSearchBarAlignment: Alignment {
         switch model.topSearchBarPlacement {
         case .top:
@@ -921,6 +948,14 @@ private struct BrowserShell: View {
         case .bottom:
             return .move(edge: .bottom).combined(with: .opacity)
         }
+    }
+}
+
+private struct PullDownTopChromeHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -1423,27 +1458,78 @@ private struct GlideGradientButtonStyle: ButtonStyle {
 private struct BrowserContent: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
+    let pullDownPaneTopInset: CGFloat
+    @State private var pullDistance: CGFloat = 0
+    @State private var selectedPullAction: BrowserQuickNavigationAction?
+
+    private let pullActions: [BrowserQuickNavigationAction] = [.newTab, .reload, .closeTab]
+    private let actionTriggerDistance: CGFloat = 70
+
+    init(pullDownPaneTopInset: CGFloat = 0) {
+        self.pullDownPaneTopInset = pullDownPaneTopInset
+    }
 
     var body: some View {
-        ZStack {
-            if let tab = model.selectedTab {
-                if shouldUseNeutralStartBackdrop(for: tab) {
-                    Color(red: 0.027, green: 0.035, blue: 0.051)
-                } else if shouldShowPageBackdrop(for: tab) {
-                    theme.color(.canvas)
-                        .opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.18 : 1)
-                }
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                if let tab = model.selectedTab {
+                    if shouldUseNeutralStartBackdrop(for: tab) {
+                        Color(red: 0.027, green: 0.035, blue: 0.051)
+                    } else if shouldShowPageBackdrop(for: tab) {
+                        theme.color(.canvas)
+                            .opacity(theme.isUserBackgroundEnabled && theme.hasUserBackground ? 0.18 : 1)
+                    }
 
-                BrowserWebView(tab: tab)
+                    WebpagePullDownActionPane(
+                        actions: pullActions,
+                        pullDistance: pullDistance,
+                        selectedAction: selectedPullAction,
+                        isArmed: pullDistance >= actionTriggerDistance,
+                        topInset: pullDownPaneTopInset
+                    )
+                    .zIndex(2)
+
+                    BrowserWebView(
+                        tab: tab,
+                        isPullDownNavigationEnabled: model.isSwipeUpQuickNavigationEnabled,
+                        onPullDownNavigationChanged: { distance, horizontalPosition in
+                            updatePull(distance: distance, horizontalPosition: horizontalPosition)
+                        },
+                        onPullDownNavigationEnded: { distance, horizontalPosition, cancelled in
+                            finishPull(
+                                distance: distance,
+                                horizontalPosition: horizontalPosition,
+                                cancelled: cancelled
+                            )
+                        }
+                    )
                     .id(tab.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .offset(y: pullDistance)
+                    .shadow(
+                        color: Color.black.opacity(pullDistance > 0 ? 0.28 : 0),
+                        radius: 14,
+                        y: -5
+                    )
                     .ignoresSafeArea()
                     .overlay(alignment: .top) {
                         LoadingProgress(tab: tab)
                     }
+                    .zIndex(1)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
         .ignoresSafeArea()
+        .onChange(of: model.selectedTabID) { _, _ in
+            resetPull(animated: false)
+        }
+        .onChange(of: model.isSwipeUpQuickNavigationEnabled) { _, enabled in
+            if enabled == false {
+                resetPull(animated: true)
+            }
+        }
     }
 
     private func shouldShowPageBackdrop(for tab: BrowserTab) -> Bool {
@@ -1453,271 +1539,56 @@ private struct BrowserContent: View {
     private func shouldUseNeutralStartBackdrop(for tab: BrowserTab) -> Bool {
         BrowserTab.isStartPageURL(tab.url) && (theme.isUserBackgroundEnabled && theme.hasUserBackground) == false
     }
-}
 
-private struct WebpageQuickNavigationTray: View {
-    @EnvironmentObject private var model: BrowserViewModel
-    @EnvironmentObject private var theme: BrowserTheme
-    @State private var isExpanded = false
-    @State private var selectedAction: BrowserQuickNavigationAction?
-
-    private let expandedHeight: CGFloat = 126
-    private let handleHeight: CGFloat = 30
-    private let maximumTrayWidth: CGFloat = 680
-
-    var body: some View {
-        GeometryReader { proxy in
-            let containerWidth = max(proxy.size.width, 1)
-
-            ZStack(alignment: .bottom) {
-                if isExpanded {
-                    actionTray(containerWidth: containerWidth)
-                        .padding(.bottom, handleHeight - 2)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
-                gestureHandle(containerWidth: containerWidth)
-            }
-            .frame(width: containerWidth, height: proxy.size.height, alignment: .bottom)
-        }
-        .frame(height: expandedHeight + handleHeight)
-        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isExpanded)
-        .animation(.spring(response: 0.16, dampingFraction: 0.84), value: selectedAction)
-        .onChange(of: model.selectedTabID) { _, _ in
-            collapse()
-        }
-        .onChange(of: model.quickNavigationActionIDs) { _, _ in
-            collapse()
+    private func updatePull(distance: CGFloat, horizontalPosition: CGFloat) {
+        pullDistance = distance
+        let action = distance >= actionTriggerDistance
+            ? action(at: horizontalPosition)
+            : nil
+        guard action != selectedPullAction else { return }
+        selectedPullAction = action
+        if action != nil {
+            selectionFeedback()
         }
     }
 
-    private func actionTray(containerWidth: CGFloat) -> some View {
-        let trayWidth = min(containerWidth, maximumTrayWidth)
+    private func finishPull(
+        distance: CGFloat,
+        horizontalPosition: CGFloat,
+        cancelled: Bool
+    ) {
+        let action = cancelled == false && distance >= actionTriggerDistance
+            ? action(at: horizontalPosition)
+            : nil
+        resetPull(animated: true)
 
-        return VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: selectedAction?.symbolName ?? "hand.draw.fill")
-                    .font(.system(size: 12, weight: .black))
-                    .foregroundStyle(selectedAction?.isDestructive == true ? Color.red : theme.color(.quickNavigation))
-                    .frame(width: 24, height: 24)
-
-                Text(selectedAction?.title ?? "Quick Actions")
-                    .font(.system(size: 13, weight: .black))
-                    .foregroundStyle(theme.color(.text))
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                Button {
-                    trigger(.allTabs)
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "square.grid.2x2.fill")
-                        Text("\(model.chromeTabs.count)")
-                            .monospacedDigit()
-                    }
-                    .font(.system(size: 11, weight: .black))
-                    .foregroundStyle(theme.color(.text))
-                    .frame(minWidth: 40, minHeight: 26)
-                    .background(theme.color(.field).opacity(0.82), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("All Tabs, \(model.chromeTabs.count) open")
-                .help("All Tabs")
-            }
-            .padding(.horizontal, 4)
-
-            HStack(spacing: 5) {
-                ForEach(model.quickNavigationActions) { action in
-                    trayActionButton(action)
-                }
-            }
+        guard let action,
+              model.isQuickNavigationActionAvailable(action) else { return }
+        actionFeedback()
+        DispatchQueue.main.async {
+            model.performQuickNavigationAction(action)
         }
-        .padding(10)
-        .frame(width: trayWidth, height: expandedHeight)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(theme.color(.surface).opacity(0.86))
-        }
-        .overlay(alignment: .top) {
-            TokenGradientField(token: .quickNavigation, opacity: 0.92)
-                .frame(height: 3)
-                .clipShape(Capsule())
-                .padding(.horizontal, 18)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(theme.color(.border).opacity(0.74), lineWidth: 1)
-        }
-        .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
-        .frame(maxWidth: .infinity)
     }
 
-    private func trayActionButton(_ action: BrowserQuickNavigationAction) -> some View {
-        let isSelected = selectedAction == action
-        let isAvailable = model.isQuickNavigationActionAvailable(action)
-
-        return Button {
-            trigger(action)
-        } label: {
-            VStack(spacing: 5) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(
-                            isSelected
-                                ? theme.color(.quickNavigation).opacity(0.92)
-                                : theme.color(.field).opacity(0.72)
-                        )
-
-                    if isSelected {
-                        TokenGradientField(token: .quickNavigation, opacity: 0.86)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-
-                    Image(systemName: action.symbolName)
-                        .font(.system(size: 15, weight: .black))
-                        .foregroundStyle(
-                            action.isDestructive && isSelected == false
-                                ? Color.red
-                                : theme.color(.text)
-                        )
-                }
-                .frame(width: 38, height: 34)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(isSelected ? Color.white.opacity(0.62) : theme.color(.border).opacity(0.48), lineWidth: 1)
-                }
-
-                Text(action.title)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(theme.color(.text))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 66)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isAvailable == false)
-        .opacity(isAvailable ? 1 : 0.34)
-        .scaleEffect(isSelected ? 1.04 : 1)
-        .accessibilityLabel(action.title)
-        .help(action.title)
-    }
-
-    private func gestureHandle(containerWidth: CGFloat) -> some View {
-        ZStack {
-            Color.clear
-
-            ZStack {
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                Capsule()
-                    .fill(theme.color(.surface).opacity(0.8))
-                Capsule()
-                    .stroke(theme.color(.quickNavigation).opacity(isExpanded ? 0.9 : 0.58), lineWidth: 1)
-
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 10, weight: .black))
-                    .foregroundStyle(theme.color(.text))
-            }
-            .frame(width: 92, height: 22)
-            .shadow(color: Color.black.opacity(0.22), radius: 8, y: 4)
-        }
-        .frame(width: containerWidth, height: handleHeight)
-        .contentShape(Rectangle())
-        .gesture(swipeGesture(containerWidth: containerWidth))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Swipe-Up Quick Actions")
-        .accessibilityHint("Opens browser actions")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            toggleExpanded()
-        }
-        .help("Swipe-Up Quick Actions")
-    }
-
-    private func swipeGesture(containerWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                let upwardDistance = max(0, -value.translation.height)
-                guard upwardDistance >= 16 else { return }
-
-                if isExpanded == false {
-                    withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
-                        isExpanded = true
-                    }
-                }
-
-                guard upwardDistance >= 36 else { return }
-                let action = action(at: value.location.x, containerWidth: containerWidth)
-                guard action != selectedAction else { return }
-                selectedAction = action
-                selectionFeedback()
-            }
-            .onEnded { value in
-                let distance = hypot(value.translation.width, value.translation.height)
-                if distance < 10 {
-                    toggleExpanded()
-                    return
-                }
-
-                let horizontalDistance = abs(value.translation.width)
-                if horizontalDistance >= 44,
-                   horizontalDistance > abs(value.translation.height) * 1.25 {
-                    collapse()
-                    if value.translation.width < 0 {
-                        model.selectNextTab()
-                    } else {
-                        model.selectPreviousTab()
-                    }
-                    selectionFeedback()
-                    return
-                }
-
-                let upwardDistance = max(0, -value.translation.height)
-                guard upwardDistance >= 36,
-                      let action = action(at: value.location.x, containerWidth: containerWidth) else {
-                    collapse()
-                    return
-                }
-                trigger(action)
-            }
-    }
-
-    private func action(at xPosition: CGFloat, containerWidth: CGFloat) -> BrowserQuickNavigationAction? {
-        let actions = model.quickNavigationActions
-        guard actions.isEmpty == false else { return nil }
-
-        let trayWidth = min(containerWidth, maximumTrayWidth)
-        let trayOrigin = (containerWidth - trayWidth) / 2
-        let horizontalInset: CGFloat = 10
-        let usableWidth = max(trayWidth - (horizontalInset * 2), 1)
-        let localX = min(max(xPosition - trayOrigin - horizontalInset, 0), usableWidth - 0.001)
-        let index = min(Int(localX / (usableWidth / CGFloat(actions.count))), actions.count - 1)
-        let action = actions[index]
+    private func action(at horizontalPosition: CGFloat) -> BrowserQuickNavigationAction? {
+        guard pullActions.isEmpty == false else { return nil }
+        let index = min(
+            Int(min(max(horizontalPosition, 0), 0.999) * CGFloat(pullActions.count)),
+            pullActions.count - 1
+        )
+        let action = pullActions[index]
         return model.isQuickNavigationActionAvailable(action) ? action : nil
     }
 
-    private func trigger(_ action: BrowserQuickNavigationAction) {
-        guard model.isQuickNavigationActionAvailable(action) else { return }
-        collapse()
-        model.performQuickNavigationAction(action)
-    }
-
-    private func toggleExpanded() {
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
-            isExpanded.toggle()
-            selectedAction = nil
+    private func resetPull(animated: Bool) {
+        let changes = {
+            pullDistance = 0
+            selectedPullAction = nil
         }
-    }
-
-    private func collapse() {
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.86)) {
-            isExpanded = false
-            selectedAction = nil
+        if animated {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.82), changes)
+        } else {
+            changes()
         }
     }
 
@@ -1725,6 +1596,104 @@ private struct WebpageQuickNavigationTray: View {
         #if !targetEnvironment(macCatalyst)
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
+    }
+
+    private func actionFeedback() {
+        #if !targetEnvironment(macCatalyst)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
+    }
+}
+
+private struct WebpagePullDownActionPane: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+
+    let actions: [BrowserQuickNavigationAction]
+    let pullDistance: CGFloat
+    let selectedAction: BrowserQuickNavigationAction?
+    let isArmed: Bool
+    let topInset: CGFloat
+
+    private let paneHeight: CGFloat = 108
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+
+            Rectangle()
+                .fill(theme.color(.quickNavigation).opacity(0.9))
+
+            TokenGradientField(token: .quickNavigation, opacity: 0.88)
+
+            HStack(spacing: 6) {
+                ForEach(actions) { action in
+                    actionView(action)
+                }
+            }
+            .frame(maxWidth: 430)
+            .padding(.horizontal, 22)
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: paneHeight)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.22))
+                .frame(height: 1)
+        }
+        .shadow(color: theme.color(.quickNavigation).opacity(0.28), radius: 18, y: 8)
+        .offset(y: topInset + min(0, pullDistance - paneHeight))
+        .opacity(revealProgress)
+        .allowsHitTesting(false)
+        .accessibilityHidden(pullDistance < 1)
+    }
+
+    private func actionView(_ action: BrowserQuickNavigationAction) -> some View {
+        let isSelected = isArmed && selectedAction == action
+        let isAvailable = model.isQuickNavigationActionAvailable(action)
+
+        return VStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .fill(
+                        isSelected
+                            ? Color.white.opacity(0.28)
+                            : Color.black.opacity(0.16)
+                    )
+
+                Circle()
+                    .stroke(
+                        isSelected ? Color.white.opacity(0.92) : Color.white.opacity(0.2),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+
+                Image(systemName: action.symbolName)
+                    .font(.system(size: 19, weight: .black))
+                    .foregroundStyle(
+                        action.isDestructive
+                            ? Color(red: 1, green: 0.38, blue: 0.42)
+                            : Color.white
+                    )
+                    .shadow(color: Color.black.opacity(0.34), radius: 2, y: 1)
+            }
+            .frame(width: 48, height: 48)
+            .scaleEffect(isSelected ? 1.14 : 1)
+
+            Text(action.title)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .frame(maxWidth: .infinity)
+        .opacity(isAvailable ? max(0.4, revealProgress) : 0.28)
+        .animation(.spring(response: 0.16, dampingFraction: 0.72), value: isSelected)
+    }
+
+    private var revealProgress: Double {
+        Double(min(max(pullDistance / 44, 0), 1))
     }
 }
 
@@ -1971,10 +1940,11 @@ private struct SideBrowserLayout: View {
     let sideWidth: CGFloat
     let containerWidth: CGFloat
     let experience: GlideDeviceExperience
+    let pullDownPaneTopInset: CGFloat
 
     var body: some View {
         ZStack(alignment: edge == .left ? .leading : .trailing) {
-            BrowserContent()
+            BrowserContent(pullDownPaneTopInset: pullDownPaneTopInset)
 
             if model.areSideTabsCollapsed == false {
                 if experience == .phone {
@@ -2013,8 +1983,11 @@ private struct DesktopZenBrowserLayout: View {
     let sideWidth: CGFloat
     let containerWidth: CGFloat
     let experience: GlideDeviceExperience
+    let basePullDownPaneTopInset: CGFloat
+    let safeAreaTopInset: CGFloat
     @Binding var isChromeHovered: Bool
     @State private var chromeHideTask: Task<Void, Never>?
+    @State private var measuredTopChromeHeight: CGFloat = 0
 
     private var isChromeVisible: Bool {
         isChromeHovered || model.isChromeWidthResizeMode
@@ -2022,7 +1995,14 @@ private struct DesktopZenBrowserLayout: View {
 
     var body: some View {
         ZStack {
-            BrowserContent()
+            BrowserContent(
+                pullDownPaneTopInset: max(
+                    basePullDownPaneTopInset,
+                    model.chromePlacement == .top && isChromeVisible
+                        ? safeAreaTopInset + measuredTopChromeHeight
+                        : 0
+                )
+            )
 
             switch model.chromePlacement {
             case .left:
@@ -2040,6 +2020,9 @@ private struct DesktopZenBrowserLayout: View {
             case .floating:
                 floatingReveal()
             }
+        }
+        .onPreferenceChange(PullDownTopChromeHeightPreferenceKey.self) { height in
+            measuredTopChromeHeight = height
         }
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isChromeVisible)
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: model.chromePlacement)
@@ -2076,6 +2059,14 @@ private struct DesktopZenBrowserLayout: View {
     private func horizontalReveal(edge: VerticalEdge) -> some View {
         if isChromeVisible {
             HorizontalChrome(edge: edge)
+                .background {
+                    GeometryReader { chromeProxy in
+                        Color.clear.preference(
+                            key: PullDownTopChromeHeightPreferenceKey.self,
+                            value: edge == .top ? chromeProxy.size.height : 0
+                        )
+                    }
+                }
                 .onHover(perform: setChromeHovered)
                 .transition(.move(edge: edge == .top ? .top : .bottom).combined(with: .opacity))
         } else {
@@ -5455,7 +5446,7 @@ private struct GlideFeatureUpdateView: View {
                 Spacer(minLength: 20)
 
                 VStack(spacing: 16) {
-                    Image(systemName: "chevron.up.square.fill")
+                    Image(systemName: "hand.point.down.fill")
                         .font(.system(size: 30, weight: .black))
                         .frame(width: 72, height: 72)
                         .foregroundStyle(theme.color(.canvas))
@@ -5463,12 +5454,12 @@ private struct GlideFeatureUpdateView: View {
                         .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
 
                     VStack(spacing: 8) {
-                        Text("Swipe-Up Navigation")
+                        Text("Pull-Down Navigation")
                             .font(.system(size: 38, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)
 
-                        Text("Swipe upward from the webpage edge, move across your actions, and release. Fast tab controls now stay directly under your thumb.")
+                        Text("Pull the webpage down, move across the three actions, and release. The page itself now becomes the control.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .multilineTextAlignment(.center)
@@ -5480,9 +5471,9 @@ private struct GlideFeatureUpdateView: View {
                 VStack(spacing: 12) {
                     GlideFeatureUpdateSection(title: "Webpage Gesture", symbol: "hand.draw.fill") {
                         TutorialFeatureRow(
-                            symbol: "chevron.up.square.fill",
-                            title: "Swipe-Up Action Tray",
-                            detail: "Pull the handle above the webpage upward to reveal Reload, New Tab, Close Tab, and your chosen extras.",
+                            symbol: "hand.point.down.fill",
+                            title: "Page Pull-Down",
+                            detail: "Pull down from the top of a webpage to reveal New Tab, Reload, and Close Tab behind the page.",
                             tint: .quickNavigation
                         )
 
@@ -5491,25 +5482,25 @@ private struct GlideFeatureUpdateView: View {
                         TutorialFeatureRow(
                             symbol: "hand.point.up.left.fill",
                             title: "Slide and Release",
-                            detail: "Keep holding, move across the action rail, and release over a command to run it without reaching upward.",
+                            detail: "Keep holding, move left or right to highlight the nearest icon, then release to run it.",
                             tint: .quickNavigation
                         )
                     }
 
-                    GlideFeatureUpdateSection(title: "Tabs & Style", symbol: "rectangle.stack.fill") {
+                    GlideFeatureUpdateSection(title: "Mobile Flow", symbol: "iphone") {
                         TutorialFeatureRow(
-                            symbol: "arrow.left.and.right",
-                            title: "Swipe Between Tabs",
-                            detail: "Swipe sideways on the webpage handle to move between tabs, or open All Tabs from the tray's live counter.",
+                            symbol: "rectangle.stack.badge.plus",
+                            title: "Three Essential Actions",
+                            detail: "Create a tab, refresh the current page, or close it in one continuous thumb gesture.",
                             tint: .createTab
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "slider.horizontal.3",
-                            title: "One Shared Setup",
-                            detail: "The action tray and FAB share your ordered actions, custom color, gradient circles, and intensity.",
+                            symbol: "paintbrush.fill",
+                            title: "Your Pane Color",
+                            detail: "The revealed pane uses your Quick Navigation color, gradient circles, and intensity.",
                             tint: .quickNavigation
                         )
                     }
@@ -9462,7 +9453,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     var subtitle: String {
         switch self {
         case .chromeAppearance: return "Bar color, glow, and transparency"
-        case .quickNavigation: return "Swipe-up tray, gesture actions, and color"
+        case .quickNavigation: return "Pull-down page actions, FAB, and color"
         case .bangs: return "Create shortcuts such as !yt"
         case .websiteWhitelist: return "Per-site protection exceptions"
         case .allTabs: return "Layout, density, sorting, and sections"
@@ -9496,7 +9487,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     private var keywords: String {
         switch self {
         case .chromeAppearance: return "tab bar opacity transparent transparency surface top sidebar"
-        case .quickNavigation: return "fab swipe up webpage edge tray vivaldi gesture reload new close delete private action shortcut"
+        case .quickNavigation: return "fab pull down webpage pane mobile gesture reload new close delete private action shortcut"
         case .bangs: return "search shortcut youtube yt google query command"
         case .websiteWhitelist: return "privacy shields protection allow exception site domain"
         case .allTabs: return "tab finder grid list sort compact density contained private"
@@ -9612,8 +9603,14 @@ private struct QuickNavigationSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle("Swipe-Up Action Tray", isOn: $model.isSwipeUpQuickNavigationEnabled)
+            Toggle("Pull-Down Page Actions", isOn: $model.isSwipeUpQuickNavigationEnabled)
             Toggle("Floating Action Button", isOn: $model.isQuickNavigationEnabled)
+
+            LabeledContent("Page actions") {
+                Text("New Tab, Reload, Close Tab")
+                    .foregroundStyle(theme.color(.mutedText))
+                    .multilineTextAlignment(.trailing)
+            }
 
             HStack(spacing: 12) {
                 ZStack {
@@ -9633,7 +9630,7 @@ private struct QuickNavigationSettingsPanel: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Quick Navigation Color")
                         .font(.system(size: 14, weight: .bold))
-                    Text("Action tray and floating button")
+                    Text("Page pane and floating button")
                         .font(.caption)
                         .foregroundStyle(theme.color(.mutedText))
                 }
@@ -9652,7 +9649,7 @@ private struct QuickNavigationSettingsPanel: View {
 
             Divider()
 
-            LabeledContent("Actions") {
+            LabeledContent("FAB actions") {
                 Text("\(model.quickNavigationActions.count) of \(BrowserViewModel.maximumQuickNavigationActions)")
                     .foregroundStyle(theme.color(.mutedText))
                     .monospacedDigit()
