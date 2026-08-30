@@ -677,11 +677,13 @@ final class BrowserTheme: ObservableObject {
 
     func setGradientColor(_ color: Color, for token: BrowserThemeToken) {
         let hex = color.hexString ?? token.defaultGradientHex
-        var values = gradientColorHexByToken
-        values[token] = hex
-        gradientColorHexByToken = values
-        setGradientCircles([BrowserThemeGradientCircle(colorHex: hex, intensity: 0.72)], for: token)
-        vault.save(hex, forKey: Self.gradientStorageKey(for: token))
+        var circles = gradientCircles(for: token)
+        if circles.isEmpty {
+            circles = [BrowserThemeGradientCircle(colorHex: hex, intensity: 0.72)]
+        } else {
+            circles[0].colorHex = hex
+        }
+        setGradientCircles(circles, for: token)
     }
 
     func updateGradientStart(x: Double, y: Double) {

@@ -23,6 +23,136 @@ enum BrowserWebKitProfile: String, Codable {
     }
 }
 
+private final class BrowserWebExtensionStorageBridge: NSObject, WKScriptMessageHandlerWithReply {
+    private static let storagePrefix = "webExtensionStorage."
+    private static let lock = NSLock()
+    private static var volatileStorage: [String: [String: Any]] = [:]
+    private let storageScope: String
+    private let usesPersistentStorage: Bool
+    private let secureVault: SecureBrowserVault?
+
+    init(storageScope: String, usesPersistentStorage: Bool, secureVault: SecureBrowserVault?) {
+        self.storageScope = storageScope
+        self.usesPersistentStorage = usesPersistentStorage
+        self.secureVault = secureVault
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
+        guard let request = message.body as? [String: Any],
+              let extensionID = request["extensionID"] as? String,
+              let operation = request["operation"] as? String else {
+            replyHandler(nil, "Invalid extension storage request.")
+            return
+        }
+
+        let area = (request["area"] as? String) ?? "local"
+        let storageID = "\(storageScope)|\(extensionID)|\(area)"
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+
+        var values = loadValues(storageID: storageID, area: area)
+        switch operation {
+        case "get":
+            replyHandler(["values": selectedValues(from: values, keys: request["keys"])], nil)
+        case "set":
+            let items = request["items"] as? [String: Any] ?? [:]
+            var changes: [String: [String: Any]] = [:]
+            for (key, newValue) in items {
+                var change: [String: Any] = ["newValue": newValue]
+                if let oldValue = values[key] {
+                    change["oldValue"] = oldValue
+                }
+                values[key] = newValue
+                changes[key] = change
+            }
+            saveValues(values, storageID: storageID, area: area)
+            replyHandler(["changes": changes], nil)
+        case "remove":
+            let keys = stringKeys(from: request["keys"])
+            var changes: [String: [String: Any]] = [:]
+            for key in keys {
+                if let oldValue = values.removeValue(forKey: key) {
+                    changes[key] = ["oldValue": oldValue]
+                }
+            }
+            saveValues(values, storageID: storageID, area: area)
+            replyHandler(["changes": changes], nil)
+        case "clear":
+            let changes = Dictionary(uniqueKeysWithValues: values.map { key, value in
+                (key, ["oldValue": value])
+            })
+            values.removeAll()
+            saveValues(values, storageID: storageID, area: area)
+            replyHandler(["changes": changes], nil)
+        case "getBytesInUse":
+            let selected = selectedValues(from: values, keys: request["keys"])
+            let bytes = (try? JSONSerialization.data(withJSONObject: selected)).map(\.count) ?? 0
+            replyHandler(["bytes": bytes], nil)
+        default:
+            replyHandler(nil, "Unsupported extension storage operation.")
+        }
+    }
+
+    private func loadValues(storageID: String, area: String) -> [String: Any] {
+        if usesPersistentStorage == false || area == "session" || secureVault == nil {
+            return Self.volatileStorage[storageID] ?? [:]
+        }
+        guard let data = secureVault?.loadOptional(Data.self, forKey: persistentKey(for: storageID)),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let values = object as? [String: Any] else {
+            return [:]
+        }
+        return values
+    }
+
+    private func saveValues(_ values: [String: Any], storageID: String, area: String) {
+        if usesPersistentStorage == false || area == "session" || secureVault == nil {
+            Self.volatileStorage[storageID] = values
+            return
+        }
+        guard JSONSerialization.isValidJSONObject(values),
+              let data = try? JSONSerialization.data(withJSONObject: values) else {
+            return
+        }
+        secureVault?.save(data, forKey: persistentKey(for: storageID))
+    }
+
+    private func persistentKey(for storageID: String) -> String {
+        let encoded = Data(storageID.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return Self.storagePrefix + encoded
+    }
+
+    private func selectedValues(from values: [String: Any], keys: Any?) -> [String: Any] {
+        guard let keys, (keys is NSNull) == false else { return values }
+        if let key = keys as? String {
+            return values[key].map { [key: $0] } ?? [:]
+        }
+        if let defaults = keys as? [String: Any] {
+            return defaults.reduce(into: [:]) { result, entry in
+                result[entry.key] = values[entry.key] ?? entry.value
+            }
+        }
+        return stringKeys(from: keys).reduce(into: [:]) { result, key in
+            if let value = values[key] {
+                result[key] = value
+            }
+        }
+    }
+
+    private func stringKeys(from value: Any?) -> [String] {
+        if let key = value as? String { return [key] }
+        return (value as? [Any] ?? []).compactMap { $0 as? String }
+    }
+}
+
 @MainActor
 final class BrowserTab: NSObject, Identifiable, ObservableObject {
     let id = UUID()
@@ -76,6 +206,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private static let devProcessPool = WKProcessPool()
     private static let customPanMinimumDistance: CGFloat = 172
     private static let customPanDirectionRatio: CGFloat = 1.6
+    private static let webExtensionMessageHandlerName = "glideWebExtensionStorage"
     private nonisolated(unsafe) var navigationScriptBlockingEnabled: Bool
     private nonisolated(unsafe) var navigationHTTPSUpgradeEnabled: Bool
     private nonisolated(unsafe) var navigationTrackingParameterStrippingEnabled: Bool
@@ -86,6 +217,8 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
     private nonisolated(unsafe) var navigationProtectionWhitelistDomains: [String]
     private var blockedPersistenceDomains: [String]
     private var protectionWhitelistDomains: [String]
+    private let webExtensionStorageBridge: BrowserWebExtensionStorageBridge
+    private var registeredWebExtensionWorldNames: Set<String> = []
 
     init(
         startURL: URL = BrowserDefaults.homeURL,
@@ -115,10 +248,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         browserResolutionWidth: Double = BrowserResolutionPreset.defaultScreenScale,
         folderID: UUID? = nil,
         webExtensions: [BrowserWebExtension] = [],
+        secureVault: SecureBrowserVault? = nil,
         websiteBlacklist: [String] = [],
         websiteProtectionWhitelist: [String] = [],
         webKitProfile: BrowserWebKitProfile = .standard
     ) {
+        self.webExtensionStorageBridge = BrowserWebExtensionStorageBridge(
+            storageScope: isPrivate ? "private" : (usesPersistentStorage ? "standard" : "contained"),
+            usesPersistentStorage: isPrivate == false && usesPersistentStorage,
+            secureVault: secureVault
+        )
         self.isPrivate = isPrivate
         self.isContainedBrowser = isContainedBrowser
         self.webKitProfile = webKitProfile
@@ -573,6 +712,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         reloadAfterChange: Bool = false,
         completion: (() -> Void)? = nil
     ) {
+        synchronizeWebExtensionMessageHandlers()
         BrowserContentBlocker.setEnabled(
             isAdBlockerEnabled,
             level: trackerBlockingLevel,
@@ -589,6 +729,28 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             if reloadAfterChange {
                 self.webView.reload()
             }
+        }
+    }
+
+    private func synchronizeWebExtensionMessageHandlers() {
+        let userContentController = webView.configuration.userContentController
+        for worldName in registeredWebExtensionWorldNames {
+            userContentController.removeScriptMessageHandler(
+                forName: Self.webExtensionMessageHandlerName,
+                contentWorld: WKContentWorld.world(name: worldName)
+            )
+        }
+
+        let enabledExtensions = webExtensions.filter(\.isEnabled)
+        registeredWebExtensionWorldNames = Set(enabledExtensions.map { extensionItem in
+            Self.webExtensionContentWorldName(for: extensionItem)
+        })
+        for worldName in registeredWebExtensionWorldNames {
+            userContentController.addScriptMessageHandler(
+                webExtensionStorageBridge,
+                contentWorld: WKContentWorld.world(name: worldName),
+                name: Self.webExtensionMessageHandlerName
+            )
         }
     }
 
@@ -970,38 +1132,79 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         var scripts: [WKUserScript] = []
 
         for webExtension in extensions where webExtension.isEnabled {
+            let contentWorld = WKContentWorld.world(name: webExtensionContentWorldName(for: webExtension))
+            scripts.append(
+                WKUserScript(
+                    source: webExtensionBootstrapSource(for: webExtension),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false,
+                    in: contentWorld
+                )
+            )
+
+            let backgroundPaths = webExtension.backgroundScriptPaths
+            let backgroundSource = backgroundPaths.compactMap { webExtension.resourceText(for: $0) }.joined(separator: "\n;\n")
+            if backgroundSource.isEmpty == false {
+                let backgroundDescriptor = BrowserWebExtensionContentScript(
+                    matches: ["<all_urls>"],
+                    excludeMatches: [],
+                    js: backgroundPaths,
+                    css: [],
+                    runAt: .documentStart,
+                    allFrames: false
+                )
+                scripts.append(
+                    WKUserScript(
+                        source: webExtensionWrappedSource(
+                            extension: webExtension,
+                            contentScript: backgroundDescriptor,
+                            resourcePath: backgroundPaths.joined(separator: ", "),
+                            body: webExtensionJavaScriptBody(
+                                backgroundSource,
+                                path: backgroundPaths.joined(separator: ", ")
+                            )
+                        ),
+                        injectionTime: .atDocumentStart,
+                        forMainFrameOnly: true,
+                        in: contentWorld
+                    )
+                )
+            }
+
             for contentScript in webExtension.contentScripts where contentScript.hasRunnableContent {
                 let injectionTime = webExtensionInjectionTime(for: contentScript.runAt)
                 let forMainFrameOnly = contentScript.allFrames == false
 
-                for cssPath in contentScript.css {
-                    guard let css = webExtension.resourceText(for: cssPath) else { continue }
+                let css = contentScript.css.compactMap { webExtension.resourceText(for: $0) }.joined(separator: "\n")
+                if css.isEmpty == false {
                     scripts.append(
                         WKUserScript(
                             source: webExtensionWrappedSource(
                                 extension: webExtension,
                                 contentScript: contentScript,
-                                resourcePath: cssPath,
-                                body: webExtensionCSSInjectionBody(css, path: cssPath)
+                                resourcePath: contentScript.css.joined(separator: ", "),
+                                body: webExtensionCSSInjectionBody(css, path: contentScript.css.joined(separator: ", "))
                             ),
                             injectionTime: injectionTime,
-                            forMainFrameOnly: forMainFrameOnly
+                            forMainFrameOnly: forMainFrameOnly,
+                            in: contentWorld
                         )
                     )
                 }
 
-                for jsPath in contentScript.js {
-                    guard let source = webExtension.resourceText(for: jsPath) else { continue }
+                let source = contentScript.js.compactMap { webExtension.resourceText(for: $0) }.joined(separator: "\n;\n")
+                if source.isEmpty == false {
                     scripts.append(
                         WKUserScript(
                             source: webExtensionWrappedSource(
                                 extension: webExtension,
                                 contentScript: contentScript,
-                                resourcePath: jsPath,
-                                body: webExtensionJavaScriptBody(source, path: jsPath)
+                                resourcePath: contentScript.js.joined(separator: ", "),
+                                body: webExtensionJavaScriptBody(source, path: contentScript.js.joined(separator: ", "))
                             ),
                             injectionTime: injectionTime,
-                            forMainFrameOnly: forMainFrameOnly
+                            forMainFrameOnly: forMainFrameOnly,
+                            in: contentWorld
                         )
                     )
                 }
@@ -1009,6 +1212,39 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         }
 
         return scripts
+    }
+
+    private static func webExtensionContentWorldName(for webExtension: BrowserWebExtension) -> String {
+        "glide.webextension.\(webExtension.id.uuidString)"
+    }
+
+    private static func webExtensionBootstrapSource(for webExtension: BrowserWebExtension) -> String {
+        let identifier = javascriptJSONLiteral(webExtension.extensionIdentifier)
+        let name = javascriptJSONLiteral(webExtension.displayName)
+        let version = javascriptJSONLiteral(webExtension.version)
+        let description = javascriptJSONLiteral(webExtension.description)
+        let permissions = javascriptJSONLiteral(webExtension.permissions)
+        let hostPermissions = javascriptJSONLiteral(webExtension.hostPermissions ?? [])
+        let resources = javascriptJSONLiteral(webExtension.resources)
+
+        return """
+        (() => {
+          globalThis.__glideExtensionContext = Object.freeze({
+            id: \(identifier),
+            name: \(name),
+            manifest: Object.freeze({
+              manifest_version: \(webExtension.manifestVersion),
+              name: \(name),
+              version: \(version),
+              description: \(description),
+              permissions: \(permissions),
+              host_permissions: \(hostPermissions),
+              browser_specific_settings: { gecko: { id: \(identifier) } }
+            }),
+            resources: Object.freeze(\(resources))
+          });
+        })();
+        """
     }
 
     private static func webExtensionInjectionTime(for runAt: BrowserWebExtensionRunAt) -> WKUserScriptInjectionTime {
@@ -1037,6 +1273,9 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           const glideExtensionName = \(extensionNameLiteral);
           const glideExtensionID = \(extensionIDLiteral);
           const glideResourcePath = \(resourcePathLiteral);
+          const glideExtensionContext = globalThis.__glideExtensionContext || {};
+          const glideExtensionManifest = glideExtensionContext.manifest || {};
+          const glideExtensionResources = glideExtensionContext.resources || {};
           const glideMatches = \(matchesLiteral);
           const glideExcludeMatches = \(excludeMatchesLiteral);
           const glideEscapeRegex = (value) => String(value).replace(/[|\\\\{}()[\\]^$+*?.-]/g, '\\\\$&');
@@ -1123,9 +1362,16 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
               return listeners.size > 0;
             },
             __dispatch(...args) {
-              listeners.forEach((listener) => {
-                try { listener(...args); } catch (error) { console.warn('[Glide WebExtension event]', error); }
+              let response;
+              Array.from(listeners).forEach((listener) => {
+                try {
+                  const candidate = listener(...args);
+                  if (response === undefined && candidate !== undefined) { response = candidate; }
+                } catch (error) {
+                  console.warn('[Glide WebExtension event]', error);
+                }
               });
+              return response;
             }
           };
         };
@@ -1167,17 +1413,46 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
             return result;
           }, {});
         };
+        const glideNormalizeResourcePath = (path = '') => String(path).replace(/^\\/+/, '').replace(/\\\\/g, '/');
+        const glideResourceURL = (path = '') => {
+          const normalized = glideNormalizeResourcePath(path);
+          const source = glideExtensionResources[normalized];
+          if (typeof source === 'string') {
+            return 'data:text/plain;charset=utf-8,' + encodeURIComponent(source);
+          }
+          return 'glide-extension://' + glideExtensionID + '/' + normalized;
+        };
+        const glideResourceSource = (path = '') => {
+          const value = String(path);
+          if (value.startsWith('data:')) {
+            const separator = value.indexOf(',');
+            return separator >= 0 ? decodeURIComponent(value.slice(separator + 1)) : undefined;
+          }
+          const extensionPrefix = 'glide-extension://' + glideExtensionID + '/';
+          const normalized = glideNormalizeResourcePath(value.startsWith(extensionPrefix) ? value.slice(extensionPrefix.length) : value);
+          return glideExtensionResources[normalized];
+        };
+        if (typeof globalThis.importScripts !== 'function') {
+          globalThis.importScripts = (...paths) => {
+            paths.forEach((path) => {
+              const source = glideResourceSource(path);
+              if (typeof source !== 'string') { throw new Error('Missing extension resource: ' + path); }
+              (0, eval)(source);
+            });
+          };
+        }
         const browserRoot = window.browser = window.browser || {};
         browserRoot.runtime = browserRoot.runtime || {};
         browserRoot.runtime.id = browserRoot.runtime.id || glideExtensionID;
         browserRoot.runtime.lastError = browserRoot.runtime.lastError || null;
-        browserRoot.runtime.getURL = browserRoot.runtime.getURL || ((path = '') => 'glide-extension://' + glideExtensionID + '/' + String(path).replace(/^\\/+/, ''));
-        browserRoot.runtime.getManifest = browserRoot.runtime.getManifest || (() => ({
-          manifest_version: 3,
-          name: glideExtensionName,
-          version: '',
-          browser_specific_settings: { gecko: { id: glideExtensionID } }
-        }));
+        browserRoot.runtime.getURL = browserRoot.runtime.getURL || glideResourceURL;
+        browserRoot.runtime.getManifest = browserRoot.runtime.getManifest || (() => glideExtensionManifest);
+        browserRoot.runtime.getPlatformInfo = browserRoot.runtime.getPlatformInfo || ((callback) => {
+          return glideResolveWithCallback(Promise.resolve({ os: 'ios', arch: 'arm', nacl_arch: 'arm' }), callback);
+        });
+        browserRoot.runtime.isAllowedIncognitoAccess = browserRoot.runtime.isAllowedIncognitoAccess || ((callback) => {
+          return glideResolveWithCallback(Promise.resolve(true), callback);
+        });
         browserRoot.runtime.onMessage = browserRoot.runtime.onMessage || glideMakeEvent();
         browserRoot.runtime.onConnect = browserRoot.runtime.onConnect || glideMakeEvent();
         browserRoot.runtime.onInstalled = browserRoot.runtime.onInstalled || glideMakeEvent();
@@ -1185,11 +1460,30 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         browserRoot.runtime.sendMessage = browserRoot.runtime.sendMessage || ((...args) => {
           const callback = args.find((value) => typeof value === 'function');
           const message = args.find((value) => value && typeof value !== 'function' && typeof value !== 'string') ?? args[0];
-          let response;
-          if (browserRoot.runtime.onMessage.__dispatch) {
-            try { response = browserRoot.runtime.onMessage.__dispatch(message, { id: glideExtensionID, url: location.href }, () => {}); } catch (_) {}
-          }
-          return glideResolveWithCallback(Promise.resolve(response), callback);
+          const responsePromise = new Promise((resolve) => {
+            let settled = false;
+            const sendResponse = (value) => {
+              if (!settled) { settled = true; resolve(value); }
+              return true;
+            };
+            try {
+              const response = browserRoot.runtime.onMessage.__dispatch(
+                message,
+                { id: glideExtensionID, url: location.href, tab: { id: 1, url: location.href } },
+                sendResponse
+              );
+              if (response && typeof response.then === 'function') {
+                response.then(sendResponse).catch(() => sendResponse(undefined));
+              } else if (response !== true) {
+                sendResponse(response);
+              } else {
+                setTimeout(() => sendResponse(undefined), 2500);
+              }
+            } catch (_) {
+              sendResponse(undefined);
+            }
+          });
+          return glideResolveWithCallback(responsePromise, callback);
         });
         browserRoot.runtime.connect = browserRoot.runtime.connect || (() => ({
           name: 'glide',
@@ -1198,74 +1492,231 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           postMessage() {},
           disconnect() {}
         }));
+        const glideLocaleMessages = (() => {
+          for (const [path, source] of Object.entries(glideExtensionResources)) {
+            if (path.startsWith('_locales/') && path.endsWith('/messages.json')) {
+              try { return JSON.parse(source); } catch (_) {}
+            }
+          }
+          return {};
+        })();
         browserRoot.i18n = browserRoot.i18n || {
           getMessage(messageName, substitutions) {
-            if (Array.isArray(substitutions)) {
-              return substitutions.reduce((result, value, index) => result.replace('$' + (index + 1), value), String(messageName || ''));
-            }
-            if (substitutions != null) {
-              return String(messageName || '').replace('$1', String(substitutions));
-            }
-            return String(messageName || '');
+            const entry = glideLocaleMessages[String(messageName || '')];
+            let message = typeof entry?.message === 'string' ? entry.message : String(messageName || '');
+            const replacements = Array.isArray(substitutions)
+              ? substitutions
+              : (substitutions == null ? [] : [substitutions]);
+            replacements.forEach((value, index) => {
+              message = message.split('$' + (index + 1)).join(String(value));
+            });
+            return message;
           }
         };
         browserRoot.storage = browserRoot.storage || {};
         browserRoot.storage.onChanged = browserRoot.storage.onChanged || glideMakeEvent();
-        browserRoot.storage.local = browserRoot.storage.local || {};
-        browserRoot.storage.sync = browserRoot.storage.sync || browserRoot.storage.local;
-        browserRoot.storage.local.get = browserRoot.storage.local.get || ((keys, callback) => {
-          return glideResolveWithCallback(Promise.resolve(glideStorageGet(keys)), callback);
-        });
-        browserRoot.storage.local.set = browserRoot.storage.local.set || ((items, callback) => {
-          Object.entries(items || {}).forEach(([key, value]) => {
-            localStorage.setItem(glideStoragePrefix + key, JSON.stringify(value));
-          });
-          browserRoot.storage.onChanged.__dispatch({}, 'local');
-          return glideResolveWithCallback(Promise.resolve(), callback);
-        });
-        browserRoot.storage.local.remove = browserRoot.storage.local.remove || ((keys, callback) => {
-          (Array.isArray(keys) ? keys : [keys]).filter((key) => key != null).forEach((key) => {
-            localStorage.removeItem(glideStoragePrefix + key);
-          });
-          browserRoot.storage.onChanged.__dispatch({}, 'local');
-          return glideResolveWithCallback(Promise.resolve(), callback);
-        });
-        browserRoot.storage.local.clear = browserRoot.storage.local.clear || ((callback) => {
-          const keys = [];
-          for (let index = 0; index < localStorage.length; index += 1) {
-            const key = localStorage.key(index);
-            if (key && key.startsWith(glideStoragePrefix)) { keys.push(key); }
+        const glideStorageBridge = window.webkit?.messageHandlers?.glideWebExtensionStorage;
+        const glideStorageRequest = (operation, area, payload = {}) => {
+          if (!glideStorageBridge || typeof glideStorageBridge.postMessage !== 'function') {
+            return Promise.resolve(null);
           }
-          keys.forEach((key) => localStorage.removeItem(key));
-          browserRoot.storage.onChanged.__dispatch({}, 'local');
-          return glideResolveWithCallback(Promise.resolve(), callback);
+          try {
+            const result = glideStorageBridge.postMessage({
+              extensionID: glideExtensionID,
+              operation,
+              area,
+              ...payload
+            });
+            return result && typeof result.then === 'function' ? result : Promise.resolve(result);
+          } catch (_) {
+            return Promise.resolve(null);
+          }
+        };
+        const glideStorageArea = (areaName) => ({
+          get(keys, callback) {
+            const promise = glideStorageRequest('get', areaName, { keys }).then((response) => {
+              return response?.values ?? glideStorageGet(keys);
+            });
+            return glideResolveWithCallback(promise, callback);
+          },
+          set(items, callback) {
+            const promise = glideStorageRequest('set', areaName, { items: items || {} }).then((response) => {
+              if (response?.changes) {
+                browserRoot.storage.onChanged.__dispatch(response.changes, areaName);
+                return;
+              }
+              const changes = {};
+              Object.entries(items || {}).forEach(([key, value]) => {
+                const oldValue = glideReadStorage(key);
+                localStorage.setItem(glideStoragePrefix + key, JSON.stringify(value));
+                changes[key] = { oldValue, newValue: value };
+              });
+              if (Object.keys(changes).length > 0) {
+                browserRoot.storage.onChanged.__dispatch(changes, areaName);
+              }
+            });
+            return glideResolveWithCallback(promise, callback);
+          },
+          remove(keys, callback) {
+            const promise = glideStorageRequest('remove', areaName, { keys }).then((response) => {
+              if (response?.changes) {
+                browserRoot.storage.onChanged.__dispatch(response.changes, areaName);
+                return;
+              }
+              (Array.isArray(keys) ? keys : [keys]).filter((key) => key != null).forEach((key) => {
+                localStorage.removeItem(glideStoragePrefix + key);
+              });
+            });
+            return glideResolveWithCallback(promise, callback);
+          },
+          clear(callback) {
+            const promise = glideStorageRequest('clear', areaName).then((response) => {
+              if (response?.changes) {
+                browserRoot.storage.onChanged.__dispatch(response.changes, areaName);
+                return;
+              }
+              const keys = [];
+              for (let index = 0; index < localStorage.length; index += 1) {
+                const key = localStorage.key(index);
+                if (key && key.startsWith(glideStoragePrefix)) { keys.push(key); }
+              }
+              keys.forEach((key) => localStorage.removeItem(key));
+            });
+            return glideResolveWithCallback(promise, callback);
+          },
+          getBytesInUse(keys, callback) {
+            const promise = glideStorageRequest('getBytesInUse', areaName, { keys }).then((response) => {
+              return response?.bytes ?? new TextEncoder().encode(JSON.stringify(glideStorageGet(keys))).length;
+            });
+            return glideResolveWithCallback(promise, callback);
+          }
         });
+        browserRoot.storage.local = browserRoot.storage.local || glideStorageArea('local');
+        browserRoot.storage.sync = browserRoot.storage.sync || glideStorageArea('sync');
+        browserRoot.storage.session = browserRoot.storage.session || glideStorageArea('session');
         browserRoot.tabs = browserRoot.tabs || {};
         const glideCurrentTab = () => ({ id: 1, active: true, currentWindow: true, title: document.title || '', url: location.href });
         browserRoot.tabs.query = browserRoot.tabs.query || ((queryInfo, callback) => glideResolveWithCallback(Promise.resolve([glideCurrentTab()]), callback));
         browserRoot.tabs.create = browserRoot.tabs.create || ((createProperties, callback) => {
           const tab = { ...glideCurrentTab(), url: createProperties?.url || location.href };
+          if (createProperties?.url) {
+            try { window.open(createProperties.url, createProperties.active === false ? '_blank' : '_blank'); } catch (_) {}
+          }
           return glideResolveWithCallback(Promise.resolve(tab), callback);
         });
-        browserRoot.tabs.update = browserRoot.tabs.update || ((tabID, updateProperties, callback) => {
-          const tab = { ...glideCurrentTab(), url: updateProperties?.url || location.href };
+        browserRoot.tabs.getCurrent = browserRoot.tabs.getCurrent || ((callback) => glideResolveWithCallback(Promise.resolve(glideCurrentTab()), callback));
+        browserRoot.tabs.get = browserRoot.tabs.get || ((tabID, callback) => glideResolveWithCallback(Promise.resolve(glideCurrentTab()), callback));
+        browserRoot.tabs.update = browserRoot.tabs.update || ((...args) => {
+          const callback = args.find((value) => typeof value === 'function');
+          const updateProperties = args.find((value) => value && typeof value === 'object') || {};
+          const tab = { ...glideCurrentTab(), url: updateProperties.url || location.href };
+          if (updateProperties.url) {
+            setTimeout(() => { try { location.assign(updateProperties.url); } catch (_) {} }, 0);
+          }
           return glideResolveWithCallback(Promise.resolve(tab), callback);
         });
         browserRoot.tabs.sendMessage = browserRoot.tabs.sendMessage || ((tabID, message, options, callback) => {
           const responseCallback = [message, options, callback].find((value) => typeof value === 'function');
-          return glideResolveWithCallback(Promise.resolve(undefined), responseCallback);
+          return browserRoot.runtime.sendMessage(message, responseCallback);
+        });
+        browserRoot.tabs.reload = browserRoot.tabs.reload || ((tabID, reloadProperties, callback) => {
+          const responseCallback = [tabID, reloadProperties, callback].find((value) => typeof value === 'function');
+          setTimeout(() => location.reload(), 0);
+          return glideResolveWithCallback(Promise.resolve(), responseCallback);
         });
         browserRoot.scripting = browserRoot.scripting || {};
         browserRoot.scripting.executeScript = browserRoot.scripting.executeScript || ((details, callback) => {
           const files = details?.files || [];
           const func = details?.func || details?.function;
+          const results = [];
           try {
-            if (typeof func === 'function') { func(...(details?.args || [])); }
+            if (typeof func === 'function') {
+              results.push({ frameId: 0, result: func(...(details?.args || [])) });
+            }
+            files.forEach((file) => {
+              const source = glideExtensionResources[glideNormalizeResourcePath(file)];
+              if (typeof source === 'string') {
+                results.push({ frameId: 0, result: (0, eval)(source) });
+              }
+            });
           } catch (error) {
             console.warn('[Glide WebExtension scripting]', error);
           }
-          return glideResolveWithCallback(Promise.resolve(files.map((file) => ({ frameId: 0, result: file }))), callback);
+          return glideResolveWithCallback(Promise.resolve(results), callback);
         });
+        browserRoot.scripting.insertCSS = browserRoot.scripting.insertCSS || ((details, callback) => {
+          const sources = [];
+          if (typeof details?.css === 'string') { sources.push(details.css); }
+          (details?.files || []).forEach((file) => {
+            const source = glideExtensionResources[glideNormalizeResourcePath(file)];
+            if (typeof source === 'string') { sources.push(source); }
+          });
+          if (sources.length > 0) {
+            const style = document.createElement('style');
+            style.dataset.glideDynamicExtension = glideExtensionID;
+            style.textContent = sources.join('\\n');
+            (document.head || document.documentElement).appendChild(style);
+          }
+          return glideResolveWithCallback(Promise.resolve(), callback);
+        });
+        browserRoot.scripting.removeCSS = browserRoot.scripting.removeCSS || ((details, callback) => {
+          document.querySelectorAll('style[data-glide-dynamic-extension="' + glideExtensionID + '"]').forEach((style) => style.remove());
+          return glideResolveWithCallback(Promise.resolve(), callback);
+        });
+        browserRoot.tabs.executeScript = browserRoot.tabs.executeScript || ((tabID, details, callback) => {
+          const scriptDetails = typeof tabID === 'object' ? tabID : (details || {});
+          const responseCallback = [tabID, details, callback].find((value) => typeof value === 'function');
+          return browserRoot.scripting.executeScript(
+            { files: scriptDetails.file ? [scriptDetails.file] : [], func: scriptDetails.func, args: scriptDetails.args || [] },
+            responseCallback
+          );
+        });
+        browserRoot.tabs.insertCSS = browserRoot.tabs.insertCSS || ((tabID, details, callback) => {
+          const cssDetails = typeof tabID === 'object' ? tabID : (details || {});
+          const responseCallback = [tabID, details, callback].find((value) => typeof value === 'function');
+          return browserRoot.scripting.insertCSS(
+            { files: cssDetails.file ? [cssDetails.file] : [], css: cssDetails.code },
+            responseCallback
+          );
+        });
+        const glideDeclaredPermissions = new Set([
+          ...(glideExtensionManifest.permissions || []),
+          ...(glideExtensionManifest.host_permissions || [])
+        ]);
+        const glidePermissionList = (details) => [
+          ...(details?.permissions || []),
+          ...(details?.origins || [])
+        ];
+        browserRoot.permissions = browserRoot.permissions || {
+          contains(details, callback) {
+            const allowed = glidePermissionList(details).every((permission) => glideDeclaredPermissions.has(permission));
+            return glideResolveWithCallback(Promise.resolve(allowed), callback);
+          },
+          getAll(callback) {
+            const permissions = Array.from(glideDeclaredPermissions).filter((value) => !String(value).includes('://'));
+            const origins = Array.from(glideDeclaredPermissions).filter((value) => String(value).includes('://') || value === '<all_urls>');
+            return glideResolveWithCallback(Promise.resolve({ permissions, origins }), callback);
+          },
+          request(details, callback) {
+            return this.contains(details, callback);
+          },
+          remove(details, callback) {
+            return glideResolveWithCallback(Promise.resolve(false), callback);
+          },
+          onAdded: glideMakeEvent(),
+          onRemoved: glideMakeEvent()
+        };
+        browserRoot.windows = browserRoot.windows || {
+          getCurrent(getInfo, callback) {
+            const responseCallback = [getInfo, callback].find((value) => typeof value === 'function');
+            return glideResolveWithCallback(Promise.resolve({ id: 1, focused: true, tabs: [glideCurrentTab()] }), responseCallback);
+          },
+          getAll(getInfo, callback) {
+            const responseCallback = [getInfo, callback].find((value) => typeof value === 'function');
+            return glideResolveWithCallback(Promise.resolve([{ id: 1, focused: true, tabs: [glideCurrentTab()] }]), responseCallback);
+          },
+          WINDOW_ID_CURRENT: 1
+        };
         browserRoot.alarms = browserRoot.alarms || {
           onAlarm: glideMakeEvent(),
           create() {},
@@ -1282,6 +1733,7 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
           enable() {},
           disable() {}
         };
+        browserRoot.browserAction = browserRoot.browserAction || browserRoot.action;
         browserRoot.declarativeNetRequest = browserRoot.declarativeNetRequest || {
           updateDynamicRules(callback) { if (callback) { callback(); } return Promise.resolve(); },
           getDynamicRules(callback) { return glideResolveWithCallback(Promise.resolve([]), callback); }
@@ -1292,8 +1744,11 @@ final class BrowserTab: NSObject, Identifiable, ObservableObject {
         window.chrome.storage = window.chrome.storage || browserRoot.storage;
         window.chrome.tabs = window.chrome.tabs || browserRoot.tabs;
         window.chrome.scripting = window.chrome.scripting || browserRoot.scripting;
+        window.chrome.permissions = window.chrome.permissions || browserRoot.permissions;
+        window.chrome.windows = window.chrome.windows || browserRoot.windows;
         window.chrome.alarms = window.chrome.alarms || browserRoot.alarms;
         window.chrome.action = window.chrome.action || browserRoot.action;
+        window.chrome.browserAction = window.chrome.browserAction || browserRoot.browserAction;
         window.chrome.declarativeNetRequest = window.chrome.declarativeNetRequest || browserRoot.declarativeNetRequest;
         """
     }

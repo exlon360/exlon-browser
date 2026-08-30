@@ -2533,6 +2533,7 @@ final class BrowserViewModel: ObservableObject {
             browserResolutionPreset: browserResolutionPreset,
             browserResolutionWidth: browserResolutionWidth,
             webExtensions: installedWebExtensions,
+            secureVault: vault,
             websiteBlacklist: websiteBlacklist,
             websiteProtectionWhitelist: websiteProtectionWhitelist,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
@@ -2603,6 +2604,7 @@ final class BrowserViewModel: ObservableObject {
             browserResolutionPreset: browserResolutionPreset,
             browserResolutionWidth: browserResolutionWidth,
             webExtensions: installedWebExtensions,
+            secureVault: vault,
             websiteBlacklist: websiteBlacklist,
             websiteProtectionWhitelist: websiteProtectionWhitelist,
             webKitProfile: shouldUseDevWebKit ? .dev : .standard
@@ -5167,6 +5169,7 @@ final class BrowserViewModel: ObservableObject {
                 browserResolutionPreset: browserResolutionPreset,
                 browserResolutionWidth: browserResolutionWidth,
                 webExtensions: webExtensions,
+                secureVault: vault,
                 websiteBlacklist: websiteBlacklist,
                 websiteProtectionWhitelist: websiteProtectionWhitelist
             )
@@ -5205,6 +5208,7 @@ final class BrowserViewModel: ObservableObject {
                 browserResolutionWidth: browserResolutionWidth,
                 folderID: savedTab.folderID,
                 webExtensions: webExtensions,
+                secureVault: vault,
                 websiteBlacklist: websiteBlacklist,
                 websiteProtectionWhitelist: websiteProtectionWhitelist,
                 webKitProfile: usesDevWebKitProfile ? .dev : .standard
@@ -5241,6 +5245,7 @@ final class BrowserViewModel: ObservableObject {
                 browserResolutionPreset: browserResolutionPreset,
                 browserResolutionWidth: browserResolutionWidth,
                 webExtensions: webExtensions,
+                secureVault: vault,
                 websiteBlacklist: websiteBlacklist,
                 websiteProtectionWhitelist: websiteProtectionWhitelist
             )

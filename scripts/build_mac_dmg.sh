@@ -8,13 +8,18 @@ BUILD_ROOT="build/mac-dmg"
 PRODUCTS_DIR="${BUILD_ROOT}/Build/Products"
 APP_NAME="Glide"
 SOURCE_APP_PATH="${PRODUCTS_DIR}/${CONFIGURATION}-maccatalyst/ZenFireBrowser.app"
-DMG_STAGING="${BUILD_ROOT}/dmg-staging"
+DMG_STAGING=""
 DMG_PATH="${BUILD_ROOT}/${APP_NAME}-macOS.dmg"
 BUILD_LOG="${BUILD_ROOT}/xcodebuild.log"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 rm -rf "${BUILD_ROOT}"
 mkdir -p "${BUILD_ROOT}"
+DMG_STAGING="$(mktemp -d "${TMPDIR:-/tmp}/glide-dmg-staging.XXXXXX")"
+cleanup() {
+  rm -rf "${DMG_STAGING}"
+}
+trap cleanup EXIT
 
 set +e
 xcodebuild \
@@ -63,7 +68,17 @@ if ! file "${BINARY_PATH}" | grep -q "Mach-O"; then
   exit 1
 fi
 
-codesign --remove-signature "${BINARY_PATH}" 2>/dev/null || true
+# Mac Catalyst executables require a code-directory seal even when no Apple
+# developer identity is used. An ad-hoc signature keeps the build independent
+# from certificates while allowing macOS to launch it.
+xattr -cr "${DMG_STAGING}/${APP_NAME}.app"
+codesign \
+  --force \
+  --deep \
+  --sign - \
+  --timestamp=none \
+  "${DMG_STAGING}/${APP_NAME}.app"
+codesign --verify --deep --strict "${DMG_STAGING}/${APP_NAME}.app"
 
 hdiutil create \
   -volname "${APP_NAME}" \

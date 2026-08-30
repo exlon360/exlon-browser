@@ -6740,6 +6740,7 @@ private struct CustomColorStopRow: View {
 
 private struct GradientCircleCanvas: View {
     @EnvironmentObject private var theme: BrowserTheme
+    @Namespace private var canvasCoordinateSpace
     let baseColor: Color
     let circles: [BrowserThemeGradientCircle]
     var onMove: ((BrowserThemeGradientCircle, Double, Double) -> Void)? = nil
@@ -6774,28 +6775,35 @@ private struct GradientCircleCanvas: View {
                             endRadius: max(proxy.size.width, proxy.size.height) * 0.72
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .allowsHitTesting(false)
                     }
 
                     ForEach(circles) { circle in
-                        Circle()
-                            .fill(Color(hex: circle.colorHex).opacity(max(0.48, circle.intensity)))
-                            .frame(width: circleDiameter(for: circle), height: circleDiameter(for: circle))
-                            .overlay {
-                                Circle()
-                                    .stroke(Color.white.opacity(0.86), lineWidth: 2)
-                            }
-                            .shadow(color: Color(hex: circle.colorHex).opacity(max(0.18, circle.intensity * 0.44)), radius: 6, y: 3)
+                        ZStack {
+                            Circle()
+                                .fill(Color(hex: circle.colorHex).opacity(max(0.48, circle.intensity)))
+                                .frame(width: circleDiameter(for: circle), height: circleDiameter(for: circle))
+                                .overlay {
+                                    Circle()
+                                        .stroke(Color.white.opacity(0.9), lineWidth: 1.5)
+                                }
+                                .shadow(color: Color(hex: circle.colorHex).opacity(max(0.18, circle.intensity * 0.44)), radius: 5, y: 2)
+                        }
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
                             .position(circlePosition(circle, in: proxy.size))
-                            .gesture(circleDrag(circle, in: proxy.size))
+                            .highPriorityGesture(circleDrag(circle, in: proxy.size))
+                            .accessibilityLabel("Move gradient circle")
                     }
                 }
+                .coordinateSpace(name: canvasCoordinateSpace)
             }
             .frame(height: 92)
         }
     }
 
     private func circleDiameter(for circle: BrowserThemeGradientCircle) -> CGFloat {
-        18 + CGFloat(circle.intensity) * 10
+        14 + CGFloat(circle.intensity) * 6
     }
 
     private func circlePosition(_ circle: BrowserThemeGradientCircle, in size: CGSize) -> CGPoint {
@@ -6807,7 +6815,7 @@ private struct GradientCircleCanvas: View {
     }
 
     private func circleDrag(_ circle: BrowserThemeGradientCircle, in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(canvasCoordinateSpace))
             .onChanged { value in
                 guard size.width > 0, size.height > 0 else { return }
                 onMove?(
@@ -8986,6 +8994,94 @@ private struct BrowserLayoutSettingsPanel: View {
     }
 }
 
+private enum BrowserSettingsCategory: String, CaseIterable, Identifiable {
+    case privacy
+    case customize
+    case browsing
+    case extensions
+    case system
+    case reset
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .privacy: return "Privacy"
+        case .customize: return "Customize"
+        case .browsing: return "Browsing"
+        case .extensions: return "Extensions & Mods"
+        case .system: return "System"
+        case .reset: return "Reset"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .privacy: return "Shields, site rules, lock"
+        case .customize: return "Colors, gradients, themes"
+        case .browsing: return "Tabs, layout, search"
+        case .extensions: return "Firefox, Chrome, scripts"
+        case .system: return "Toolbar, advanced, dev"
+        case .reset: return "Restore Glide settings"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .privacy: return "hand.raised.fill"
+        case .customize: return "paintpalette.fill"
+        case .browsing: return "safari.fill"
+        case .extensions: return "puzzlepiece.extension.fill"
+        case .system: return "gearshape.2.fill"
+        case .reset: return "arrow.counterclockwise"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .privacy: return .purple
+        case .customize: return .green
+        case .browsing: return .blue
+        case .extensions: return .orange
+        case .system: return .gray
+        case .reset: return .red
+        }
+    }
+}
+
+private struct BrowserSettingsCategoryCard: View {
+    @EnvironmentObject private var theme: BrowserTheme
+    let category: BrowserSettingsCategory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Image(systemName: category.symbolName)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(category.tint)
+                .frame(width: 36, height: 36)
+                .background(category.tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            Text(category.title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(theme.color(.text))
+                .lineLimit(2)
+
+            Text(category.subtitle)
+                .font(.caption)
+                .foregroundStyle(theme.color(.mutedText))
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
+        .padding(12)
+        .background(theme.color(.surface), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(category.tint.opacity(0.42), lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
 private struct BrowserSettingsView: View {
     @EnvironmentObject private var model: BrowserViewModel
     @EnvironmentObject private var theme: BrowserTheme
@@ -9000,6 +9096,7 @@ private struct BrowserSettingsView: View {
     @State private var themeImportMessage = ""
     @State private var savedThemeName = ""
     @State private var settingsQuery = ""
+    @State private var selectedSettingsCategory: BrowserSettingsCategory?
 
     var body: some View {
         NavigationStack {
@@ -9030,6 +9127,37 @@ private struct BrowserSettingsView: View {
                     }
                 }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == nil {
+                    Section {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.adaptive(minimum: 132, maximum: 220), spacing: 10)
+                            ],
+                            spacing: 10
+                        ) {
+                            ForEach(BrowserSettingsCategory.allCases) { category in
+                                Button {
+                                    selectedSettingsCategory = category
+                                } label: {
+                                    BrowserSettingsCategoryCard(category: category)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityHint("Open \(category.title) settings")
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Choose a section")
+                    } footer: {
+                        Text("Search can jump directly to a specific control.")
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    .listRowBackground(Color.clear)
+                }
+
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .privacy {
                 Section("Privacy") {
                     DisclosureGroup {
                         Toggle("Shields", isOn: adBlockerBinding)
@@ -9099,19 +9227,31 @@ private struct BrowserSettingsView: View {
                     WebsiteProtectionSummary()
                     WebsiteProtectionWhitelistEditor(startsExpanded: true)
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .browsing {
                 Section("!Bangs") {
                     BangSettingsEditor()
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .customize {
                 Section("Chrome Appearance") {
                     ChromeAppearanceSettingsPanel()
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .browsing {
                 Section("All Tabs") {
                     AllTabsCustomizationPanel()
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .customize {
                 Section("Customization Hub") {
                     DisclosureGroup {
                         ProfileCustomizationPanel()
@@ -9127,7 +9267,10 @@ private struct BrowserSettingsView: View {
                         Label("Gliders & Displays", systemImage: "wand.and.stars.inverse")
                     }
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .browsing {
                 Section("Region Tricks") {
                     DisclosureGroup {
                         Toggle("Enable Region Tricks", isOn: $model.isRegionTricksEnabled)
@@ -9412,6 +9555,39 @@ private struct BrowserSettingsView: View {
                         Label("Downloads", systemImage: "arrow.down.circle")
                     }
                 }
+                }
+
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .extensions {
+                Section("WebExtensions") {
+                    LabeledContent("Installed") {
+                        Text("\(model.installedWebExtensions.count)")
+                            .foregroundStyle(.orange)
+                    }
+
+                    LabeledContent("Enabled") {
+                        Text("\(model.installedWebExtensions.filter(\.isEnabled).count)")
+                            .foregroundStyle(.orange)
+                    }
+
+                    Button {
+                        presentAfterDismiss {
+                            model.isAddOnsPresented = true
+                        }
+                    } label: {
+                        Label("Open Add-ons Library", systemImage: "puzzlepiece.extension.fill")
+                    }
+
+                    Button {
+                        model.reloadWebExtensions()
+                    } label: {
+                        Label("Reload Enabled Extensions", systemImage: "arrow.clockwise")
+                    }
+
+                    Text("Import Firefox .xpi, Chrome or Brave .crx, .zip, user scripts, and styles. Glide runs compatible packaged WebExtension code locally.")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.color(.mutedText))
+                }
 
                 Section {
                     DisclosureGroup {
@@ -9454,7 +9630,10 @@ private struct BrowserSettingsView: View {
                         Label("Glide Mods", systemImage: "sparkles.rectangle.stack")
                     }
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .system {
                 Section {
                     DisclosureGroup {
                     Toggle("Dev Mode", isOn: developerModeBinding)
@@ -9550,7 +9729,10 @@ private struct BrowserSettingsView: View {
                         Label("Toolbar & 3-Dot Menu", systemImage: "menubar.rectangle")
                     }
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .privacy {
                 Section {
                     DisclosureGroup {
                     LabeledContent("Encrypted vault") {
@@ -9593,7 +9775,10 @@ private struct BrowserSettingsView: View {
                         Label("Safety", systemImage: "waveform.path.ecg.rectangle")
                     }
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .customize {
                 Section {
                     DisclosureGroup {
                     Toggle("Transparent tab bar", isOn: $theme.isTabBarTransparencyEnabled)
@@ -9747,7 +9932,10 @@ private struct BrowserSettingsView: View {
                         Label("Saved Themes", systemImage: "square.stack.3d.up")
                     }
                 }
+                }
 
+                if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   selectedSettingsCategory == .reset {
                 Section {
                     DisclosureGroup {
                     Button {
@@ -9800,16 +9988,31 @@ private struct BrowserSettingsView: View {
                         Label("Reset", systemImage: "arrow.counterclockwise")
                     }
                 }
+                }
             }
             .scrollContentBackground(.hidden)
             .background(theme.color(.canvas))
             .foregroundStyle(theme.color(.text))
-            .navigationTitle("Settings")
+            .tint(selectedSettingsCategory?.tint ?? theme.color(.accent))
+            .navigationTitle(selectedSettingsCategory?.title ?? "Settings")
             .searchable(text: $settingsQuery, prompt: "Search settings")
             .navigationDestination(for: BrowserSettingsSearchDestination.self) { destination in
                 BrowserSettingsSearchDetail(destination: destination)
             }
             .toolbar {
+                if selectedSettingsCategory != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                selectedSettingsCategory = nil
+                            }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .accessibilityLabel("All Settings")
+                    }
+                }
+
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
                         dismiss()
@@ -10459,6 +10662,31 @@ private struct AddOnsLibraryView: View {
                                     }
                                 }
 
+                                HStack(spacing: 12) {
+                                    Label(webExtension.packageFamily, systemImage: "shippingbox.fill")
+                                    Label("Manifest V\(webExtension.manifestVersion)", systemImage: "doc.text.fill")
+                                    Spacer(minLength: 0)
+                                    Label(
+                                        webExtension.compatibilityLabel,
+                                        systemImage: webExtension.unsupportedPermissions.isEmpty
+                                            ? "checkmark.seal.fill"
+                                            : "exclamationmark.triangle.fill"
+                                    )
+                                    .foregroundStyle(webExtension.unsupportedPermissions.isEmpty ? Color.green : Color.orange)
+                                }
+                                .font(.caption2.weight(.bold))
+
+                                if webExtension.unsupportedPermissions.isEmpty == false {
+                                    DisclosureGroup("Unavailable APIs (\(webExtension.unsupportedPermissions.count))") {
+                                        ForEach(webExtension.unsupportedPermissions, id: \.self) { permission in
+                                            Text(permission)
+                                                .font(.caption.monospaced())
+                                                .foregroundStyle(theme.color(.mutedText))
+                                        }
+                                    }
+                                    .font(.caption.weight(.semibold))
+                                }
+
                                 Button(role: .destructive) {
                                     model.deleteWebExtension(webExtension.id)
                                 } label: {
@@ -10516,8 +10744,24 @@ private struct AddOnsLibraryView: View {
                     }
                 }
 
+                Section("Runtime") {
+                    LabeledContent("Isolation") {
+                        Text("One world per extension")
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+                    LabeledContent("Implemented APIs") {
+                        Text("Storage, messaging, tabs, scripting, alarms")
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+                    LabeledContent("Background code") {
+                        Text("Compatibility mode")
+                            .foregroundStyle(theme.color(.mutedText))
+                    }
+                }
+
                 Section("Compatibility") {
-                    Text("Glide imports Firefox .xpi, Chrome/Brave .crx, .zip, manifest.json, .user.js, .js, and .css files. Content scripts run best; background scripts use Glide compatibility mode. Native messaging and full desktop-only APIs are not available in the WKWebView build.")
+                    Text("Firefox .xpi and Chrome/Brave .crx packages run locally when they use Glide's implemented WebExtension APIs. Native messaging, toolbar popups, proxy control, and full desktop request blocking remain unavailable in the WKWebView build.")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.color(.mutedText))
                 }

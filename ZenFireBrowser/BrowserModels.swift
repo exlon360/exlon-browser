@@ -12,6 +12,9 @@ struct BrowserWebExtension: Codable, Identifiable, Equatable {
     var contentScripts: [BrowserWebExtensionContentScript]
     var resources: [String: String]
     var permissions: [String]
+    var backgroundScripts: [String]?
+    var hostPermissions: [String]?
+    var optionalPermissions: [String]?
     var isEnabled: Bool
     var installedAt: Date
     var sourceFilename: String
@@ -27,6 +30,9 @@ struct BrowserWebExtension: Codable, Identifiable, Equatable {
         contentScripts: [BrowserWebExtensionContentScript],
         resources: [String: String],
         permissions: [String] = [],
+        backgroundScripts: [String] = [],
+        hostPermissions: [String] = [],
+        optionalPermissions: [String] = [],
         isEnabled: Bool = true,
         installedAt: Date = Date(),
         sourceFilename: String
@@ -41,6 +47,9 @@ struct BrowserWebExtension: Codable, Identifiable, Equatable {
         self.contentScripts = contentScripts
         self.resources = resources
         self.permissions = permissions
+        self.backgroundScripts = backgroundScripts.isEmpty ? nil : backgroundScripts
+        self.hostPermissions = hostPermissions.isEmpty ? nil : hostPermissions
+        self.optionalPermissions = optionalPermissions.isEmpty ? nil : optionalPermissions
         self.isEnabled = isEnabled
         self.installedAt = installedAt
         self.sourceFilename = sourceFilename
@@ -54,16 +63,49 @@ struct BrowserWebExtension: Codable, Identifiable, Equatable {
     var detailText: String {
         let scriptCount = contentScripts.reduce(0) { partialResult, script in
             partialResult + script.js.count + script.css.count
-        }
+        } + backgroundScriptPaths.count
         let versionText = version.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefix = versionText.isEmpty ? "Installed" : "Version \(versionText)"
-        return "\(prefix) - \(scriptCount) content file\(scriptCount == 1 ? "" : "s") - content-script mode"
+        return "\(prefix) - \(scriptCount) packaged file\(scriptCount == 1 ? "" : "s") - \(compatibilityLabel)"
     }
 
     var supportedScriptCount: Int {
         contentScripts.reduce(0) { partialResult, script in
             partialResult + script.js.count + script.css.count
+        } + backgroundScriptPaths.count
+    }
+
+    var backgroundScriptPaths: [String] {
+        backgroundScripts ?? []
+    }
+
+    var allRequestedPermissions: [String] {
+        Array(Set(permissions + (hostPermissions ?? []) + (optionalPermissions ?? []))).sorted()
+    }
+
+    var unsupportedPermissions: [String] {
+        let supported = Set([
+            "activeTab", "alarms", "clipboardRead", "clipboardWrite",
+            "scripting", "storage", "tabs", "unlimitedStorage"
+        ])
+        return allRequestedPermissions.filter { permission in
+            let value = permission.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isHostPermission = value == "<all_urls>" || value.contains("://")
+            return isHostPermission == false && supported.contains(value) == false
         }
+    }
+
+    var compatibilityLabel: String {
+        unsupportedPermissions.isEmpty ? "Runs in Glide" : "Limited APIs"
+    }
+
+    var packageFamily: String {
+        let filename = sourceFilename.lowercased()
+        if filename.hasSuffix(".xpi") { return "Firefox" }
+        if filename.hasSuffix(".crx") { return "Chromium" }
+        if filename.hasSuffix(".user.js") || filename.hasSuffix(".js") { return "User script" }
+        if filename.hasSuffix(".css") { return "User style" }
+        return "WebExtension"
     }
 
     func resourceText(for path: String) -> String? {
@@ -129,7 +171,7 @@ enum BrowserWebExtensionInstallError: LocalizedError {
         case .invalidManifest:
             return "The add-on manifest could not be parsed."
         case .noSupportedContentScripts:
-            return "This add-on does not include WebExtension content scripts Glide can inject yet."
+            return "This add-on does not include runnable WebExtension content or background scripts."
         case .unsupportedCompression(let path):
             return "The add-on uses unsupported ZIP compression for \(path)."
         case .resourceTooLarge(let path):
@@ -143,6 +185,10 @@ enum BrowserWebExtensionInstallError: LocalizedError {
 enum BrowserWebExtensionPackageReader {
     private static let maxPackageBytes = 24 * 1024 * 1024
     private static let maxTextResourceBytes = 1 * 1024 * 1024
+    private static let maxTotalTextResourceBytes = 8 * 1024 * 1024
+    private static let compatibleTextExtensions = Set([
+        "css", "csv", "htm", "html", "js", "json", "md", "mjs", "svg", "txt", "xml"
+    ])
 
     static func installableExtension(from data: Data, sourceFilename: String) throws -> BrowserWebExtension {
         guard data.count <= maxPackageBytes else { throw BrowserWebExtensionInstallError.packageTooLarge }
@@ -169,13 +215,26 @@ enum BrowserWebExtensionPackageReader {
         }
 
         let manifest = try decodedManifest(from: manifestData)
-        let contentScripts = compatibilityContentScripts(from: manifest)
-        guard contentScripts.contains(where: \.hasRunnableContent) else {
+        let localizedName = localizedManifestString(
+            manifest.name,
+            defaultLocale: manifest.defaultLocale,
+            archive: archive
+        ) ?? manifest.name
+        let localizedDescription = localizedManifestString(
+            manifest.description,
+            defaultLocale: manifest.defaultLocale,
+            archive: archive
+        ) ?? manifest.description ?? ""
+        let contentScripts = normalizedContentScripts(from: manifest)
+        let backgroundScripts = (manifest.background?.compatibilityScripts ?? []).map(normalizedPath)
+        guard contentScripts.contains(where: \.hasRunnableContent) || backgroundScripts.isEmpty == false else {
             throw BrowserWebExtensionInstallError.noSupportedContentScripts
         }
 
         var resources: [String: String] = [:]
-        for path in Set(contentScripts.flatMap { $0.js + $0.css }) {
+        var importedTextBytes = 0
+        let requiredPaths = Set(contentScripts.flatMap { $0.js + $0.css } + backgroundScripts)
+        for path in requiredPaths {
             let normalized = normalizedPath(path)
             guard let resourceData = try archive.data(for: normalized) else {
                 throw BrowserWebExtensionInstallError.missingResource(normalized)
@@ -187,18 +246,34 @@ enum BrowserWebExtensionPackageReader {
                 throw BrowserWebExtensionInstallError.missingResource(normalized)
             }
             resources[normalized] = text
+            importedTextBytes += resourceData.count
+        }
+
+        for path in archive.paths.sorted() where resources[path] == nil && isCompatibleTextResource(path) {
+            guard importedTextBytes < maxTotalTextResourceBytes,
+                  let resourceData = try? archive.data(for: path),
+                  resourceData.count <= maxTextResourceBytes,
+                  importedTextBytes + resourceData.count <= maxTotalTextResourceBytes,
+                  let text = String(data: resourceData, encoding: .utf8) else {
+                continue
+            }
+            resources[path] = text
+            importedTextBytes += resourceData.count
         }
 
         return BrowserWebExtension(
             extensionIdentifier: manifest.extensionIdentifier(sourceFilename: sourceFilename),
-            name: manifest.name,
+            name: localizedName,
             version: manifest.version,
-            description: manifest.description ?? "",
+            description: localizedDescription,
             homepageURLString: manifest.homepageURL ?? "",
             manifestVersion: manifest.manifestVersion,
             contentScripts: contentScripts,
             resources: resources,
             permissions: manifest.permissions ?? [],
+            backgroundScripts: backgroundScripts,
+            hostPermissions: manifest.hostPermissions ?? [],
+            optionalPermissions: manifest.optionalPermissions ?? [],
             sourceFilename: sourceFilename
         )
     }
@@ -211,14 +286,51 @@ enum BrowserWebExtensionPackageReader {
             .joined(separator: "/")
     }
 
+    private static func isCompatibleTextResource(_ path: String) -> Bool {
+        let pathExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return compatibleTextExtensions.contains(pathExtension)
+    }
+
+    private static func localizedManifestString(
+        _ value: String?,
+        defaultLocale: String?,
+        archive: BrowserZipArchive
+    ) -> String? {
+        guard let value,
+              value.hasPrefix("__MSG_"),
+              value.hasSuffix("__"),
+              let defaultLocale,
+              defaultLocale.isEmpty == false else {
+            return value
+        }
+
+        let key = String(value.dropFirst(6).dropLast(2))
+        let messagesPath = "_locales/\(defaultLocale)/messages.json"
+        guard let data = try? archive.data(for: messagesPath),
+              let messages = try? JSONDecoder().decode(
+                [String: BrowserWebExtensionLocaleMessage].self,
+                from: data
+              ) else {
+            return value
+        }
+
+        if let message = messages[key]?.message {
+            return message
+        }
+        return messages.first { entry in
+            entry.key.caseInsensitiveCompare(key) == .orderedSame
+        }?.value.message ?? value
+    }
+
     private static func installableExtensionFromManifest(_ data: Data, sourceFilename: String) throws -> BrowserWebExtension {
         let manifest = try decodedManifest(from: data)
-        let contentScripts = compatibilityContentScripts(from: manifest)
-        guard contentScripts.contains(where: \.hasRunnableContent) else {
+        let contentScripts = normalizedContentScripts(from: manifest)
+        let backgroundScripts = (manifest.background?.compatibilityScripts ?? []).map(normalizedPath)
+        guard contentScripts.contains(where: \.hasRunnableContent) || backgroundScripts.isEmpty == false else {
             throw BrowserWebExtensionInstallError.noSupportedContentScripts
         }
 
-        guard contentScripts.flatMap({ $0.js + $0.css }).isEmpty else {
+        guard (contentScripts.flatMap { $0.js + $0.css } + backgroundScripts).isEmpty else {
             throw BrowserWebExtensionInstallError.manifestNeedsPackage
         }
 
@@ -232,6 +344,9 @@ enum BrowserWebExtensionPackageReader {
             contentScripts: contentScripts,
             resources: [:],
             permissions: manifest.permissions ?? [],
+            backgroundScripts: backgroundScripts,
+            hostPermissions: manifest.hostPermissions ?? [],
+            optionalPermissions: manifest.optionalPermissions ?? [],
             sourceFilename: sourceFilename
         )
     }
@@ -296,26 +411,6 @@ enum BrowserWebExtensionPackageReader {
         }
     }
 
-    private static func compatibilityContentScripts(from manifest: BrowserWebExtensionManifest) -> [BrowserWebExtensionContentScript] {
-        let contentScripts = normalizedContentScripts(from: manifest)
-        if contentScripts.contains(where: \.hasRunnableContent) {
-            return contentScripts
-        }
-
-        let backgroundScripts = manifest.background?.compatibilityScripts ?? []
-        guard backgroundScripts.isEmpty == false else { return contentScripts }
-        return [
-            BrowserWebExtensionContentScript(
-                matches: ["<all_urls>"],
-                excludeMatches: [],
-                js: backgroundScripts.map(normalizedPath),
-                css: [],
-                runAt: .documentEnd,
-                allFrames: false
-            )
-        ]
-    }
-
     private static func normalizedContentScripts(from manifest: BrowserWebExtensionManifest) -> [BrowserWebExtensionContentScript] {
         (manifest.contentScripts ?? []).map { script in
             BrowserWebExtensionContentScript(
@@ -369,7 +464,10 @@ private struct BrowserWebExtensionManifest: Decodable {
     let version: String
     let description: String?
     let homepageURL: String?
+    let defaultLocale: String?
     let permissions: [String]?
+    let hostPermissions: [String]?
+    let optionalPermissions: [String]?
     let contentScripts: [BrowserWebExtensionManifestContentScript]?
     let background: BrowserWebExtensionManifestBackground?
     let browserSpecificSettings: BrowserWebExtensionGeckoSettings?
@@ -381,7 +479,10 @@ private struct BrowserWebExtensionManifest: Decodable {
         case version
         case description
         case homepageURL = "homepage_url"
+        case defaultLocale = "default_locale"
         case permissions
+        case hostPermissions = "host_permissions"
+        case optionalPermissions = "optional_permissions"
         case contentScripts = "content_scripts"
         case background
         case browserSpecificSettings = "browser_specific_settings"
@@ -440,6 +541,10 @@ private struct BrowserWebExtensionManifestContentScript: Decodable {
     }
 }
 
+private struct BrowserWebExtensionLocaleMessage: Decodable {
+    let message: String
+}
+
 private struct BrowserWebExtensionGeckoSettings: Decodable {
     let gecko: BrowserWebExtensionGeckoID?
 }
@@ -463,6 +568,10 @@ private struct BrowserZipArchive {
 
     private let data: Data
     private let entries: [String: Entry]
+
+    var paths: [String] {
+        Array(entries.keys)
+    }
 
     init(data: Data) throws {
         self.data = data
