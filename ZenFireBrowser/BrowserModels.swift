@@ -1444,6 +1444,7 @@ struct BrowserAdvancedConfig: Codable, Equatable {
     var moreMenuActions: [String]
     var toolbarActions: [String]?
     var quickNavigationEnabled: Bool?
+    var swipeUpQuickNavigationEnabled: Bool?
     var quickNavigationActions: [String]?
     var customIcons: [String: String]
     var customIconColors: [String: String]?

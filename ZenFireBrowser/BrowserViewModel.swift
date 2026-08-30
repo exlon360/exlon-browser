@@ -1461,7 +1461,7 @@ final class BrowserViewModel: ObservableObject {
     static let infiniteForcedFPSValue = 241.0
     static let minimumWebsiteResolutionScale = 0.86
     static let maximumWebsiteResolutionScale = 1.14
-    static let currentFeatureUpdateVersion = 7
+    static let currentFeatureUpdateVersion = 8
     static let defaultToolbarActionIDs = [
         BrowserToolbarAction.back.rawValue,
         BrowserToolbarAction.forward.rawValue,
@@ -1968,6 +1968,11 @@ final class BrowserViewModel: ObservableObject {
             vault.save(isQuickNavigationEnabled, forKey: Self.StorageKey.quickNavigationEnabled)
         }
     }
+    @Published var isSwipeUpQuickNavigationEnabled: Bool {
+        didSet {
+            vault.save(isSwipeUpQuickNavigationEnabled, forKey: Self.StorageKey.swipeUpQuickNavigationEnabled)
+        }
+    }
     @Published var quickNavigationActionIDs: [String] {
         didSet {
             vault.save(quickNavigationActionIDs, forKey: Self.StorageKey.quickNavigationActionIDs)
@@ -2279,6 +2284,11 @@ final class BrowserViewModel: ObservableObject {
         self.isQuickNavigationEnabled = vault.load(
             Bool.self,
             forKey: Self.StorageKey.quickNavigationEnabled,
+            default: true
+        )
+        self.isSwipeUpQuickNavigationEnabled = vault.load(
+            Bool.self,
+            forKey: Self.StorageKey.swipeUpQuickNavigationEnabled,
             default: true
         )
         self.quickNavigationActionIDs = savedQuickNavigationActionIDs
@@ -3725,6 +3735,7 @@ final class BrowserViewModel: ObservableObject {
 
     func resetQuickNavigationActions() {
         isQuickNavigationEnabled = true
+        isSwipeUpQuickNavigationEnabled = true
         quickNavigationActionIDs = Self.defaultQuickNavigationActionIDs
     }
 
@@ -3938,6 +3949,7 @@ final class BrowserViewModel: ObservableObject {
                 .filter { moreMenuActionIDs.contains($0) },
             toolbarActions: toolbarActionIDs,
             quickNavigationEnabled: isQuickNavigationEnabled,
+            swipeUpQuickNavigationEnabled: isSwipeUpQuickNavigationEnabled,
             quickNavigationActions: quickNavigationActionIDs,
             customIcons: customIconNames,
             customIconColors: customIconColorHexBySlot,
@@ -4058,6 +4070,7 @@ final class BrowserViewModel: ObservableObject {
             return action.isLeanBuildUtility == false
         }).subtracting(toolbarActionIDs)
         isQuickNavigationEnabled = config.quickNavigationEnabled ?? true
+        isSwipeUpQuickNavigationEnabled = config.swipeUpQuickNavigationEnabled ?? true
         quickNavigationActionIDs = Self.normalizedQuickNavigationActionIDs(
             config.quickNavigationActions ?? Self.defaultQuickNavigationActionIDs
         )
@@ -5210,6 +5223,7 @@ final class BrowserViewModel: ObservableObject {
         vault.save(moreMenuActionIDs, forKey: Self.StorageKey.moreMenuActionIDs)
         vault.save(toolbarActionIDs, forKey: Self.StorageKey.toolbarActionIDs)
         vault.save(isQuickNavigationEnabled, forKey: Self.StorageKey.quickNavigationEnabled)
+        vault.save(isSwipeUpQuickNavigationEnabled, forKey: Self.StorageKey.swipeUpQuickNavigationEnabled)
         vault.save(quickNavigationActionIDs, forKey: Self.StorageKey.quickNavigationActionIDs)
         vault.save(isDeveloperModeEnabled, forKey: Self.StorageKey.developerModeEnabled)
         vault.save(isWebInspectorEnabled, forKey: Self.StorageKey.webInspectorEnabled)
@@ -5582,6 +5596,7 @@ final class BrowserViewModel: ObservableObject {
         static let moreMenuActionIDs = "ZenFireBrowser.moreMenuActionIDs"
         static let toolbarActionIDs = "ZenFireBrowser.toolbarActionIDs"
         static let quickNavigationEnabled = "ZenFireBrowser.quickNavigationEnabled"
+        static let swipeUpQuickNavigationEnabled = "ZenFireBrowser.swipeUpQuickNavigationEnabled"
         static let quickNavigationActionIDs = "ZenFireBrowser.quickNavigationActionIDs"
         static let toolbarUpgradeVersion = "ZenFireBrowser.toolbarUpgradeVersion"
         static let developerModeEnabled = "ZenFireBrowser.developerModeEnabled"

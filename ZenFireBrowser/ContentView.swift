@@ -476,7 +476,17 @@ private struct BrowserShell: View {
                     }
                 }
 
-                if shouldShowQuickNavigation {
+                if shouldShowSwipeUpQuickNavigation {
+                    WebpageQuickNavigationTray()
+                        .padding(.leading, quickNavigationLeadingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience))
+                        .padding(.trailing, quickNavigationTrailingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience))
+                        .padding(.bottom, webpageQuickNavigationBottomPadding)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(19)
+                }
+
+                if shouldShowQuickNavigationFAB {
                     QuickNavigationFAB()
                         .padding(.trailing, quickNavigationTrailingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience))
                         .padding(.bottom, quickNavigationBottomPadding)
@@ -728,15 +738,22 @@ private struct BrowserShell: View {
         isDesktopZenModeActive && (isDesktopZenChromeHovered || model.isChromeWidthResizeMode)
     }
 
-    private var shouldShowQuickNavigation: Bool {
-        model.isQuickNavigationEnabled
-            && model.selectedTab != nil
+    private var canShowQuickNavigation: Bool {
+        model.selectedTab != nil
             && model.isContainedBrowserPresented == false
             && model.isFloatingSearchPresented == false
             && model.isTabFinderPresented == false
             && model.isTopSearchBarMoveMode == false
             && model.isChromeWidthResizeMode == false
             && model.isPageControlsMoveMode == false
+    }
+
+    private var shouldShowQuickNavigationFAB: Bool {
+        model.isQuickNavigationEnabled && canShowQuickNavigation
+    }
+
+    private var shouldShowSwipeUpQuickNavigation: Bool {
+        model.isSwipeUpQuickNavigationEnabled && canShowQuickNavigation
     }
 
     private var quickNavigationBottomPadding: CGFloat {
@@ -757,6 +774,19 @@ private struct BrowserShell: View {
             padding = max(padding, 82)
         }
         return padding
+    }
+
+    private var webpageQuickNavigationBottomPadding: CGFloat {
+        max(8, quickNavigationBottomPadding - 12)
+    }
+
+    private func quickNavigationLeadingPadding(
+        for visibleSize: CGSize,
+        layoutSize: CGSize,
+        experience: GlideDeviceExperience
+    ) -> CGFloat {
+        guard chromeIsVisible(for: .left) else { return 10 }
+        return sideWidth(for: visibleSize, layoutSize: layoutSize, experience: experience) + 10
     }
 
     private func quickNavigationTrailingPadding(
@@ -1422,6 +1452,279 @@ private struct BrowserContent: View {
 
     private func shouldUseNeutralStartBackdrop(for tab: BrowserTab) -> Bool {
         BrowserTab.isStartPageURL(tab.url) && (theme.isUserBackgroundEnabled && theme.hasUserBackground) == false
+    }
+}
+
+private struct WebpageQuickNavigationTray: View {
+    @EnvironmentObject private var model: BrowserViewModel
+    @EnvironmentObject private var theme: BrowserTheme
+    @State private var isExpanded = false
+    @State private var selectedAction: BrowserQuickNavigationAction?
+
+    private let expandedHeight: CGFloat = 126
+    private let handleHeight: CGFloat = 30
+    private let maximumTrayWidth: CGFloat = 680
+
+    var body: some View {
+        GeometryReader { proxy in
+            let containerWidth = max(proxy.size.width, 1)
+
+            ZStack(alignment: .bottom) {
+                if isExpanded {
+                    actionTray(containerWidth: containerWidth)
+                        .padding(.bottom, handleHeight - 2)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                gestureHandle(containerWidth: containerWidth)
+            }
+            .frame(width: containerWidth, height: proxy.size.height, alignment: .bottom)
+        }
+        .frame(height: expandedHeight + handleHeight)
+        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isExpanded)
+        .animation(.spring(response: 0.16, dampingFraction: 0.84), value: selectedAction)
+        .onChange(of: model.selectedTabID) { _, _ in
+            collapse()
+        }
+        .onChange(of: model.quickNavigationActionIDs) { _, _ in
+            collapse()
+        }
+    }
+
+    private func actionTray(containerWidth: CGFloat) -> some View {
+        let trayWidth = min(containerWidth, maximumTrayWidth)
+
+        return VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: selectedAction?.symbolName ?? "hand.draw.fill")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundStyle(selectedAction?.isDestructive == true ? Color.red : theme.color(.quickNavigation))
+                    .frame(width: 24, height: 24)
+
+                Text(selectedAction?.title ?? "Quick Actions")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(theme.color(.text))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    trigger(.allTabs)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "square.grid.2x2.fill")
+                        Text("\(model.chromeTabs.count)")
+                            .monospacedDigit()
+                    }
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundStyle(theme.color(.text))
+                    .frame(minWidth: 40, minHeight: 26)
+                    .background(theme.color(.field).opacity(0.82), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("All Tabs, \(model.chromeTabs.count) open")
+                .help("All Tabs")
+            }
+            .padding(.horizontal, 4)
+
+            HStack(spacing: 5) {
+                ForEach(model.quickNavigationActions) { action in
+                    trayActionButton(action)
+                }
+            }
+        }
+        .padding(10)
+        .frame(width: trayWidth, height: expandedHeight)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(theme.color(.surface).opacity(0.86))
+        }
+        .overlay(alignment: .top) {
+            TokenGradientField(token: .quickNavigation, opacity: 0.92)
+                .frame(height: 3)
+                .clipShape(Capsule())
+                .padding(.horizontal, 18)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(theme.color(.border).opacity(0.74), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func trayActionButton(_ action: BrowserQuickNavigationAction) -> some View {
+        let isSelected = selectedAction == action
+        let isAvailable = model.isQuickNavigationActionAvailable(action)
+
+        return Button {
+            trigger(action)
+        } label: {
+            VStack(spacing: 5) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            isSelected
+                                ? theme.color(.quickNavigation).opacity(0.92)
+                                : theme.color(.field).opacity(0.72)
+                        )
+
+                    if isSelected {
+                        TokenGradientField(token: .quickNavigation, opacity: 0.86)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+
+                    Image(systemName: action.symbolName)
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(
+                            action.isDestructive && isSelected == false
+                                ? Color.red
+                                : theme.color(.text)
+                        )
+                }
+                .frame(width: 38, height: 34)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(isSelected ? Color.white.opacity(0.62) : theme.color(.border).opacity(0.48), lineWidth: 1)
+                }
+
+                Text(action.title)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(theme.color(.text))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 66)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isAvailable == false)
+        .opacity(isAvailable ? 1 : 0.34)
+        .scaleEffect(isSelected ? 1.04 : 1)
+        .accessibilityLabel(action.title)
+        .help(action.title)
+    }
+
+    private func gestureHandle(containerWidth: CGFloat) -> some View {
+        ZStack {
+            Color.clear
+
+            ZStack {
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                Capsule()
+                    .fill(theme.color(.surface).opacity(0.8))
+                Capsule()
+                    .stroke(theme.color(.quickNavigation).opacity(isExpanded ? 0.9 : 0.58), lineWidth: 1)
+
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(theme.color(.text))
+            }
+            .frame(width: 92, height: 22)
+            .shadow(color: Color.black.opacity(0.22), radius: 8, y: 4)
+        }
+        .frame(width: containerWidth, height: handleHeight)
+        .contentShape(Rectangle())
+        .gesture(swipeGesture(containerWidth: containerWidth))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Swipe-Up Quick Actions")
+        .accessibilityHint("Opens browser actions")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            toggleExpanded()
+        }
+        .help("Swipe-Up Quick Actions")
+    }
+
+    private func swipeGesture(containerWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let upwardDistance = max(0, -value.translation.height)
+                guard upwardDistance >= 16 else { return }
+
+                if isExpanded == false {
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+                        isExpanded = true
+                    }
+                }
+
+                guard upwardDistance >= 36 else { return }
+                let action = action(at: value.location.x, containerWidth: containerWidth)
+                guard action != selectedAction else { return }
+                selectedAction = action
+                selectionFeedback()
+            }
+            .onEnded { value in
+                let distance = hypot(value.translation.width, value.translation.height)
+                if distance < 10 {
+                    toggleExpanded()
+                    return
+                }
+
+                let horizontalDistance = abs(value.translation.width)
+                if horizontalDistance >= 44,
+                   horizontalDistance > abs(value.translation.height) * 1.25 {
+                    collapse()
+                    if value.translation.width < 0 {
+                        model.selectNextTab()
+                    } else {
+                        model.selectPreviousTab()
+                    }
+                    selectionFeedback()
+                    return
+                }
+
+                let upwardDistance = max(0, -value.translation.height)
+                guard upwardDistance >= 36,
+                      let action = action(at: value.location.x, containerWidth: containerWidth) else {
+                    collapse()
+                    return
+                }
+                trigger(action)
+            }
+    }
+
+    private func action(at xPosition: CGFloat, containerWidth: CGFloat) -> BrowserQuickNavigationAction? {
+        let actions = model.quickNavigationActions
+        guard actions.isEmpty == false else { return nil }
+
+        let trayWidth = min(containerWidth, maximumTrayWidth)
+        let trayOrigin = (containerWidth - trayWidth) / 2
+        let horizontalInset: CGFloat = 10
+        let usableWidth = max(trayWidth - (horizontalInset * 2), 1)
+        let localX = min(max(xPosition - trayOrigin - horizontalInset, 0), usableWidth - 0.001)
+        let index = min(Int(localX / (usableWidth / CGFloat(actions.count))), actions.count - 1)
+        let action = actions[index]
+        return model.isQuickNavigationActionAvailable(action) ? action : nil
+    }
+
+    private func trigger(_ action: BrowserQuickNavigationAction) {
+        guard model.isQuickNavigationActionAvailable(action) else { return }
+        collapse()
+        model.performQuickNavigationAction(action)
+    }
+
+    private func toggleExpanded() {
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+            isExpanded.toggle()
+            selectedAction = nil
+        }
+    }
+
+    private func collapse() {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.86)) {
+            isExpanded = false
+            selectedAction = nil
+        }
+    }
+
+    private func selectionFeedback() {
+        #if !targetEnvironment(macCatalyst)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
 }
 
@@ -5152,7 +5455,7 @@ private struct GlideFeatureUpdateView: View {
                 Spacer(minLength: 20)
 
                 VStack(spacing: 16) {
-                    Image(systemName: "hand.draw.fill")
+                    Image(systemName: "chevron.up.square.fill")
                         .font(.system(size: 30, weight: .black))
                         .frame(width: 72, height: 72)
                         .foregroundStyle(theme.color(.canvas))
@@ -5160,12 +5463,12 @@ private struct GlideFeatureUpdateView: View {
                         .shadow(color: theme.color(.accent).opacity(0.24), radius: 26, y: 14)
 
                     VStack(spacing: 8) {
-                        Text("Quick Navigation")
+                        Text("Swipe-Up Navigation")
                             .font(.system(size: 38, weight: .black))
                             .foregroundStyle(theme.color(.text))
                             .multilineTextAlignment(.center)
 
-                        Text("Pull upward, hold, move to an action, and release. Your most useful browser controls now stay within reach.")
+                        Text("Swipe upward from the webpage edge, move across your actions, and release. Fast tab controls now stay directly under your thumb.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(theme.color(.mutedText))
                             .multilineTextAlignment(.center)
@@ -5175,38 +5478,38 @@ private struct GlideFeatureUpdateView: View {
                 .padding(.horizontal, 22)
 
                 VStack(spacing: 12) {
-                    GlideFeatureUpdateSection(title: "Navigation", symbol: "hand.draw.fill") {
+                    GlideFeatureUpdateSection(title: "Webpage Gesture", symbol: "hand.draw.fill") {
                         TutorialFeatureRow(
-                            symbol: "arrow.up.and.down.and.arrow.left.and.right",
-                            title: "Gesture FAB",
-                            detail: "Swipe up from the floating button and release over Reload, New Tab, Close Tab, or your own actions.",
+                            symbol: "chevron.up.square.fill",
+                            title: "Swipe-Up Action Tray",
+                            detail: "Pull the handle above the webpage upward to reveal Reload, New Tab, Close Tab, and your chosen extras.",
                             tint: .quickNavigation
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "slider.horizontal.3",
-                            title: "Your Actions",
-                            detail: "Add Private Tab, Back, Forward, Search, All Tabs, or Settings and arrange the fan your way.",
+                            symbol: "hand.point.up.left.fill",
+                            title: "Slide and Release",
+                            detail: "Keep holding, move across the action rail, and release over a command to run it without reaching upward.",
                             tint: .quickNavigation
                         )
                     }
 
                     GlideFeatureUpdateSection(title: "Tabs & Style", symbol: "rectangle.stack.fill") {
                         TutorialFeatureRow(
-                            symbol: "hand.draw",
-                            title: "Swipe to Close",
-                            detail: "Swipe a sidebar tab or an All Tabs item to the left to close it immediately.",
+                            symbol: "arrow.left.and.right",
+                            title: "Swipe Between Tabs",
+                            detail: "Swipe sideways on the webpage handle to move between tabs, or open All Tabs from the tray's live counter.",
                             tint: .createTab
                         )
 
                         TutorialDivider()
 
                         TutorialFeatureRow(
-                            symbol: "paintbrush.fill",
-                            title: "Custom FAB Color",
-                            detail: "Give Quick Navigation its own color, gradient circles, positions, and intensity in Customize.",
+                            symbol: "slider.horizontal.3",
+                            title: "One Shared Setup",
+                            detail: "The action tray and FAB share your ordered actions, custom color, gradient circles, and intensity.",
                             tint: .quickNavigation
                         )
                     }
@@ -9159,7 +9462,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     var subtitle: String {
         switch self {
         case .chromeAppearance: return "Bar color, glow, and transparency"
-        case .quickNavigation: return "Gesture actions and FAB color"
+        case .quickNavigation: return "Swipe-up tray, gesture actions, and color"
         case .bangs: return "Create shortcuts such as !yt"
         case .websiteWhitelist: return "Per-site protection exceptions"
         case .allTabs: return "Layout, density, sorting, and sections"
@@ -9193,7 +9496,7 @@ private enum BrowserSettingsSearchDestination: String, CaseIterable, Identifiabl
     private var keywords: String {
         switch self {
         case .chromeAppearance: return "tab bar opacity transparent transparency surface top sidebar"
-        case .quickNavigation: return "fab swipe gesture reload new close private action shortcut"
+        case .quickNavigation: return "fab swipe up webpage edge tray vivaldi gesture reload new close delete private action shortcut"
         case .bangs: return "search shortcut youtube yt google query command"
         case .websiteWhitelist: return "privacy shields protection allow exception site domain"
         case .allTabs: return "tab finder grid list sort compact density contained private"
@@ -9309,7 +9612,8 @@ private struct QuickNavigationSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle("Show Quick Navigation", isOn: $model.isQuickNavigationEnabled)
+            Toggle("Swipe-Up Action Tray", isOn: $model.isSwipeUpQuickNavigationEnabled)
+            Toggle("Floating Action Button", isOn: $model.isQuickNavigationEnabled)
 
             HStack(spacing: 12) {
                 ZStack {
@@ -9327,9 +9631,9 @@ private struct QuickNavigationSettingsPanel: View {
                 .frame(width: 50, height: 50)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("FAB Background")
+                    Text("Quick Navigation Color")
                         .font(.system(size: 14, weight: .bold))
-                    Text("Quick Navigation")
+                    Text("Action tray and floating button")
                         .font(.caption)
                         .foregroundStyle(theme.color(.mutedText))
                 }
@@ -9337,7 +9641,7 @@ private struct QuickNavigationSettingsPanel: View {
                 Spacer(minLength: 8)
 
                 ColorPicker(
-                    "FAB background",
+                    "Quick Navigation color",
                     selection: theme.binding(for: .quickNavigation),
                     supportsOpacity: false
                 )

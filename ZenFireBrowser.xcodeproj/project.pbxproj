@@ -319,7 +319,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10087;
+				CURRENT_PROJECT_VERSION = 10088;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
@@ -331,7 +331,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.87;
+				MARKETING_VERSION = 1.0.88;
 				PRODUCT_BUNDLE_IDENTIFIER = com.exlon.ZenFireBrowser;
 				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.exlon.ZenFireBrowser.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -350,7 +350,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10087;
+				CURRENT_PROJECT_VERSION = 10088;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
@@ -362,7 +362,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.87;
+				MARKETING_VERSION = 1.0.88;
 				PRODUCT_BUNDLE_IDENTIFIER = com.exlon.ZenFireBrowser;
 				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.exlon.ZenFireBrowser.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
