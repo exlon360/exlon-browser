@@ -50,11 +50,14 @@ struct BrowserWebView: UIViewRepresentable {
         private var lastHorizontalPosition: CGFloat = 0.5
         private var initialContentOffsetY: CGFloat = 0
         private var pullTranslationOriginY: CGFloat = 0
+        private var originalBounces = true
+        private var isBounceSuppressed = false
 
-        private let directionDominance: CGFloat = 0.55
-        private let activationDistance: CGFloat = 4
-        private let topActivationSlop: CGFloat = 10
-        private let maximumPullDistance: CGFloat = 142
+        private let verticalIntentRatio: CGFloat = 0.7
+        private let activationDistance: CGFloat = 6
+        private let topActivationSlop: CGFloat = 2
+        private let pullResistance: CGFloat = 0.62
+        private let maximumPullDistance: CGFloat = 112
 
         init(parent: BrowserWebView) {
             self.parent = parent
@@ -95,6 +98,11 @@ struct BrowserWebView: UIViewRepresentable {
                 initialContentOffsetY = scrollView.contentOffset.y
                 pullTranslationOriginY = 0
 
+                let topBoundary = -scrollView.adjustedContentInset.top
+                if isEligible && initialContentOffsetY <= topBoundary + topActivationSlop {
+                    suppressBounce(on: scrollView, topBoundary: topBoundary)
+                }
+
             case .changed:
                 guard isEligible, parent.isPullDownNavigationEnabled else { return }
                 let translation = recognizer.translation(in: scrollView.window ?? scrollView)
@@ -102,25 +110,27 @@ struct BrowserWebView: UIViewRepresentable {
                 if isTrackingPull == false {
                     let topBoundary = -scrollView.adjustedContentInset.top
                     let beganAtTop = initialContentOffsetY <= topBoundary + topActivationSlop
-                    let velocity = recognizer.velocity(in: scrollView.window ?? scrollView)
 
                     guard scrollView.contentOffset.y <= topBoundary + topActivationSlop,
-                          velocity.y > 0,
-                          velocity.y >= abs(velocity.x) * directionDominance else { return }
+                          translation.y >= activationDistance,
+                          translation.y >= abs(translation.x) * verticalIntentRatio else { return }
 
                     if beganAtTop {
-                        guard translation.y >= activationDistance,
-                              translation.y >= abs(translation.x) * directionDominance else { return }
-                        pullTranslationOriginY = 0
+                        pullTranslationOriginY = activationDistance
                     } else {
-                        pullTranslationOriginY = translation.y
+                        let existingOverscroll = max(0, topBoundary - scrollView.contentOffset.y)
+                        pullTranslationOriginY = translation.y - existingOverscroll / pullResistance
                     }
+                    suppressBounce(on: scrollView, topBoundary: topBoundary)
+                    pinContentToTop(scrollView, topBoundary: topBoundary)
                     isTrackingPull = true
                 }
 
+                let topBoundary = -scrollView.adjustedContentInset.top
+                pinContentToTop(scrollView, topBoundary: topBoundary)
                 let distance = min(
                     maximumPullDistance,
-                    max(0, translation.y - pullTranslationOriginY)
+                    max(0, translation.y - pullTranslationOriginY) * pullResistance
                 )
                 let horizontalPosition = normalizedHorizontalPosition(of: recognizer, in: scrollView)
                 guard abs(distance - lastPullDistance) >= 0.5
@@ -149,13 +159,36 @@ struct BrowserWebView: UIViewRepresentable {
             return min(max(recognizer.location(in: scrollView).x / scrollView.bounds.width, 0), 1)
         }
 
+        private func suppressBounce(on scrollView: UIScrollView, topBoundary: CGFloat) {
+            guard isBounceSuppressed == false else { return }
+            originalBounces = scrollView.bounces
+            scrollView.bounces = false
+            isBounceSuppressed = true
+            pinContentToTop(scrollView, topBoundary: topBoundary)
+        }
+
+        private func pinContentToTop(_ scrollView: UIScrollView, topBoundary: CGFloat) {
+            guard abs(scrollView.contentOffset.y - topBoundary) > 0.25 else { return }
+            scrollView.setContentOffset(
+                CGPoint(x: scrollView.contentOffset.x, y: topBoundary),
+                animated: false
+            )
+        }
+
+        private func restoreBounce() {
+            guard isBounceSuppressed else { return }
+            installedScrollView?.bounces = originalBounces
+            isBounceSuppressed = false
+        }
+
         private func finishPull(cancelled: Bool, notify: Bool = true) {
-            guard isTrackingPull || isEligible else { return }
+            guard isTrackingPull || isEligible || isBounceSuppressed else { return }
 
             let distance = lastPullDistance
             let horizontalPosition = lastHorizontalPosition
             let wasTrackingPull = isTrackingPull
 
+            restoreBounce()
             isEligible = false
             isTrackingPull = false
             lastPullDistance = 0

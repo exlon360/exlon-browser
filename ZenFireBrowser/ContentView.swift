@@ -520,7 +520,7 @@ private struct BrowserShell: View {
                         .zIndex(18)
                 }
 
-                if model.isTopSearchBarEnabled == false {
+                if model.isTopSearchBarEnabled == false && model.isPullDownNavigationActive == false {
                     MovableBrowserPageControls(
                         containerSize: layoutSize,
                         defaultLeading: pageControlsLeadingPadding(for: visibleSize, layoutSize: layoutSize, experience: experience),
@@ -529,7 +529,7 @@ private struct BrowserShell: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
 
-                if model.isPrivateModeEnabled {
+                if model.isPrivateModeEnabled && model.isPullDownNavigationActive == false {
                     PrivateModeBadge()
                         .padding(.top, privateModeBadgeTopPadding)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -546,7 +546,7 @@ private struct BrowserShell: View {
                         .transition(topSearchBarTransition)
                 }
 
-                if showsDetachedCompactControl {
+                if showsDetachedCompactControl && model.isPullDownNavigationActive == false {
                     BrandMark()
                         .padding(.leading, 14)
                         .padding(.top, 14)
@@ -1462,6 +1462,7 @@ private struct BrowserContent: View {
     @State private var pullDistance: CGFloat = 0
     @State private var selectedPullAction: BrowserQuickNavigationAction?
     @State private var isPullArmed = false
+    @State private var pullVisibilityResetID: UUID?
 
     private let actionTriggerDistance: CGFloat = 72
     private let actionDisarmDistance: CGFloat = 56
@@ -1500,12 +1501,17 @@ private struct BrowserContent: View {
                         tab: tab,
                         isPullDownNavigationEnabled: model.isSwipeUpQuickNavigationEnabled,
                         onPullDownNavigationChanged: { distance, horizontalPosition in
-                            updatePull(distance: distance, horizontalPosition: horizontalPosition)
+                            updatePull(
+                                distance: distance,
+                                horizontalPosition: horizontalPosition,
+                                containerWidth: proxy.size.width
+                            )
                         },
                         onPullDownNavigationEnded: { distance, horizontalPosition, cancelled in
                             finishPull(
                                 distance: distance,
                                 horizontalPosition: horizontalPosition,
+                                containerWidth: proxy.size.width,
                                 cancelled: cancelled
                             )
                         }
@@ -1516,6 +1522,7 @@ private struct BrowserContent: View {
                     .overlay(alignment: .top) {
                         LoadingProgress(tab: tab)
                     }
+                    .offset(y: pullDistance)
                     .zIndex(1)
                 }
             }
@@ -1544,26 +1551,41 @@ private struct BrowserContent: View {
         BrowserTab.isStartPageURL(tab.url) && (theme.isUserBackgroundEnabled && theme.hasUserBackground) == false
     }
 
-    private func updatePull(distance: CGFloat, horizontalPosition: CGFloat) {
-        pullDistance = distance
-
+    private func updatePull(
+        distance: CGFloat,
+        horizontalPosition: CGFloat,
+        containerWidth: CGFloat
+    ) {
         let wasArmed = isPullArmed
-        if isPullArmed {
+        var nextArmed = isPullArmed
+        if nextArmed {
             if distance < actionDisarmDistance {
-                isPullArmed = false
+                nextArmed = false
             }
         } else if distance >= actionTriggerDistance {
-            isPullArmed = true
+            nextArmed = true
         }
 
         let action = distance > 6
-            ? action(at: horizontalPosition, preserving: selectedPullAction)
+            ? action(
+                at: horizontalPosition,
+                containerWidth: containerWidth,
+                preserving: selectedPullAction
+            )
             : nil
         let actionChanged = action != selectedPullAction
-        if actionChanged {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            pullVisibilityResetID = nil
+            pullDistance = distance
+            isPullArmed = nextArmed
             selectedPullAction = action
         }
-        if action != nil && isPullArmed && (actionChanged || wasArmed == false) {
+        if distance > 0.5 && model.isPullDownNavigationActive == false {
+            model.isPullDownNavigationActive = true
+        }
+        if action != nil && nextArmed && (actionChanged || wasArmed == false) {
             selectionFeedback()
         }
     }
@@ -1571,10 +1593,15 @@ private struct BrowserContent: View {
     private func finishPull(
         distance: CGFloat,
         horizontalPosition: CGFloat,
+        containerWidth: CGFloat,
         cancelled: Bool
     ) {
         let action = cancelled == false && (isPullArmed || distance >= actionTriggerDistance)
-            ? action(at: horizontalPosition, preserving: selectedPullAction)
+            ? action(
+                at: horizontalPosition,
+                containerWidth: containerWidth,
+                preserving: selectedPullAction
+            )
             : nil
         resetPull(animated: true)
 
@@ -1588,11 +1615,18 @@ private struct BrowserContent: View {
 
     private func action(
         at horizontalPosition: CGFloat,
+        containerWidth: CGFloat,
         preserving currentAction: BrowserQuickNavigationAction? = nil
     ) -> BrowserQuickNavigationAction? {
         guard pullActions.isEmpty == false else { return nil }
 
-        let clampedPosition = min(max(horizontalPosition, 0), 0.999)
+        let actionAreaWidth = min(max(containerWidth - 24, 1), pullActionAreaMaxWidth)
+        let actionAreaOrigin = max(0, (containerWidth - actionAreaWidth) / 2)
+        let horizontalPoint = min(max(horizontalPosition, 0), 1) * containerWidth
+        let clampedPosition = min(
+            max((horizontalPoint - actionAreaOrigin) / actionAreaWidth, 0),
+            0.999
+        )
         let actionWidth = 1 / CGFloat(pullActions.count)
         if let currentAction,
            let currentIndex = pullActions.firstIndex(of: currentAction),
@@ -1613,16 +1647,29 @@ private struct BrowserContent: View {
     }
 
     private func resetPull(animated: Bool) {
+        let visibilityResetID = UUID()
+        pullVisibilityResetID = visibilityResetID
         let changes = {
             pullDistance = 0
             selectedPullAction = nil
             isPullArmed = false
         }
         if animated {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.82), changes)
+            withAnimation(.easeOut(duration: 0.22), changes)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+                guard pullVisibilityResetID == visibilityResetID else { return }
+                pullVisibilityResetID = nil
+                model.isPullDownNavigationActive = false
+            }
         } else {
             changes()
+            pullVisibilityResetID = nil
+            model.isPullDownNavigationActive = false
         }
+    }
+
+    private var pullActionAreaMaxWidth: CGFloat {
+        pullActions.count >= 5 ? 620 : 440
     }
 
     private func selectionFeedback() {
@@ -1708,7 +1755,7 @@ private struct WebpagePullDownActionPane: View {
                 .frame(height: 1)
         }
         .shadow(color: theme.color(.quickNavigation).opacity(0.34), radius: 20, y: 9)
-        .offset(y: topInset + min(0, pullDistance * 1.35 - paneHeight))
+        .offset(y: topInset + min(0, pullDistance - paneHeight))
         .opacity(revealProgress)
         .allowsHitTesting(false)
         .accessibilityHidden(pullDistance < 1)
@@ -1781,8 +1828,6 @@ private struct WebpagePullDownActionPane: View {
                 )
         }
         .opacity(isAvailable ? max(0.4, revealProgress) : 0.28)
-        .animation(.spring(response: 0.18, dampingFraction: 0.78), value: isFocused)
-        .animation(.spring(response: 0.2, dampingFraction: 0.76), value: isSelected)
     }
 
     private var compactActions: Bool {

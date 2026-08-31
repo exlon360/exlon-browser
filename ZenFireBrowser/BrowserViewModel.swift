@@ -1973,6 +1973,7 @@ final class BrowserViewModel: ObservableObject {
             vault.save(isSwipeUpQuickNavigationEnabled, forKey: Self.StorageKey.swipeUpQuickNavigationEnabled)
         }
     }
+    @Published var isPullDownNavigationActive = false
     @Published var quickNavigationActionIDs: [String] {
         didSet {
             vault.save(quickNavigationActionIDs, forKey: Self.StorageKey.quickNavigationActionIDs)
